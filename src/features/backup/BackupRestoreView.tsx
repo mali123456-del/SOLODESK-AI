@@ -115,20 +115,27 @@ export const BackupRestoreView: React.FC = () => {
     if (!inspection?.payload) return;
     setRestoring(true);
     try {
-      const { safetySnapshot } = await restoreBackupPayload(inspection.payload, restoreMode);
+      const { safetySnapshot, renamedInvoiceNumbers } = await restoreBackupPayload(
+        inspection.payload,
+        restoreMode
+      );
       setLastSafetySnapshot(JSON.stringify(safetySnapshot, null, 2));
       await refresh();
       setConfirmOpen(false);
       setInspection(null);
       setPendingRawText(null);
       setDecryptPassphrase('');
+      const reconciledNote =
+        renamedInvoiceNumbers.length > 0
+          ? ` Reconciled ${renamedInvoiceNumbers.length} colliding invoice number(s): ${renamedInvoiceNumbers.join(', ')}.`
+          : '';
       pushToast({
         tone: 'success',
         title: 'Restore complete',
         description:
-          restoreMode === 'replace'
+          (restoreMode === 'replace'
             ? 'Workspace replaced from backup. Pre-restore snapshot saved below for safety.'
-            : 'Backup records merged into workspace.',
+            : 'Backup records merged into workspace.') + reconciledNote,
       });
     } catch (err) {
       pushToast({
@@ -219,6 +226,10 @@ export const BackupRestoreView: React.FC = () => {
             >
               Download Encrypted Backup
             </Button>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              Passphrases are never saved by SOLODESK AI. If you lose your passphrase, encrypted
+              backups cannot be recovered.
+            </p>
           </div>
         </Card>
 
@@ -282,11 +293,22 @@ export const BackupRestoreView: React.FC = () => {
               </div>
 
               {(inspection.conflicts.matchingClientIds > 0 ||
+                inspection.conflicts.matchingProjectIds > 0 ||
+                inspection.conflicts.matchingTaskIds > 0 ||
                 inspection.conflicts.duplicateInvoiceNumbers.length > 0) && (
-                <p className="text-amber-700 dark:text-amber-300">
-                  Conflicts detected: {inspection.conflicts.matchingClientIds} matching client ID(s),{' '}
-                  {inspection.conflicts.duplicateInvoiceNumbers.length} overlapping invoice number(s).
-                </p>
+                <div className="p-2.5 rounded-lg bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-300 space-y-1">
+                  <p className="font-semibold">
+                    Conflicts detected: {inspection.conflicts.matchingClientIds} client(s),{' '}
+                    {inspection.conflicts.matchingProjectIds} project(s),{' '}
+                    {inspection.conflicts.matchingTaskIds} task(s),{' '}
+                    {inspection.conflicts.duplicateInvoiceNumbers.length} invoice number(s).
+                  </p>
+                  {inspection.conflicts.invoiceNumberCollisionsAcrossIds.length > 0 && (
+                    <p>
+                      Note: {inspection.conflicts.invoiceNumberCollisionsAcrossIds.length} invoice(s) share an existing number under a different ID ({inspection.conflicts.invoiceNumberCollisionsAcrossIds.join(', ')}). Merge mode automatically assigns safe `-IMPORT-n` suffixes to avoid collision errors.
+                    </p>
+                  )}
+                </div>
               )}
 
               <div className="space-y-1.5 pt-1">

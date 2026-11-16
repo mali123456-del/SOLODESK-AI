@@ -25,11 +25,23 @@ import { getMonthKey, todayDateStr } from '../../domain/calculations/dates';
 import { addMoney, formatMoney, subtractMoney } from '../../domain/calculations/money';
 import { buildCsvContent, downloadTextFile } from '../../export/csvUtils';
 import { generateFinancialSummaryPdf } from '../../pdf/pdfGenerator';
+import {
+  calculateEstimatesVsActuals,
+  calculateInvoiceAging,
+} from '../../services/businessHealthService';
 
 const PIE_COLORS = ['#2563EB', '#20C7D9', '#10B981', '#F59E0B', '#6366F1', '#EC4899'];
 
 export const ReportsView: React.FC = () => {
-  const { financeEntries, invoices, clients, businessProfile, settings } = useWorkspace();
+  const {
+    financeEntries,
+    invoices,
+    clients,
+    projects,
+    timeEntries,
+    businessProfile,
+    settings,
+  } = useWorkspace();
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
@@ -78,21 +90,22 @@ export const ReportsView: React.FC = () => {
     return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
   }, [filteredFinance]);
 
-  const aging = useMemo(() => {
-    const buckets = { current: 0, d1_30: 0, d31_60: 0, d60_plus: 0 };
-    const todayMs = Date.parse(`${today}T00:00:00Z`);
-    invoices
-      .filter((i) => i.status !== 'cancelled' && i.balanceDue > 0)
-      .forEach((inv) => {
-        const dueMs = Date.parse(`${inv.dueDate}T00:00:00Z`);
-        const daysPast = Math.floor((todayMs - dueMs) / 86_400_000);
-        if (daysPast <= 0) buckets.current = addMoney(buckets.current, inv.balanceDue);
-        else if (daysPast <= 30) buckets.d1_30 = addMoney(buckets.d1_30, inv.balanceDue);
-        else if (daysPast <= 60) buckets.d31_60 = addMoney(buckets.d31_60, inv.balanceDue);
-        else buckets.d60_plus = addMoney(buckets.d60_plus, inv.balanceDue);
-      });
-    return buckets;
-  }, [invoices, today]);
+  const agingReport = useMemo(() => calculateInvoiceAging(invoices, today), [invoices, today]);
+  const agingByKey = useMemo(
+    () => new Map(agingReport.buckets.map((b) => [b.key, b])),
+    [agingReport]
+  );
+  const aging = {
+    current: agingByKey.get('current')?.totalBalance ?? 0,
+    d1_30: agingByKey.get('1_30')?.totalBalance ?? 0,
+    d31_60: agingByKey.get('31_60')?.totalBalance ?? 0,
+    d60_plus: agingByKey.get('61_plus')?.totalBalance ?? 0,
+  };
+
+  const estimatesVsActuals = useMemo(
+    () => calculateEstimatesVsActuals(projects, timeEntries, financeEntries),
+    [projects, timeEntries, financeEntries]
+  );
 
   const clientLeaderboard = useMemo(() => {
     const map = new Map<string, number>();
@@ -108,12 +121,7 @@ export const ReportsView: React.FC = () => {
       .slice(0, 6);
   }, [filteredFinance, clients]);
 
-  const outstandingReceivables = addMoney(
-    aging.current,
-    aging.d1_30,
-    aging.d31_60,
-    aging.d60_plus
-  );
+  const outstandingReceivables = agingReport.totalOpenBalance;
   const overdueAmount = addMoney(aging.d1_30, aging.d31_60, aging.d60_plus);
 
   const exportCsv = () => {
@@ -276,31 +284,50 @@ export const ReportsView: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
-          <CardHeader title="Invoice Aging Summary" />
+          <CardHeader
+            title={`Invoice Aging Summary (${agingReport.openInvoiceCount} open)`}
+            description="Open invoice balances grouped by days past due."
+          />
           <div className="grid grid-cols-2 gap-3 text-xs">
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#101827]">
-              <p className="text-slate-500">Current (Not Yet Due)</p>
-              <p className="text-base font-bold font-mono mt-1">{formatMoney(aging.current, currency)}</p>
-            </div>
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#101827]">
-              <p className="text-slate-500">1–30 Days Overdue</p>
-              <p className="text-base font-bold font-mono mt-1 text-amber-600">
-                {formatMoney(aging.d1_30, currency)}
-              </p>
-            </div>
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#101827]">
-              <p className="text-slate-500">31–60 Days Overdue</p>
-              <p className="text-base font-bold font-mono mt-1 text-orange-600">
-                {formatMoney(aging.d31_60, currency)}
-              </p>
-            </div>
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#101827]">
-              <p className="text-slate-500">60+ Days Overdue</p>
-              <p className="text-base font-bold font-mono mt-1 text-red-600">
-                {formatMoney(aging.d60_plus, currency)}
-              </p>
-            </div>
+            {agingReport.buckets.map((bucket) => (
+              <div key={bucket.key} className="p-3 rounded-lg bg-slate-50 dark:bg-[#101827]">
+                <p className="text-slate-500">
+                  {bucket.label} ({bucket.count})
+                </p>
+                <p
+                  className={`text-base font-bold font-mono tabular-nums mt-1 ${
+                    bucket.key === '61_plus'
+                      ? 'text-red-600'
+                      : bucket.key === '31_60'
+                        ? 'text-orange-600'
+                        : bucket.key === '1_30'
+                          ? 'text-amber-600'
+                          : ''
+                  }`}
+                >
+                  {formatMoney(bucket.totalBalance, currency)}
+                </p>
+              </div>
+            ))}
           </div>
+          {agingReport.buckets.some((b) => b.key !== 'current' && b.invoices.length > 0) && (
+            <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
+              <p className="font-semibold text-slate-700 dark:text-slate-200">Overdue Invoices Detail</p>
+              {agingReport.buckets
+                .filter((b) => b.key !== 'current')
+                .flatMap((b) => b.invoices)
+                .map((inv) => (
+                  <div key={inv.id} className="flex items-center justify-between gap-2 text-slate-600 dark:text-slate-300">
+                    <span>
+                      <span className="font-mono font-semibold">{inv.number}</span> · {inv.daysPastDue}d past due
+                    </span>
+                    <span className="font-mono tabular-nums font-semibold">
+                      {formatMoney(inv.balanceDue, inv.currency)}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          )}
         </Card>
 
         <Card>
@@ -312,13 +339,62 @@ export const ReportsView: React.FC = () => {
               {clientLeaderboard.map((c) => (
                 <li key={c.name} className="py-2.5 flex justify-between">
                   <span className="font-medium text-slate-800 dark:text-slate-100">{c.name}</span>
-                  <span className="font-mono font-semibold">{formatMoney(c.amount, currency)}</span>
+                  <span className="font-mono font-semibold tabular-nums">{formatMoney(c.amount, currency)}</span>
                 </li>
               ))}
             </ul>
           )}
         </Card>
       </div>
+
+      <Card>
+        <CardHeader
+          title="Project Estimates vs Actuals"
+          description="Compares planned budget hours against tracked timer entries and recorded income."
+        />
+        {estimatesVsActuals.length === 0 ? (
+          <p className="text-xs text-slate-500">Create active projects and track hours to compare estimates vs actuals.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500">
+                  <th className="py-2 text-left">Project</th>
+                  <th className="py-2 text-right">Budget</th>
+                  <th className="py-2 text-right">Est. Hours</th>
+                  <th className="py-2 text-right">Actual Hours</th>
+                  <th className="py-2 text-right">Variance</th>
+                  <th className="py-2 text-right">Recorded Income</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {estimatesVsActuals.map((row) => (
+                  <tr key={row.projectId}>
+                    <td className="py-2.5 font-medium text-slate-900 dark:text-white">
+                      {row.projectName}
+                    </td>
+                    <td className="py-2.5 text-right font-mono tabular-nums">
+                      {formatMoney(row.budget, row.currency)}
+                    </td>
+                    <td className="py-2.5 text-right font-mono tabular-nums">{row.estimatedHours.toFixed(1)}h</td>
+                    <td className="py-2.5 text-right font-mono tabular-nums">{row.actualHours.toFixed(1)}h</td>
+                    <td
+                      className={`py-2.5 text-right font-mono tabular-nums font-semibold ${
+                        row.overBudgetHours ? 'text-rose-600' : 'text-emerald-600'
+                      }`}
+                    >
+                      {row.hourVariance >= 0 ? `+${row.hourVariance.toFixed(1)}h` : `${row.hourVariance.toFixed(1)}h`}
+                    </td>
+                    <td className="py-2.5 text-right font-mono tabular-nums">
+                      {formatMoney(row.recordedIncome, row.currency)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
   );
 };

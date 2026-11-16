@@ -1,5 +1,7 @@
 import { createId } from '../../domain/schemas/entities';
 import { repositories } from '../../database/repositories/dexieRepositories';
+import { wrapUntrustedContextSnippet } from '../../security/sanitize';
+import { getPromptTemplate } from '../prompts/promptTemplates';
 import { createAIProvider } from '../providers/providerFactory';
 import type { KnowledgeCitation } from '../rag/citations';
 import { searchKnowledgeBase } from '../knowledge/knowledgeService';
@@ -77,17 +79,27 @@ export async function runCopilotPrompt(options: CopilotRunOptions): Promise<Copi
   let citations: KnowledgeCitation[] = [];
   const contextSections: string[] = [];
 
+  const template = getPromptTemplate(options.preset);
+  if (template) {
+    contextSections.push(`TASK TEMPLATE GUIDANCE (${template.label}):\n${template.systemGuidance}`);
+  }
+
   if (options.useKnowledgeRag !== false) {
     const ragResult = await searchKnowledgeBase(userPrompt, 4);
     citations = ragResult.citations;
     if (ragResult.contextText) {
-      contextSections.push(`KNOWLEDGE HUB CITATIONS:\n${ragResult.contextText}`);
+      contextSections.push(
+        `KNOWLEDGE HUB CITATIONS:\n${wrapUntrustedContextSnippet('Local Knowledge Hub', ragResult.contextText)}`
+      );
     }
   }
 
   if (options.includeWorkspaceContext !== false) {
-    const summaryTool = await executeAllowlistedTool('get_workspace_summary', {});
-    contextSections.push(`WORKSPACE SUMMARY:\n${summaryTool.summary}`);
+    const [summaryTool, agingTool] = await Promise.all([
+      executeAllowlistedTool('get_workspace_summary', {}),
+      executeAllowlistedTool('analyze_invoice_aging', {}),
+    ]);
+    contextSections.push(`WORKSPACE SUMMARY:\n${summaryTool.summary}\n${agingTool.summary}`);
 
     if (options.clientId) {
       const client = await repositories.getClient(options.clientId);
@@ -99,10 +111,13 @@ export async function runCopilotPrompt(options: CopilotRunOptions): Promise<Copi
     }
 
     if (options.projectId) {
-      const project = await repositories.getProject(options.projectId);
+      const [project, profTool] = await Promise.all([
+        repositories.getProject(options.projectId),
+        executeAllowlistedTool('explain_project_profitability', { projectId: options.projectId }),
+      ]);
       if (project) {
         contextSections.push(
-          `SELECTED PROJECT:\nName: ${project.name}\nStatus: ${project.status}\nProgress: ${project.progress}%\nBudget: ${project.currency} ${project.budget}\nDescription: ${project.description || 'None'}`
+          `SELECTED PROJECT:\nName: ${project.name}\nStatus: ${project.status}\nProgress: ${project.progress}%\nBudget: ${project.currency} ${project.budget}\n${profTool.summary}`
         );
       }
     }

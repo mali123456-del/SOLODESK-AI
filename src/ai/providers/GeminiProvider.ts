@@ -6,16 +6,19 @@ import {
   type AIProvider,
 } from './AIProvider';
 
-export const GEMINI_FREE_MODEL = 'gemini-4-hydrogen';
+import { AI_PROVIDER_REGISTRY } from './registry';
+
+export const GEMINI_FREE_MODEL = AI_PROVIDER_REGISTRY.gemini.defaultModelId;
 
 export class GeminiProvider implements AIProvider {
   readonly id = 'gemini' as const;
   readonly label = 'Gemini 4 Hydrogen (BYOK)';
-  readonly modelId = GEMINI_FREE_MODEL;
+  readonly modelId: string;
   private readonly getApiKey: () => string;
 
-  constructor(getApiKey: () => string) {
+  constructor(getApiKey: () => string, modelId = GEMINI_FREE_MODEL) {
     this.getApiKey = getApiKey;
+    this.modelId = modelId;
   }
 
   isConfigured(): boolean {
@@ -50,7 +53,7 @@ export class GeminiProvider implements AIProvider {
 
       const response = await Promise.race([
         ai.models.generateContent({
-          model: GEMINI_FREE_MODEL,
+          model: this.modelId,
           contents: fullPrompt,
           config: {
             systemInstruction: request.systemInstruction,
@@ -75,7 +78,7 @@ export class GeminiProvider implements AIProvider {
 
       return {
         text,
-        model: GEMINI_FREE_MODEL,
+        model: this.modelId,
         providerId: 'gemini',
         isOfflineDraft: false,
       };

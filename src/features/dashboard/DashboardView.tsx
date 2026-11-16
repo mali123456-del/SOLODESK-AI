@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   AlertCircle,
   ArrowRight,
+  Calendar,
   CalendarClock,
   CheckSquare,
   Clock,
@@ -9,6 +10,7 @@ import {
   FolderKanban,
   Plus,
   Receipt,
+  Target,
   Users,
 } from 'lucide-react';
 import {
@@ -25,11 +27,16 @@ import {
   Button,
   Card,
   CardHeader,
+  Dialog,
   EmptyState,
+  Input,
   PageHeader,
   Select,
+  Textarea,
+  useToast,
 } from '../../components/ui';
 import { useWorkspace } from '../../app/providers/WorkspaceProvider';
+import { repositories } from '../../database/repositories/dexieRepositories';
 import {
   addDaysToDateStr,
   formatDisplayDate,
@@ -39,6 +46,7 @@ import {
   todayDateStr,
 } from '../../domain/calculations/dates';
 import { addMoney, formatMoney, subtractMoney } from '../../domain/calculations/money';
+import { evaluateMonthlyBusinessHealth } from '../../services/businessHealthService';
 import type { AppRouteId } from '../../types/navigation';
 
 interface DashboardViewProps {
@@ -54,17 +62,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     invoices,
     financeEntries,
     timeEntries,
+    appointments,
+    workspaceGoals,
     activities,
     settings,
+    refresh,
     loadDemoWorkspace,
   } = useWorkspace();
+  const { pushToast } = useToast();
 
   const [range, setRange] = useState<'30d' | '90d' | 'all'>('all');
   const [seeding, setSeeding] = useState(false);
 
+  const today = todayDateStr();
+  const currentMonthPrefix = today.slice(0, 7);
+  const existingMonthGoal = workspaceGoals.find((g) => g.monthPrefix === currentMonthPrefix);
+
+  const [goalModalOpen, setGoalModalOpen] = useState(false);
+  const [targetRevenue, setTargetRevenue] = useState('5000');
+  const [targetBillableHours, setTargetBillableHours] = useState('100');
+  const [maxExpenseBudget, setMaxExpenseBudget] = useState('1000');
+  const [goalNotes, setGoalNotes] = useState('');
+  const [savingGoal, setSavingGoal] = useState(false);
+
   const currency = settings?.defaultCurrency ?? 'USD';
   const dateFormat = settings?.dateFormat ?? 'DD MMM YYYY';
-  const today = todayDateStr();
   const cutoffDate =
     range === '30d'
       ? addDaysToDateStr(today, -30)
@@ -150,6 +172,41 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       .slice(-6);
   }, [filteredFinance]);
 
+  const businessHealth = useMemo(
+    () =>
+      evaluateMonthlyBusinessHealth({
+        monthPrefix: currentMonthPrefix,
+        goals: workspaceGoals,
+        financeEntries,
+        timeEntries,
+        invoices,
+        tasks,
+        today,
+      }),
+    [currentMonthPrefix, workspaceGoals, financeEntries, timeEntries, invoices, tasks, today]
+  );
+
+  const myDayTasks = useMemo(
+    () =>
+      tasks
+        .filter(
+          (t) =>
+            t.status !== 'done' &&
+            t.status !== 'archived' &&
+            (t.dueDate === today || (t.dueDate !== '' && t.dueDate < today) || t.priority === 'urgent')
+        )
+        .slice(0, 4),
+    [tasks, today]
+  );
+
+  const myDayAppointments = useMemo(
+    () =>
+      appointments
+        .filter((a) => a.status === 'scheduled' && a.date >= today)
+        .slice(0, 3),
+    [appointments, today]
+  );
+
   const upcomingDeadlines = useMemo(() => {
     const items: Array<{
       id: string;
@@ -202,6 +259,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     projects.length === 0 &&
     invoices.length === 0 &&
     financeEntries.length === 0;
+
+  const openGoalEditor = () => {
+    setTargetRevenue(String(existingMonthGoal?.targetRevenue ?? 5000));
+    setTargetBillableHours(String(existingMonthGoal?.targetBillableHours ?? 100));
+    setMaxExpenseBudget(String(existingMonthGoal?.maxExpenseBudget ?? 1000));
+    setGoalNotes(existingMonthGoal?.notes ?? '');
+    setGoalModalOpen(true);
+  };
+
+  const handleSaveGoal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingGoal(true);
+    try {
+      await repositories.saveWorkspaceGoal({
+        id: existingMonthGoal?.id,
+        monthPrefix: currentMonthPrefix,
+        currency,
+        targetRevenue: Math.max(0, Number(targetRevenue) || 0),
+        targetBillableHours: Math.max(0, Number(targetBillableHours) || 0),
+        maxExpenseBudget: Math.max(0, Number(maxExpenseBudget) || 0),
+        notes: goalNotes.trim(),
+      });
+      await refresh();
+      setGoalModalOpen(false);
+      pushToast({
+        tone: 'success',
+        title: 'Monthly goal saved',
+        description: `Targets updated for ${currentMonthPrefix}.`,
+      });
+    } finally {
+      setSavingGoal(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -328,9 +418,134 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         <Button size="sm" variant="outline" onClick={() => onNavigate('tasks')} icon={<CheckSquare className="w-3.5 h-3.5" />}>
           Task Board
         </Button>
+        <Button size="sm" variant="outline" onClick={() => onNavigate('communication')} icon={<Calendar className="w-3.5 h-3.5" />}>
+          Schedule & Follow-Ups
+        </Button>
         <Button size="sm" variant="outline" onClick={() => onNavigate('settings-backup')}>
           JSON Backup
         </Button>
+      </div>
+
+      {/* My Day & Monthly Goals / Business Health */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader
+            title="My Day — Priority Focus"
+            description={`Open urgent/due tasks and upcoming meetings for ${formatDisplayDate(today, dateFormat)}.`}
+            action={
+              <Button size="sm" variant="ghost" onClick={() => onNavigate('communication')}>
+                Schedule <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
+            }
+          />
+          {myDayTasks.length === 0 && myDayAppointments.length === 0 ? (
+            <p className="text-xs text-slate-500 py-4">
+              No overdue/urgent tasks or upcoming calls scheduled right now.
+            </p>
+          ) : (
+            <div className="space-y-3 text-xs">
+              {myDayTasks.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => onNavigate('tasks')}
+                  className="w-full flex items-center justify-between gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 text-left cursor-pointer"
+                >
+                  <span className="font-medium text-slate-900 dark:text-white truncate">
+                    Task: {t.title}
+                  </span>
+                  <Badge tone={t.dueDate && t.dueDate < today ? 'danger' : 'warning'}>
+                    {t.dueDate ? formatDisplayDate(t.dueDate, dateFormat) : t.priority}
+                  </Badge>
+                </button>
+              ))}
+              {myDayAppointments.map((apt) => (
+                <button
+                  key={apt.id}
+                  type="button"
+                  onClick={() => onNavigate('communication')}
+                  className="w-full flex items-center justify-between gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 text-left cursor-pointer"
+                >
+                  <span className="font-medium text-slate-900 dark:text-white truncate">
+                    Call: {apt.title}
+                  </span>
+                  <span className="font-mono text-slate-500 shrink-0">
+                    {formatDisplayDate(apt.date, dateFormat)} · {apt.startTime}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <CardHeader
+            title={`Monthly Goals & Health (${currentMonthPrefix})`}
+            description="Informational progress calculated from this month's local transactions and time entries."
+            action={
+              <Button size="sm" variant="outline" onClick={openGoalEditor} icon={<Target className="w-3.5 h-3.5" />}>
+                {existingMonthGoal ? 'Edit Goal' : 'Set Monthly Goal'}
+              </Button>
+            }
+          />
+          <div className="space-y-3 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-600 dark:text-slate-300">
+                Revenue vs Goal ({formatMoney(businessHealth.revenueThisMonth, currency)} /{' '}
+                {businessHealth.targetRevenue > 0
+                  ? formatMoney(businessHealth.targetRevenue, currency)
+                  : 'Not set'}
+                )
+              </span>
+              <span className="font-mono font-semibold tabular-nums">
+                {businessHealth.revenueProgressPercent}%
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+              <div
+                className="h-full bg-[#2563EB] rounded-full transition-all"
+                style={{ width: `${businessHealth.revenueProgressPercent}%` }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-slate-600 dark:text-slate-300">
+                Billable Hours ({businessHealth.billableHoursThisMonth}h /{' '}
+                {businessHealth.targetBillableHours > 0 ? `${businessHealth.targetBillableHours}h` : 'Not set'})
+              </span>
+              <span className="font-mono font-semibold tabular-nums">
+                {businessHealth.hoursProgressPercent}%
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+              <div
+                className="h-full bg-[#20C7D9] rounded-full transition-all"
+                style={{ width: `${businessHealth.hoursProgressPercent}%` }}
+              />
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+              <span className="text-slate-500">
+                {businessHealth.notes[0]}
+              </span>
+              <Badge
+                tone={
+                  businessHealth.healthStatus === 'strong'
+                    ? 'success'
+                    : businessHealth.healthStatus === 'watch'
+                      ? 'warning'
+                      : 'danger'
+                }
+              >
+                {businessHealth.healthStatus === 'strong'
+                  ? 'On Track'
+                  : businessHealth.healthStatus === 'watch'
+                    ? 'Watch'
+                    : 'Needs Attention'}
+              </Badge>
+            </div>
+          </div>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -431,6 +646,58 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           </ul>
         )}
       </Card>
+
+      <Dialog
+        open={goalModalOpen}
+        onClose={() => setGoalModalOpen(false)}
+        title={`Monthly Business Goal (${currentMonthPrefix})`}
+        size="md"
+      >
+        <form onSubmit={handleSaveGoal} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Input
+              label={`Target Revenue (${currency})`}
+              type="number"
+              min="0"
+              step="50"
+              value={targetRevenue}
+              onChange={(e) => setTargetRevenue(e.target.value)}
+            />
+            <Input
+              label="Billable Hours Target"
+              type="number"
+              min="0"
+              step="1"
+              value={targetBillableHours}
+              onChange={(e) => setTargetBillableHours(e.target.value)}
+            />
+            <Input
+              label={`Expense Ceiling (${currency})`}
+              type="number"
+              min="0"
+              step="50"
+              value={maxExpenseBudget}
+              onChange={(e) => setMaxExpenseBudget(e.target.value)}
+            />
+          </div>
+          <Textarea
+            label="Focus Notes"
+            rows={2}
+            value={goalNotes}
+            onChange={(e) => setGoalNotes(e.target.value)}
+            placeholder="Key deliverables or client acquisition targets this month..."
+          />
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <Button variant="outline" onClick={() => setGoalModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={savingGoal}>
+              Save Goal
+            </Button>
+          </div>
+        </form>
+      </Dialog>
     </div>
   );
 };
+

@@ -1,10 +1,15 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   BookOpen,
+  Database,
   FileText,
   FlaskConical,
+  Globe,
   Plus,
+  RefreshCw,
   Search,
+  ShieldCheck,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -13,14 +18,23 @@ import {
   addKnowledgeNote,
   getChunksForDocument,
   importKnowledgeFile,
+  rebuildKnowledgeIndex,
   removeKnowledgeDocument,
   searchKnowledgeBase,
   type KnowledgeSearchResult,
 } from '../../ai/knowledge/knowledgeService';
+import { auditDatasetRegistry } from '../../ai/datasets/registry/datasetRegistry';
+import { installBuiltInKnowledgePacks } from '../../knowledge/packLoader';
 import {
+  runExtendedRagBenchmark,
   runLocalRagBenchmark,
+  type ExtendedRagBenchmarkSummary,
   type LocalBenchmarkSummary,
 } from '../../ai/evaluation/evaluation';
+import {
+  fetchAndPreviewUrlForKnowledge,
+  type UrlImportPreview,
+} from '../../integrations/crawler/urlImporter';
 import type { DocumentChunk, KnowledgeDocument } from '../../domain/schemas/entities';
 import {
   Badge,
@@ -32,6 +46,7 @@ import {
   EmptyState,
   Input,
   PageHeader,
+  Select,
   Textarea,
   useToast,
 } from '../../components/ui';
@@ -43,10 +58,12 @@ export const KnowledgeHubView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [title, setTitle] = useState('');
+  const [collection, setCollection] = useState('General');
   const [tagsText, setTagsText] = useState('');
   const [content, setContent] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const [collectionFilter, setCollectionFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState<KnowledgeSearchResult | null>(null);
   const [searching, setSearching] = useState(false);
@@ -57,6 +74,33 @@ export const KnowledgeHubView: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
 
   const [benchmarkSummary, setBenchmarkSummary] = useState<LocalBenchmarkSummary | null>(null);
+  const [extendedBenchmark, setExtendedBenchmark] = useState<ExtendedRagBenchmarkSummary | null>(null);
+  const [installingPacks, setInstallingPacks] = useState(false);
+  const [rebuildingIndex, setRebuildingIndex] = useState(false);
+  const [registryModalOpen, setRegistryModalOpen] = useState(false);
+
+  const [urlModalOpen, setUrlModalOpen] = useState(false);
+  const [urlInput, setUrlInput] = useState('');
+  const [urlCollection, setUrlCollection] = useState('Web References');
+  const [urlFetching, setUrlFetching] = useState(false);
+  const [urlPreview, setUrlPreview] = useState<UrlImportPreview | null>(null);
+  const [urlError, setUrlError] = useState<string | null>(null);
+  const [urlSaving, setUrlSaving] = useState(false);
+
+  const datasetAudit = useMemo(() => auditDatasetRegistry(), []);
+
+  const availableCollections = useMemo(() => {
+    const set = new Set<string>(['General']);
+    for (const doc of knowledgeDocs) {
+      set.add(doc.collection || 'General');
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [knowledgeDocs]);
+
+  const filteredDocs = useMemo(() => {
+    if (collectionFilter === 'all') return knowledgeDocs;
+    return knowledgeDocs.filter((d) => (d.collection || 'General') === collectionFilter);
+  }, [knowledgeDocs, collectionFilter]);
 
   const totalBytes = useMemo(
     () => knowledgeDocs.reduce((sum, doc) => sum + (doc.sizeBytes ?? 0), 0),
@@ -75,6 +119,7 @@ export const KnowledgeHubView: React.FC = () => {
         title,
         content,
         tags,
+        collection: collection.trim() || 'General',
         sourceType: 'note',
       });
       setTitle('');
@@ -102,9 +147,10 @@ export const KnowledgeHubView: React.FC = () => {
     e.target.value = '';
     if (!file) return;
 
+    const targetCollection = collectionFilter === 'all' ? 'General' : collectionFilter;
     setSaving(true);
     try {
-      const { document, chunks } = await importKnowledgeFile(file);
+      const { document, chunks } = await importKnowledgeFile(file, targetCollection);
       await refresh();
       pushToast({
         tone: 'success',
@@ -130,7 +176,9 @@ export const KnowledgeHubView: React.FC = () => {
     }
     setSearching(true);
     try {
-      const result = await searchKnowledgeBase(searchQuery, 5);
+      const result = await searchKnowledgeBase(searchQuery, 5, {
+        collection: collectionFilter !== 'all' ? collectionFilter : undefined,
+      });
       setSearchResult(result);
     } finally {
       setSearching(false);
@@ -150,7 +198,9 @@ export const KnowledgeHubView: React.FC = () => {
       await removeKnowledgeDocument(deleteTarget.id, deleteTarget.title);
       await refresh();
       if (searchQuery.trim()) {
-        const refreshedSearch = await searchKnowledgeBase(searchQuery, 5);
+        const refreshedSearch = await searchKnowledgeBase(searchQuery, 5, {
+          collection: collectionFilter !== 'all' ? collectionFilter : undefined,
+        });
         setSearchResult(refreshedSearch);
       }
       pushToast({
@@ -164,14 +214,91 @@ export const KnowledgeHubView: React.FC = () => {
     }
   };
 
+  const handleInstallBuiltInPacks = async () => {
+    setInstallingPacks(true);
+    try {
+      const { installedCount, skippedDuplicates } = await installBuiltInKnowledgePacks();
+      await refresh();
+      pushToast({
+        tone: 'success',
+        title: 'Knowledge Packs Ready',
+        description: `Installed ${installedCount} first-party MIT pack(s); ${skippedDuplicates} already indexed.`,
+      });
+    } finally {
+      setInstallingPacks(false);
+    }
+  };
+
+  const handleRebuildIndex = async () => {
+    setRebuildingIndex(true);
+    try {
+      const res = await rebuildKnowledgeIndex();
+      await refresh();
+      pushToast({
+        tone: 'success',
+        title: 'Local Index Rebuilt',
+        description: `Re-chunked ${res.reindexedDocuments} document(s) into ${res.totalChunks} chunks.`,
+      });
+    } finally {
+      setRebuildingIndex(false);
+    }
+  };
+
   const handleRunBenchmark = () => {
     const result = runLocalRagBenchmark();
+    const extended = runExtendedRagBenchmark();
     setBenchmarkSummary(result);
+    setExtendedBenchmark(extended);
     pushToast({
       tone: 'info',
-      title: 'Local RAG check complete',
-      description: `${result.passedCases}/${result.totalCases} deterministic retrieval checks passed.`,
+      title: 'Local RAG evaluation complete',
+      description: `${extended.passedCases}/${extended.totalCases} cases passed (Recall@3 ${Math.round(extended.recallAtK * 100)}%, Precision@3 ${Math.round(extended.precisionAtK * 100)}%).`,
     });
+  };
+
+  const handleFetchUrlPreview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUrlFetching(true);
+    setUrlError(null);
+    setUrlPreview(null);
+    try {
+      const preview = await fetchAndPreviewUrlForKnowledge(urlInput);
+      setUrlPreview(preview);
+    } catch (err) {
+      setUrlError(err instanceof Error ? err.message : 'Unable to fetch URL safely.');
+    } finally {
+      setUrlFetching(false);
+    }
+  };
+
+  const handleApproveUrlImport = async () => {
+    if (!urlPreview) return;
+    setUrlSaving(true);
+    try {
+      const { document, chunks } = await addKnowledgeNote({
+        title: urlPreview.title,
+        content: urlPreview.content,
+        collection: urlCollection.trim() || 'Web References',
+        sourceType: urlPreview.sourceType,
+        sourceUrl: urlPreview.finalUrl,
+        sizeBytes: urlPreview.sizeBytes,
+        tags: ['url-import'],
+      });
+      await refresh();
+      pushToast({
+        tone: 'success',
+        title: 'URL imported to Knowledge Hub',
+        description: `Saved "${document.title}" (${chunks.length} chunk(s)).`,
+      });
+      setUrlModalOpen(false);
+      setUrlInput('');
+      setUrlPreview(null);
+      setUrlError(null);
+    } catch (err) {
+      setUrlError(err instanceof Error ? err.message : 'Could not save imported content.');
+    } finally {
+      setUrlSaving(false);
+    }
   };
 
   return (
@@ -190,10 +317,44 @@ export const KnowledgeHubView: React.FC = () => {
             />
             <Button
               variant="outline"
+              loading={installingPacks}
+              icon={<BookOpen className="w-4 h-4" />}
+              onClick={() => void handleInstallBuiltInPacks()}
+            >
+              Load 14 Freelancer Packs
+            </Button>
+            <Button
+              variant="outline"
+              loading={rebuildingIndex}
+              icon={<RefreshCw className="w-4 h-4" />}
+              onClick={() => void handleRebuildIndex()}
+            >
+              Rebuild Index
+            </Button>
+            <Button
+              variant="outline"
+              icon={<Database className="w-4 h-4" />}
+              onClick={() => setRegistryModalOpen(true)}
+            >
+              Dataset Audit
+            </Button>
+            <Button
+              variant="outline"
               icon={<FlaskConical className="w-4 h-4" />}
               onClick={handleRunBenchmark}
             >
               Run Local RAG Check
+            </Button>
+            <Button
+              variant="outline"
+              icon={<Globe className="w-4 h-4" />}
+              onClick={() => {
+                setUrlError(null);
+                setUrlPreview(null);
+                setUrlModalOpen(true);
+              }}
+            >
+              Import Public URL
             </Button>
             <Button
               variant="primary"
@@ -207,35 +368,83 @@ export const KnowledgeHubView: React.FC = () => {
         }
       />
 
-      {benchmarkSummary && (
+      {(benchmarkSummary || extendedBenchmark) && (
         <Card>
           <CardHeader
-            title="Deterministic Local RAG Self-Check"
-            description={`Executed locally in ${benchmarkSummary.totalDurationMs} ms with zero external API calls.`}
+            title="Deterministic Local RAG Evaluation"
+            description={`Executed locally in ${extendedBenchmark?.totalDurationMs ?? benchmarkSummary?.totalDurationMs ?? 0} ms across ${extendedBenchmark?.corpusDocCount ?? 0} synthetic docs (${((extendedBenchmark?.indexBytes ?? 0) / 1024).toFixed(1)} KB index).`}
             action={
-              <Button variant="ghost" size="sm" onClick={() => setBenchmarkSummary(null)}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setBenchmarkSummary(null);
+                  setExtendedBenchmark(null);
+                }}
+              >
                 Dismiss
               </Button>
             }
           />
-          <div className="flex flex-wrap items-center gap-4 text-sm">
-            <div>
-              <span className="text-slate-500 dark:text-slate-400">Pass rate: </span>
-              <span className="font-mono font-semibold text-slate-900 dark:text-white">
-                {benchmarkSummary.passedCases}/{benchmarkSummary.totalCases} (
-                {benchmarkSummary.passRatePercent}%)
-              </span>
-            </div>
-            {benchmarkSummary.outcomes.map((o) => (
-              <div key={o.id} className="flex items-center gap-2">
-                <Badge tone={o.passed ? 'success' : 'danger'}>
-                  {o.passed ? 'PASS' : 'FAIL'}
-                </Badge>
-                <span className="text-xs text-slate-600 dark:text-slate-300">
-                  {o.id} ({o.latencyMs} ms)
-                </span>
+          <div className="space-y-3">
+            {extendedBenchmark && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5 text-xs">
+                <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">Cases Passed</p>
+                  <p className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white mt-0.5">
+                    {extendedBenchmark.passedCases}/{extendedBenchmark.totalCases} ({extendedBenchmark.passRatePercent}%)
+                  </p>
+                </div>
+                <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">Recall@3</p>
+                  <p className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white mt-0.5">
+                    {Math.round(extendedBenchmark.recallAtK * 100)}%
+                  </p>
+                </div>
+                <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">Precision@3</p>
+                  <p className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white mt-0.5">
+                    {Math.round(extendedBenchmark.precisionAtK * 100)}%
+                  </p>
+                </div>
+                <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">Citation Accuracy</p>
+                  <p className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white mt-0.5">
+                    {Math.round(extendedBenchmark.citationAccuracy * 100)}%
+                  </p>
+                </div>
+                <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">Unsupported FP</p>
+                  <p className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white mt-0.5">
+                    {extendedBenchmark.unsupportedFalsePositiveCount} ({extendedBenchmark.unsupportedAnswerRatePercent}%)
+                  </p>
+                </div>
+                <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">Duplicate Rate</p>
+                  <p className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white mt-0.5">
+                    {extendedBenchmark.duplicateRatePercent}%
+                  </p>
+                </div>
+                <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">Avg Latency</p>
+                  <p className="font-mono tabular-nums font-semibold text-slate-900 dark:text-white mt-0.5">
+                    {extendedBenchmark.avgLatencyMs} ms
+                  </p>
+                </div>
               </div>
-            ))}
+            )}
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              {(extendedBenchmark?.outcomes ?? benchmarkSummary?.outcomes ?? []).map((o) => (
+                <div key={o.id} className="flex items-center gap-1.5">
+                  <Badge tone={o.passed ? 'success' : 'danger'}>
+                    {o.passed ? 'PASS' : 'FAIL'}
+                  </Badge>
+                  <span className="text-xs text-slate-600 dark:text-slate-300">
+                    {o.id} ({o.latencyMs} ms)
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </Card>
       )}
@@ -245,7 +454,7 @@ export const KnowledgeHubView: React.FC = () => {
           <Card>
             <CardHeader
               title="Add Knowledge Note"
-              description="Notes are chunked and keyword-indexed directly inside your browser."
+              description="Notes are chunked, SHA-256 deduplicated, and keyword-indexed directly inside your browser."
             />
             <form onSubmit={handleSaveNote} className="space-y-4">
               <Input
@@ -255,12 +464,20 @@ export const KnowledgeHubView: React.FC = () => {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
               />
-              <Input
-                label="Tags (comma separated)"
-                placeholder="e.g., pricing, terms, onboarding"
-                value={tagsText}
-                onChange={(e) => setTagsText(e.target.value)}
-              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Input
+                  label="Collection"
+                  placeholder="e.g., Pricing & Terms"
+                  value={collection}
+                  onChange={(e) => setCollection(e.target.value)}
+                />
+                <Input
+                  label="Tags (comma separated)"
+                  placeholder="e.g., pricing, terms"
+                  value={tagsText}
+                  onChange={(e) => setTagsText(e.target.value)}
+                />
+              </div>
               <Textarea
                 label="Content"
                 required
@@ -359,19 +576,32 @@ export const KnowledgeHubView: React.FC = () => {
         <div className="lg:col-span-7">
           <Card>
             <CardHeader
-              title={`Indexed Documents (${knowledgeDocs.length})`}
+              title={`Indexed Documents (${filteredDocs.length})`}
               description={`Local index size: ${(totalBytes / 1024).toFixed(1)} KB stored in IndexedDB.`}
+              action={
+                <div className="w-44">
+                  <Select
+                    aria-label="Filter by collection"
+                    value={collectionFilter}
+                    onChange={(e) => setCollectionFilter(e.target.value)}
+                    options={[
+                      { value: 'all', label: 'All Collections' },
+                      ...availableCollections.map((c) => ({ value: c, label: c })),
+                    ]}
+                  />
+                </div>
+              }
             />
 
-            {knowledgeDocs.length === 0 ? (
+            {filteredDocs.length === 0 ? (
               <EmptyState
                 icon={<BookOpen className="w-6 h-6" />}
                 title="No knowledge documents yet"
-                description="Add a pricing guide, contract template, or client SOP note on the left—or import a local .md/.txt file—to search offline and ground AI Copilot responses."
+                description="Add a pricing guide, contract template, or client SOP note on the left—or import a local .md/.txt file or public URL—to search offline and ground AI Copilot responses."
               />
             ) : (
               <div className="divide-y divide-slate-200 dark:divide-slate-800">
-                {knowledgeDocs.map((doc) => (
+                {filteredDocs.map((doc) => (
                   <div
                     key={doc.id}
                     className="py-3.5 first:pt-0 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
@@ -383,6 +613,9 @@ export const KnowledgeHubView: React.FC = () => {
                           {doc.title}
                         </span>
                         <Badge tone="neutral">{doc.sourceType.toUpperCase()}</Badge>
+                        {doc.collection && doc.collection !== 'General' && (
+                          <Badge tone="info">{doc.collection}</Badge>
+                        )}
                         {doc.isDemo && <Badge tone="info">Sample</Badge>}
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2">
@@ -420,6 +653,140 @@ export const KnowledgeHubView: React.FC = () => {
           </Card>
         </div>
       </div>
+
+      <Dialog
+        open={urlModalOpen}
+        onClose={() => setUrlModalOpen(false)}
+        title="Import Public URL to Knowledge Hub"
+        description="Safe, single-page, user-triggered importer: enforces SSRF private-IP blocking, robots.txt checks, 512 KB cap, and HTML script stripping before approval."
+        size="lg"
+      >
+        <div className="space-y-4">
+          <form onSubmit={handleFetchUrlPreview} className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-2">
+                <Input
+                  label="Public HTTPS/HTTP URL"
+                  required
+                  type="url"
+                  placeholder="https://example.com/guidelines.md"
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                />
+              </div>
+              <Input
+                label="Target Collection"
+                value={urlCollection}
+                onChange={(e) => setUrlCollection(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Private/localhost IPs blocked. CORS-restricted pages can be saved as .md/.txt and uploaded locally.
+              </span>
+              <Button type="submit" variant="outline" loading={urlFetching}>
+                Fetch & Preview
+              </Button>
+            </div>
+          </form>
+
+          {urlError && (
+            <div className="p-3 rounded-lg border border-red-200 dark:border-red-900 bg-red-50/70 dark:bg-red-950/30 text-xs text-red-800 dark:text-red-200">
+              {urlError}
+            </div>
+          )}
+
+          {urlPreview && (
+            <div className="space-y-3 border-t border-slate-200 dark:border-slate-800 pt-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                    {urlPreview.title}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                    {urlPreview.finalUrl} · {urlPreview.contentType} · {(urlPreview.sizeBytes / 1024).toFixed(1)} KB
+                  </p>
+                </div>
+                <Badge tone="success">
+                  <span className="inline-flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3" /> Sanitized Preview
+                  </span>
+                </Badge>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{urlPreview.robotsNote}</p>
+              {urlPreview.duplicateOfTitle && (
+                <div className="p-2.5 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/70 dark:bg-amber-950/30 text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>
+                    Identical content (SHA-256) is already indexed under “{urlPreview.duplicateOfTitle}”.
+                  </span>
+                </div>
+              )}
+              <div className="max-h-56 overflow-y-auto p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-[#101827]/70 text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+                {urlPreview.content.slice(0, 4000)}
+                {urlPreview.content.length > 4000 ? '\n\n... (preview truncated cleanly)' : ''}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setUrlModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  loading={urlSaving}
+                  disabled={Boolean(urlPreview.duplicateOfTitle)}
+                  onClick={() => void handleApproveUrlImport()}
+                >
+                  Approve & Save to Knowledge Hub
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={registryModalOpen}
+        onClose={() => setRegistryModalOpen(false)}
+        title="Dataset Registry & License Compliance Audit"
+        description={`Manifest v${datasetAudit.manifest.manifestVersion} · ${datasetAudit.approvedEntries.length} approved · ${datasetAudit.rejectedEntries.length} rejected external candidates`}
+        size="xl"
+      >
+        <div className="space-y-3 text-xs">
+          {datasetAudit.manifest.entries.map((entry) => {
+            const check = datasetAudit.complianceChecks.find((c) => c.datasetId === entry.id);
+            return (
+              <div
+                key={entry.id}
+                className="p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 space-y-1.5"
+              >
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-sm font-semibold text-slate-900 dark:text-white">
+                    {entry.name}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Badge tone={entry.decision === 'approved' ? 'success' : 'danger'}>
+                      {entry.decision}
+                    </Badge>
+                    <Badge tone="neutral">{entry.license}</Badge>
+                  </div>
+                </div>
+                <p className="text-slate-600 dark:text-slate-300">{entry.intendedPurpose}</p>
+                <p className="text-slate-500">
+                  Source: <span className="font-mono">{entry.sourceUrl}</span> · Commercial:{' '}
+                  {entry.commercialUseStatus} · PII: {entry.containsPersonalData ? 'Present' : 'None'} ·{' '}
+                  Size: {entry.sizeLabel}
+                </p>
+                <p className="text-slate-500">{entry.decisionReason}</p>
+                {check && !check.compliantForInclusion && (
+                  <p className="text-rose-600 dark:text-rose-400">
+                    Compliance Blockers: {check.reasons.join(' ')}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Dialog>
 
       <Dialog
         open={Boolean(inspectDoc)}

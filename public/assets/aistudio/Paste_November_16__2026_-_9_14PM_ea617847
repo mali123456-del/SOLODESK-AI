@@ -1,0 +1,1077 @@
+# SOLODESK AI — PHASE 14: ULTIMATE BACKEND, DATASET-ENRICHED COPILOT, RAG, CRAWLER, FULL FEATURE IMPLEMENTATION & RELEASE HARDENING
+
+**Project:** SOLODESK AI  
+**Tagline:** Your Work. Your Clients. All in One Place.  
+**Deadline:** 5 December 2026  
+**Repository:** https://github.com/mali123456-del/SOLODESK-AI  
+**Existing workspace:** `/app/applet`  
+**Local project reference:** `G:\Temp\My projects\SOLODESK AI`
+
+## EXECUTION DIRECTIVE
+
+This is ONE integrated implementation phase.
+
+You must implement all approved requirements in this phase. Do not merely create a roadmap, list suggestions, prepare empty folders or defer the requested implementation to future phases.
+
+Work through the internal workstreams in order, but do not stop after completing only the audit or planning stage.
+
+**MANDATORY ORDER:**
+
+1. Inspect and preserve the existing application.
+2. Build and strengthen all meaningful backend folders and files.
+3. Strengthen database, repositories, domain services and business logic.
+4. Build the dataset-enriched AI Copilot knowledge system.
+5. Strengthen and complete RAG.
+6. Strengthen and complete the controlled crawler/URL importer.
+7. Connect AI, RAG, datasets, crawler and application business data.
+8. Complete all remaining approved feature panels and workflows.
+9. Make the frontend fully interactive and responsive.
+10. Complete security, performance, automated testing and release verification.
+
+Do not ask for permission between these safe implementation workstreams. Stop only for destructive operations, paid services, publication, credential exposure or other genuinely irreversible decisions.
+
+---
+
+# PART A — EXISTING PROJECT PRESERVATION AND VERIFICATION
+
+The existing project has reportedly completed Phases 1–13.
+
+The latest report describes:
+
+- Dexie IndexedDB schema v3.
+- 18 database tables.
+- Typed repositories.
+- Transaction-protected business operations.
+- Decimal-safe financial calculations.
+- Versioned encrypted backup/restore.
+- Offline MockProvider.
+- Optional Gemini provider adapter.
+- AI tools and approval gates.
+- Local Knowledge Hub.
+- RAG benchmark.
+- Dataset registry.
+- Controlled public URL importer.
+- Workflow engine.
+- Responsive feature panels.
+- PWA and service worker.
+- 45 passing automated tests.
+- One passing Chromium E2E test.
+- A dependency audit blocker.
+
+Treat these as REPORTED capabilities, not automatically proven facts.
+
+First inspect actual source files and verify each item.
+
+Do not recreate an existing feature simply because its implementation can be improved.
+
+Do not remove existing functionality.
+
+Do not wipe the database.
+
+Do not replace the current architecture without strong evidence that it is necessary.
+
+Create a baseline report:
+
+- `docs/PHASE_14_BASELINE.md`
+- `docs/PHASE_14_IMPLEMENTATION_MATRIX.md`
+- `docs/PHASE_14_RISK_REGISTER.md`
+
+Record actual findings and then proceed with implementation.
+
+# PART B — BUILD THE COMPLETE BACKEND STRUCTURE
+
+You MUST establish a meaningful backend structure with actual source files and working modules.
+
+If equivalent folders already exist, strengthen and reuse them. Do not create duplicate parallel architectures.
+
+Suggested target structure:
+
+`src/backend/`
+
+- `core/`
+- `config/`
+- `database/`
+- `database/migrations/`
+- `database/repositories/`
+- `domain/`
+- `domain/entities/`
+- `domain/rules/`
+- `services/`
+- `services/crm/`
+- `services/projects/`
+- `services/tasks/`
+- `services/documents/`
+- `services/finance/`
+- `services/time-tracking/`
+- `services/reporting/`
+- `services/search/`
+- `services/import-export/`
+- `services/backup/`
+- `validation/`
+- `security/`
+- `observability/`
+- `events/`
+- `workflows/`
+- `testing/`
+
+AI and knowledge architecture:
+
+`src/ai/`
+
+- `agent/`
+- `agent/tools/`
+- `agent/permissions/`
+- `agent/approval/`
+- `agent/context/`
+- `providers/`
+- `providers/mock/`
+- `prompts/`
+- `memory/`
+- `knowledge/`
+- `rag/`
+- `rag/retrieval/`
+- `rag/ranking/`
+- `rag/citations/`
+- `rag/evaluation/`
+- `datasets/`
+- `datasets/registry/`
+- `datasets/adapters/`
+- `datasets/processors/`
+- `evaluation/`
+- `privacy/`
+- `telemetry/`
+
+Knowledge storage:
+
+`src/knowledge/`
+
+- `documents/`
+- `collections/`
+- `built-in/`
+- `business-guides/`
+- `templates/`
+- `sop/`
+- `examples/`
+- `metadata/`
+- `ingestion/`
+- `indexing/`
+- `retrieval/`
+- `citations/`
+
+Crawler:
+
+`src/integrations/crawler/`
+
+- `core/`
+- `url-validation/`
+- `fetch/`
+- `robots/`
+- `extractors/`
+- `normalization/`
+- `metadata/`
+- `deduplication/`
+- `queue/`
+- `limits/`
+- `security/`
+- `testing/`
+
+Shared integrations:
+
+`src/integrations/`
+
+- `importers/`
+- `exporters/`
+- `sources/`
+- `connectors/`
+- `adapters/`
+
+Use the current architecture where appropriate. The above is a target responsibility map, not permission to duplicate modules or create empty scaffolding.
+
+**EVERY CREATED FILE MUST HAVE A REAL PURPOSE AND IMPLEMENTATION.**
+
+Every meaningful module must have:
+- Typed interfaces.
+- Input validation.
+- Error handling.
+- Documentation.
+- Unit tests or integration tests.
+- A real connection to the application where relevant.
+
+Do not create thousands of unnecessary files. Prefer maintainable modules.
+
+# PART C — DATABASE AND BUSINESS BACKEND
+
+Strengthen the existing Dexie database.
+
+Verify all existing tables and relationships.
+
+Implement or improve:
+
+- Schema migrations.
+- Repository interfaces.
+- Repository implementations.
+- Domain entities.
+- Domain services.
+- Transaction boundaries.
+- Data validation.
+- Referential integrity.
+- Duplicate detection.
+- Query efficiency.
+- Error recovery.
+- Storage monitoring.
+- Data export/import.
+
+Ensure every important business operation uses the correct transaction boundaries.
+
+Test:
+
+1. Client creation and editing.
+2. Project and task relationships.
+3. Proposal acceptance.
+4. Project/task draft generation.
+5. Quotation-to-invoice conversion.
+6. Partial and full payments.
+7. Expense recording.
+8. Invoice balance updates.
+9. Time tracking across reloads.
+10. Backup and restore.
+11. Import conflicts.
+12. Database migrations.
+
+Do not use floating-point arithmetic for financial totals where decimal-safe arithmetic is required.
+
+Preserve big.js or the existing correct money implementation.
+
+Verify 0-, 2- and 3-decimal currency calculations, tax-inclusive/exclusive calculations, discounts, partial payments and rounding.
+
+Create a consistent error and result-handling strategy.
+
+# PART D — DATASET-ENRICHED AI COPILOT
+
+This is a mandatory part of Phase 14.
+
+The existing SOLODESK AI Copilot must become substantially more knowledgeable about freelancer business operations.
+
+Build a domain-specific knowledge system covering:
+
+1. Freelance business management.
+2. Client relationship management.
+3. Lead qualification and follow-ups.
+4. Proposal writing.
+5. Quotations and estimates.
+6. Contract drafting assistance.
+7. Project management.
+8. Task planning.
+9. Time tracking.
+10. Invoice management.
+11. Payments and outstanding balances.
+12. Expenses.
+13. Budgeting.
+14. Project profitability.
+15. Business reporting.
+16. Client communication.
+17. Business workflows.
+18. Productivity.
+19. Knowledge management.
+20. Small business operations.
+
+## D1. Dataset research and selection
+
+Investigate these public dataset and knowledge sources:
+
+- Hugging Face Datasets: https://huggingface.co/datasets
+- Hugging Face Datasets Documentation: https://huggingface.co/docs/datasets
+- Hugging Face Dataset Cards: https://huggingface.co/docs/hub/en/datasets-cards
+- Kaggle Datasets: https://www.kaggle.com/datasets
+- Kaggle Dataset Documentation: https://www.kaggle.com/docs/datasets
+- Google Dataset Search: https://datasetsearch.research.google.com/
+- UCI Repository: https://archive.ics.uci.edu/
+- GitHub: https://github.com/
+
+Search for relevant, high-quality material related to freelancer operations, business workflows, customer relationship management, project management, business communication, financial analysis and productivity.
+
+Do not download random datasets.
+
+For each candidate dataset:
+
+- Inspect its dataset card.
+- Identify the original source.
+- Verify the exact license.
+- Verify commercial-use permissions.
+- Verify redistribution restrictions.
+- Verify attribution requirements.
+- Inspect privacy and personal-data risks.
+- Inspect language and data quality.
+- Check file format and size.
+- Record intended use.
+- Record retrieval date and version.
+
+Prefer small, relevant, clearly licensed datasets.
+
+Reject datasets with unclear rights, unacceptable privacy risks, incompatible licenses or questionable provenance.
+
+Do not assume that a public download is automatically free for commercial use.
+
+## D2. Dataset registry and storage
+
+Build a complete dataset registry.
+
+Create actual files such as:
+
+- `src/ai/datasets/registry/datasetRegistry.ts`
+- `src/ai/datasets/registry/datasetSchema.ts`
+- `src/ai/datasets/registry/datasetValidator.ts`
+- `src/ai/datasets/registry/datasetLicenseChecker.ts`
+- `src/ai/datasets/registry/datasetManifest.ts`
+- `src/ai/datasets/processors/textProcessor.ts`
+- `src/ai/datasets/processors/csvProcessor.ts`
+- `src/ai/datasets/processors/deduplication.ts`
+- `src/ai/datasets/evaluation/datasetEvaluation.ts`
+
+Adapt names and locations to existing architecture.
+
+Create a dataset manifest containing:
+
+- Dataset ID.
+- Name.
+- Source URL.
+- Version.
+- License.
+- Attribution.
+- Commercial-use status.
+- Language.
+- Size.
+- Data format.
+- Intended purpose.
+- Privacy assessment.
+- Processing status.
+- Evaluation status.
+- Retrieval date.
+
+Store small, approved and necessary knowledge assets in the project.
+
+Do not put huge datasets, temporary downloads, model weights or private records into the Git repository.
+
+Use a documented local dataset cache or user-managed data directory where appropriate.
+
+Provide a way to inspect, update and remove imported dataset assets.
+
+## D3. Copilot knowledge packs
+
+Create actual first-party SOLODESK knowledge packs.
+
+Examples:
+
+- `freelancer-business-basics.md`
+- `client-management-guide.md`
+- `proposal-writing-guide.md`
+- `project-management-guide.md`
+- `task-planning-guide.md`
+- `time-tracking-guide.md`
+- `invoice-management-guide.md`
+- `expense-management-guide.md`
+- `project-profitability-guide.md`
+- `business-reporting-guide.md`
+- `client-communication-guide.md`
+- `freelancer-workflow-examples.md`
+- `business-automation-examples.md`
+- `solo-business-glossary.json`
+
+These files must contain useful, structured and accurate knowledge, not filler.
+
+Use original content, appropriately licensed content and traceable source material.
+
+Do not copy entire copyrighted books, paid courses, proprietary software documentation or restricted content.
+
+## D4. Copilot intelligence
+
+Improve the existing Copilot to:
+
+- Understand the current user's workspace context.
+- Search the knowledge base.
+- Retrieve relevant source passages.
+- Use citations.
+- Explain its reasoning in concise user-facing terms.
+- Distinguish facts from recommendations.
+- Recognize missing information.
+- Ask for clarification when necessary.
+- Generate useful business drafts.
+- Summarize business records.
+- Explain financial reports.
+- Suggest next steps.
+- Create approved draft records.
+- Respect the user's privacy settings.
+
+Create domain-specific prompt templates and reusable context builders.
+
+The Copilot must not invent invoices, payments, clients, revenue, expenses or project metrics.
+
+## D5. Important training distinction
+
+You must make the Copilot more knowledgeable using the approved datasets and knowledge packs in this phase.
+
+However:
+
+- Dataset downloading is not model training.
+- Document indexing is not model fine-tuning.
+- RAG is not model fine-tuning.
+- Prompt examples are not model training.
+
+Implement dataset-backed knowledge enrichment and RAG as the default approach.
+
+Only implement actual fine-tuning if a supported model and training method are available, the exact license permits the use, the user is legally eligible, compute requirements are practical, and a reproducible evaluation demonstrates value within this deadline.
+
+Do not claim a model was trained unless a real training run, training configuration, model artifact and evaluation results exist.
+
+Do not download a large model or attempt GPU-dependent training.
+
+Keep the offline MockProvider useful.
+
+Do not bypass provider age requirements or account restrictions. Any external provider must remain subject to its current terms and eligibility requirements.
+
+# PART E — STRONG RAG SYSTEM
+
+Build on the existing RAG implementation. Do not create a second RAG engine.
+
+Implement a complete ingestion-to-answer pipeline:
+
+1. Source registration.
+2. Input validation.
+3. Safe extraction.
+4. Normalization.
+5. Content hashing.
+6. Deduplication.
+7. Chunking.
+8. Metadata extraction.
+9. Indexing.
+10. Retrieval.
+11. Ranking.
+12. Context selection.
+13. Citation mapping.
+14. Grounded response generation.
+15. Evaluation.
+16. Deletion and re-indexing.
+
+Improve:
+
+- Keyword retrieval.
+- Phrase matching.
+- Exact matches.
+- Relevance scoring.
+- Metadata filters.
+- Collection filters.
+- Duplicate suppression.
+- Chunk overlap.
+- Source ranking.
+- Context limits.
+- Citation accuracy.
+- Retrieval latency.
+
+Add semantic embeddings only if actual benchmark results prove they are needed.
+
+If embeddings are added, ensure:
+- Model license is verified.
+- Model size is appropriate.
+- No automatic huge download.
+- Offline behavior is documented.
+- Index versioning works.
+- Embedding failures have a keyword fallback.
+- Old indexes can be rebuilt safely.
+
+## RAG evaluation
+
+Expand the current reported 6/6 benchmark.
+
+Create a realistic evaluation set with:
+- Freelancer questions.
+- Client questions.
+- Project questions.
+- Invoice questions.
+- Finance questions.
+- Workflow questions.
+- Out-of-scope questions.
+- Missing-source questions.
+- Conflicting-source questions.
+- Prompt-injection documents.
+
+Measure:
+
+- Recall@K.
+- Precision@K.
+- Citation accuracy.
+- Unsupported answer rate.
+- Retrieval latency.
+- Duplicate retrieval rate.
+- Source relevance.
+
+Do not hardcode 100% benchmark results.
+
+The evaluation must use actual test cases and calculate results dynamically.
+
+# PART F — STRONG CRAWLER AND URL IMPORTER
+
+Strengthen the existing URL importer in:
+
+`src/integrations/crawler/`
+
+Implement:
+
+- URL validation.
+- Public destination policy.
+- Redirect validation.
+- Robots.txt policy.
+- Fetch timeout.
+- Response-size limits.
+- MIME type validation.
+- Safe text extraction.
+- HTML normalization.
+- Metadata extraction.
+- Duplicate detection.
+- Source attribution.
+- Retrieval timestamp.
+- Import preview.
+- User approval.
+- Knowledge Hub integration.
+- Error reporting.
+- Deletion and re-indexing.
+
+Support appropriate public web pages and documentation sources.
+
+Do not build an unrestricted crawler.
+
+Mandatory protections:
+
+- Reject localhost and loopback destinations.
+- Reject private and reserved address ranges.
+- Reject link-local and metadata-service destinations.
+- Validate every redirect.
+- Prevent SSRF and DNS rebinding where the execution architecture permits.
+- Block unsupported URL schemes.
+- Enforce request timeouts.
+- Enforce response-size limits.
+- Limit redirects and concurrent requests.
+- Respect applicable robots.txt rules and website terms.
+- Do not access private or login-protected pages.
+- Do not collect cookies or passwords.
+- Never execute scripts from crawled pages.
+- Treat all retrieved content as untrusted.
+- Prevent crawled text from overriding system or developer instructions.
+
+Important architectural check:
+
+The existing report says the URL importer runs client-side and is subject to browser CORS restrictions. Do not claim that a browser-only importer can reliably defeat CORS or fully guarantee server-side SSRF protections.
+
+If a backend fetch service is genuinely required, first design a secure, optional local service or a properly isolated server-side adapter. Keep the static PWA functional without it. Do not introduce a publicly exposed proxy or unrestricted fetch endpoint.
+
+Create:
+
+- `docs/CRAWLER_ARCHITECTURE.md`
+- `docs/CRAWLER_SECURITY.md`
+- `docs/URL_IMPORT_LIMITATIONS.md`
+
+# PART G — AI AGENT AND TOOL INTEGRATION
+
+Connect the Copilot to actual SOLODESK services through controlled tools.
+
+Implement or improve:
+
+Read-only tools:
+- Workspace summary.
+- Client search.
+- Project search.
+- Task search.
+- Overdue invoice lookup.
+- Knowledge search.
+- Business reporting.
+- Project profitability explanation.
+- Invoice explanation.
+- Expense category suggestion.
+
+Draft tools:
+- Create client draft.
+- Create project draft.
+- Create task draft.
+- Create proposal draft.
+- Create invoice draft where business rules allow.
+- Create follow-up draft.
+- Create workflow draft.
+
+Every tool must have:
+- Schema validation.
+- Permission checking.
+- Clear output types.
+- Error handling.
+- Tests.
+- Approval requirements.
+
+Never allow the AI to directly execute arbitrary SQL, shell commands, arbitrary filesystem access or unrestricted HTTP requests.
+
+Every consequential write operation requires explicit user approval.
+
+# PART H — COMPLETE REMAINING FEATURE PANELS
+
+Inspect every existing feature panel.
+
+Complete all approved, relevant and technically feasible modules in this phase.
+
+## Overview
+- Business Dashboard.
+- My Day.
+- Activity Timeline.
+- Notifications Center.
+- Quick Actions.
+- Business Health.
+- Goals and Targets.
+- Calendar and Agenda.
+
+## CRM and Clients
+- Leads.
+- Lead Pipeline.
+- Clients.
+- Client Profiles.
+- Companies and Contacts.
+- Client Activities.
+- Follow-up Manager.
+- Client Tags and Segments.
+- Intake Forms.
+- Client Import and Export.
+
+## Projects and Tasks
+- Project Overview.
+- Project Pipeline.
+- Task Manager.
+- My Tasks.
+- Kanban.
+- List.
+- Calendar.
+- Timeline.
+- Milestones.
+- Subtasks.
+- Checklists.
+- Templates.
+- Project Files.
+- Project Notes.
+- Project Budget.
+- Workload Planner.
+
+## Sales and Documents
+- Service Catalog.
+- Services and Packages.
+- Proposal Builder.
+- Proposal Templates.
+- Quotation Builder.
+- Contract Builder.
+- Document Templates.
+- Document Library.
+- Document Branding.
+- Proposal Tracking.
+- Quotation Tracking.
+- Contract Tracking.
+
+Do not claim legally valid electronic signatures unless a compliant signing solution is actually integrated.
+
+## Finance
+- Invoice Manager.
+- Invoice Builder.
+- Recurring Invoice support where safe and genuinely implemented.
+- Payment Plans.
+- Payment Tracker.
+- Outstanding Payments.
+- Income Tracker.
+- Expense Tracker.
+- Expense Categories.
+- Currency Settings.
+- Tax Settings.
+- Profit and Loss.
+- Cash Flow.
+- Invoice Aging.
+- Financial Export.
+- Payment Reminders.
+
+## Time and Productivity
+- Live Timer.
+- Manual Time Entries.
+- Timesheets.
+- Billable and Non-billable Hours.
+- Time Reports.
+- Workload Calendar.
+- Estimates vs Actuals.
+- Productivity Insights.
+
+## AI and Knowledge
+- AI Copilot.
+- AI Proposal Assistant.
+- AI Email Assistant.
+- AI Project Assistant.
+- AI Task Assistant.
+- AI Finance Assistant.
+- Business Insights.
+- Knowledge Hub.
+- Document Search.
+- RAG Explorer.
+- Dataset Registry.
+- AI Evaluation.
+- AI Settings.
+- AI Privacy Controls.
+
+## Communication and Scheduling
+- Communication Hub.
+- Email Drafts.
+- Follow-up Queue.
+- Appointment Records.
+- Meeting Notes.
+- Reminder Manager.
+- Calendar Integration interfaces.
+
+Do not claim native email hosting or external calendar synchronization unless it is genuinely implemented.
+
+## Automation
+- Workflow Builder.
+- Automation Templates.
+- Trigger Manager.
+- Action Library.
+- Approval Queue.
+- Automation History.
+- Failed Automation History.
+- Rules and Conditions.
+- Workflow Tester.
+
+## Integrations and Data
+- Integrations Hub.
+- AI Provider Configuration.
+- CSV Import.
+- File Import.
+- Export Center.
+- Dataset Registry.
+- Knowledge Sources.
+- URL Importer.
+- Backup and Restore.
+- Diagnostics.
+
+## Settings and Security
+- Business Profile.
+- Preferences.
+- Appearance.
+- Localization.
+- Currency.
+- Tax.
+- Storage Health.
+- Privacy Center.
+- Security Center.
+- AI Configuration.
+- Notifications.
+- Keyboard Shortcuts.
+- About and Diagnostics.
+
+Every visible panel must work with real application data.
+
+Do not expose unfinished modules as completed features.
+
+# PART I — FRONTEND AND USER EXPERIENCE
+
+After backend, AI and RAG implementation, complete the frontend integration.
+
+Preserve the existing SOLODESK visual identity.
+
+Use the existing React, Vite, TypeScript, Tailwind and Lucide stack unless there is a demonstrated technical reason to change it.
+
+Improve:
+
+- Responsive sidebar.
+- Mobile navigation.
+- Dashboard.
+- Feature panels.
+- Search.
+- Command palette.
+- Forms.
+- Tables.
+- Charts.
+- Notifications.
+- Dialogs.
+- Empty states.
+- Loading states.
+- Error states.
+- Confirmation states.
+- Accessibility.
+- Keyboard navigation.
+- Touch targets.
+- Print layouts.
+
+All visible actions must work.
+
+All forms must validate.
+
+All data must persist.
+
+All important operations must show understandable success or failure feedback.
+
+No dummy charts, fake data, dead buttons or decorative controls pretending to be functional.
+
+# PART J — ICONS, LOGOS, LIBRARIES AND FRAMEWORKS
+
+Use stable, maintained and appropriate libraries.
+
+Primary references:
+
+- React: https://react.dev/
+- Vite: https://vite.dev/guide/
+- TypeScript: https://www.typescriptlang.org/docs/
+- Tailwind CSS: https://tailwindcss.com/docs
+- Dexie: https://dexie.org/docs/
+- Zod: https://zod.dev/
+- big.js: https://github.com/MikeMcl/big.js
+- Lucide: https://lucide.dev/
+- Vitest: https://vitest.dev/
+- Playwright: https://playwright.dev/docs/intro
+- Vite PWA: https://vite-pwa-org.netlify.app/
+- Workbox: https://developer.chrome.com/docs/workbox/
+- Web Crypto: https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API
+- Recharts: https://recharts.org/
+- jsPDF: https://github.com/parallax/jsPDF
+
+Do not install libraries just because they are popular.
+
+Before installing anything:
+1. Inspect existing dependencies.
+2. Identify the missing capability.
+3. Compare bundle size.
+4. Verify maintenance.
+5. Verify license.
+6. Verify React/Vite/TypeScript compatibility.
+7. Check security advisories.
+8. Add tests for the integration.
+
+Use original SOLODESK logo and icon assets.
+
+Do not copy other companies' logos or branding.
+
+# PART K — SECURITY AND PRIVACY
+
+Audit:
+
+- XSS.
+- CSP.
+- HTML sanitization.
+- CSV injection.
+- URL validation.
+- SSRF.
+- Redirect validation.
+- Prompt injection.
+- Imported document safety.
+- Dependency vulnerabilities.
+- API key leakage.
+- Backup encryption.
+- Browser storage.
+- Service worker caching.
+- AI data transfer.
+- Approval enforcement.
+
+Preserve the existing strict script policy.
+
+Review the remaining `style-src 'unsafe-inline'` policy and improve it where technically possible without breaking Recharts or the existing styling architecture.
+
+Do not weaken script security to make a library work.
+
+Do not store API secrets in persistent browser storage or backups.
+
+Keep external AI data transfer disabled until the user explicitly consents and the provider/account use is eligible and terms-compliant.
+
+Do not expose confidential business information to public datasets or training pipelines.
+
+# PART L — TESTING AND VERIFICATION
+
+Preserve existing tests and expand them.
+
+Required:
+
+- Unit tests.
+- Integration tests.
+- Database tests.
+- Financial tests.
+- Backup tests.
+- Encryption tests.
+- AI tests.
+- RAG tests.
+- Dataset validation tests.
+- Crawler security tests.
+- Workflow tests.
+- Browser E2E tests.
+- PWA offline tests.
+- Mobile viewport tests.
+
+Use Playwright:
+
+https://playwright.dev/docs/intro
+
+The existing report records one Chromium E2E test. Expand coverage substantially.
+
+Test complete user journeys:
+
+1. First launch.
+2. Demo workspace.
+3. Clean start.
+4. Create client.
+5. Create project.
+6. Create task.
+7. Track time.
+8. Create proposal.
+9. Convert quotation to invoice.
+10. Record partial payment.
+11. Record expense.
+12. Inspect profitability.
+13. Import a knowledge document.
+14. Search knowledge.
+15. Ask Copilot a grounded question.
+16. Verify citations.
+17. Test prompt-injection isolation.
+18. Test dataset validation.
+19. Test URL importer.
+20. Test blocked URL destinations.
+21. Export backup.
+22. Restore backup.
+23. Reload offline.
+24. Verify mobile layout.
+25. Verify all important navigation and actions.
+
+Never reduce tests to make the suite pass.
+
+Report actual counts and failures.
+
+# PART M — DEPENDENCY AUDIT BLOCKER
+
+The current report identifies an npm audit issue because the project uses `bun.lock`.
+
+Inspect the actual lockfile and package manager.
+
+Use the package manager that matches the repository.
+
+Run an appropriate dependency security audit.
+
+Do not generate a second lockfile unnecessarily.
+
+Do not upgrade packages blindly.
+
+Do not apply `npm audit fix --force`.
+
+Document all vulnerabilities, severity, reachability and remediation.
+
+Create `docs/DEPENDENCY_SECURITY_AUDIT.md`.
+
+# PART N — DOCUMENTATION
+
+Create or update:
+
+- `docs/PHASE_14_BASELINE.md`
+- `docs/PHASE_14_IMPLEMENTATION_MATRIX.md`
+- `docs/BACKEND_ARCHITECTURE.md`
+- `docs/DATABASE_ARCHITECTURE.md`
+- `docs/AI_COPILOT_ARCHITECTURE.md`
+- `docs/AI_KNOWLEDGE_POLICY.md`
+- `docs/DATASET_REGISTRY.md`
+- `docs/DATASET_LICENSE_AUDIT.md`
+- `docs/RAG_ARCHITECTURE.md`
+- `docs/RAG_EVALUATION.md`
+- `docs/CRAWLER_ARCHITECTURE.md`
+- `docs/CRAWLER_SECURITY.md`
+- `docs/SECURITY_REVIEW.md`
+- `docs/PRIVACY_MODEL.md`
+- `docs/TESTING.md`
+- `docs/DEPENDENCY_SECURITY_AUDIT.md`
+- `docs/PHASE_14_FINAL_REPORT.md`
+
+Update existing documents rather than creating duplicates.
+
+# PART O — FINAL DEADLINE
+
+Complete this integrated phase by **5 December 2026**.
+
+Use the time efficiently.
+
+Prioritize:
+1. Backend reliability.
+2. Dataset-enriched Copilot.
+3. RAG quality.
+4. Crawler safety and functionality.
+5. All P0 business features.
+6. Remaining approved P1 panels.
+7. Frontend integration.
+8. Security.
+9. E2E testing.
+10. Release documentation.
+
+If a feature cannot be completed safely or correctly, report the blocker instead of shipping fake functionality.
+
+Do not silently defer a requested feature.
+
+For any item that is blocked, provide:
+- Exact reason.
+- Files involved.
+- Work completed.
+- Remaining work.
+- A practical alternative.
+
+# PART P — FINAL REPORT REQUIREMENTS
+
+At completion provide:
+
+1. Actual folder and file structure created or improved.
+2. Backend architecture and implemented modules.
+3. Database and migration status.
+4. Business services and transactions.
+5. Dataset sources researched.
+6. Datasets selected and exact licenses.
+7. Dataset files actually imported.
+8. Knowledge packs created.
+9. Copilot improvements.
+10. Whether actual fine-tuning happened or did not happen.
+11. RAG architecture and evaluation results.
+12. Crawler features and security limitations.
+13. All feature panels implemented.
+14. Frontend changes.
+15. Security review.
+16. Dependency audit.
+17. Unit and integration test results.
+18. Playwright E2E results.
+19. PWA and offline verification.
+20. Performance results.
+21. Remaining limitations.
+22. Release readiness classification.
+
+Use these statuses:
+
+- IMPLEMENTED.
+- TESTED.
+- VERIFIED.
+- PARTIALLY IMPLEMENTED.
+- BLOCKED.
+- NOT IMPLEMENTED.
+
+Never invent test results, dataset licenses, benchmark percentages or completed features.
+
+Do not claim that AI was trained unless a real training run and model artifact exist.
+
+Do not claim the crawler bypasses CORS.
+
+Do not claim a static PWA has a secure remote backend unless one has actually been implemented and audited.
+
+# FINAL ORDER
+
+This is one integrated Phase 14 implementation.
+
+Do not stop at creating folders.
+
+Do not stop at writing documentation.
+
+Do not stop at a plan.
+
+Build the actual backend modules, dataset enrichment system, Copilot knowledge architecture, RAG improvements, crawler improvements, connected business workflows, frontend interactions and verification tests.
+
+Reuse the existing SOLODESK AI implementation wherever it is already correct.
+
+Make every created file meaningful.
+
+Keep the application local-first and offline-capable.
+
+Complete every safely implementable requirement within this phase by 5 December 2026.
+
+**The final objective is a genuinely intelligent, data-informed, well-structured, secure and fully functional SOLODESK AI — not a collection of empty folders, downloaded datasets and impressive-looking panels.**

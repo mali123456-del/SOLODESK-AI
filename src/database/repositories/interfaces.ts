@@ -1,5 +1,6 @@
 import type {
   ActivityEvent,
+  Appointment,
   AppSettings,
   BusinessProfile,
   Client,
@@ -14,8 +15,12 @@ import type {
   Proposal,
   Quotation,
   ReusableTemplate,
+  ServiceCatalogItem,
   Task,
   TimeEntry,
+  WorkflowRun,
+  WorkflowType,
+  WorkspaceGoal,
 } from '../../domain/schemas/entities';
 
 export interface ISolodeskRepositories {
@@ -89,15 +94,34 @@ export interface ISolodeskRepositories {
   createManualTimeEntry(input: Omit<TimeEntry, 'id' | 'isRunning' | 'createdAt' | 'updatedAt'>): Promise<TimeEntry>;
   deleteTimeEntry(id: string): Promise<void>;
 
-  // Templates, Knowledge, Activities, Notifications
+  // Templates, Knowledge, Workflows, Activities, Notifications
   listTemplates(): Promise<ReusableTemplate[]>;
   saveTemplate(input: Omit<ReusableTemplate, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<ReusableTemplate>;
   deleteTemplate(id: string): Promise<void>;
 
   listKnowledgeDocs(): Promise<KnowledgeDocument[]>;
+  findKnowledgeDocByHash(contentHash: string): Promise<KnowledgeDocument | undefined>;
   listDocumentChunks(): Promise<DocumentChunk[]>;
   saveKnowledgeDocWithChunks(doc: KnowledgeDocument, chunks: DocumentChunk[]): Promise<void>;
   deleteKnowledgeDoc(docId: string): Promise<void>;
+
+  listWorkflowRuns(): Promise<WorkflowRun[]>;
+  findExecutedWorkflowRun(workflowType: WorkflowType, triggerEntityId: string): Promise<WorkflowRun | undefined>;
+  saveWorkflowRun(run: WorkflowRun): Promise<WorkflowRun>;
+
+  // Service Catalog, Appointments & Workspace Goals
+  listServiceCatalog(): Promise<ServiceCatalogItem[]>;
+  createServiceItem(input: Omit<ServiceCatalogItem, 'id' | 'createdAt' | 'updatedAt'>): Promise<ServiceCatalogItem>;
+  updateServiceItem(id: string, patch: Partial<ServiceCatalogItem>): Promise<ServiceCatalogItem>;
+  deleteServiceItem(id: string): Promise<void>;
+
+  listAppointments(): Promise<Appointment[]>;
+  createAppointment(input: Omit<Appointment, 'id' | 'createdAt' | 'updatedAt'>): Promise<Appointment>;
+  updateAppointment(id: string, patch: Partial<Appointment>): Promise<Appointment>;
+  deleteAppointment(id: string): Promise<void>;
+
+  listWorkspaceGoals(): Promise<WorkspaceGoal[]>;
+  saveWorkspaceGoal(input: Omit<WorkspaceGoal, 'id' | 'updatedAt'> & { id?: string }): Promise<WorkspaceGoal>;
 
   listActivities(limit?: number): Promise<ActivityEvent[]>;
   logActivity(input: Omit<ActivityEvent, 'id' | 'createdAt'>): Promise<ActivityEvent>;

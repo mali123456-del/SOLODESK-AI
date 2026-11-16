@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import {
   Activity,
+  AlertTriangle,
   ArchiveRestore,
   BarChart3,
   Bell,
   BookOpen,
   Briefcase,
+  Calendar,
   CheckSquare,
   Clock,
   CreditCard,
@@ -21,6 +23,7 @@ import {
   Moon,
   Palette,
   Receipt,
+  RefreshCw,
   Search,
   Shield,
   Sparkles,
@@ -30,8 +33,10 @@ import {
   UserCheck,
   Users,
   WifiOff,
+  Workflow,
   X,
 } from 'lucide-react';
+import type { LocalSyncStatus } from '../../core/syncEvents';
 import { SolodeskLogo } from '../../assets/SolodeskLogo';
 import { cn } from '../../lib/cn';
 import { APP_NAVIGATION, NAV_GROUPS, type AppRouteId } from '../../types/navigation';
@@ -45,6 +50,7 @@ export const ROUTE_ICONS: Record<AppRouteId, React.ReactNode> = {
   projects: <FolderKanban className="w-4 h-4" />,
   tasks: <CheckSquare className="w-4 h-4" />,
   'time-tracker': <Clock className="w-4 h-4" />,
+  communication: <Calendar className="w-4 h-4" />,
   proposals: <FileText className="w-4 h-4" />,
   quotations: <FileSpreadsheet className="w-4 h-4" />,
   contracts: <FileCheck2 className="w-4 h-4" />,
@@ -57,6 +63,7 @@ export const ROUTE_ICONS: Record<AppRouteId, React.ReactNode> = {
   'ai-copilot': <Sparkles className="w-4 h-4" />,
   knowledge: <BookOpen className="w-4 h-4" />,
   templates: <Briefcase className="w-4 h-4" />,
+  workflows: <Workflow className="w-4 h-4" />,
   search: <Search className="w-4 h-4" />,
   'import-export': <ArchiveRestore className="w-4 h-4" />,
   'settings-profile': <UserCheck className="w-4 h-4" />,
@@ -75,6 +82,11 @@ interface AppShellProps {
   onOpenCommandPalette?: () => void;
   unreadNotifications?: number;
   isOnline?: boolean;
+  syncStatus?: LocalSyncStatus;
+  pendingSyncCount?: number;
+  syncError?: string | null;
+  lastSyncedAt?: string | null;
+  onRetrySync?: () => void;
   headerRightExtra?: React.ReactNode;
   children: React.ReactNode;
 }
@@ -85,6 +97,11 @@ export const AppShell: React.FC<AppShellProps> = ({
   onOpenCommandPalette,
   unreadNotifications = 0,
   isOnline = true,
+  syncStatus = 'idle',
+  pendingSyncCount = 0,
+  syncError = null,
+  lastSyncedAt = null,
+  onRetrySync,
   headerRightExtra,
   children,
 }) => {
@@ -235,10 +252,53 @@ export const AppShell: React.FC<AppShellProps> = ({
 
           <div className="flex items-center gap-2 shrink-0">
             {!isOnline && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-xs font-medium">
-                <WifiOff className="w-3.5 h-3.5" aria-hidden="true" />
-                <span className="hidden sm:inline">Offline</span>
+              <span
+                role="status"
+                aria-label="Browser is offline; working on local IndexedDB"
+                title={
+                  lastSyncedAt
+                    ? `Offline — working locally. Last DB sync: ${new Date(lastSyncedAt).toLocaleTimeString()}`
+                    : 'Offline — working on local IndexedDB'
+                }
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-amber-200 dark:border-amber-800/80 bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-xs font-medium whitespace-nowrap"
+              >
+                <WifiOff className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span className="hidden sm:inline">Offline · Local DB</span>
               </span>
+            )}
+
+            {(syncStatus === 'syncing' || pendingSyncCount > 0) && (
+              <span
+                role="status"
+                aria-live="polite"
+                aria-label="Synchronizing with local database"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-cyan-200 dark:border-cyan-800/80 bg-cyan-50 dark:bg-cyan-950/50 text-cyan-800 dark:text-cyan-300 text-xs font-medium whitespace-nowrap"
+              >
+                <RefreshCw className="w-3.5 h-3.5 shrink-0 animate-spin" aria-hidden="true" />
+                <span>
+                  {pendingSyncCount > 1 ? `Syncing DB (${pendingSyncCount})` : 'Syncing DB…'}
+                </span>
+              </span>
+            )}
+
+            {syncStatus === 'error' && (
+              <div
+                role="alert"
+                title={syncError ?? 'Synchronization with local IndexedDB failed.'}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-800/80 bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 text-xs font-medium whitespace-nowrap"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>Local DB Sync Failed</span>
+                {onRetrySync && (
+                  <button
+                    type="button"
+                    onClick={onRetrySync}
+                    className="ml-1 px-1.5 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-semibold cursor-pointer"
+                  >
+                    Retry
+                  </button>
+                )}
+              </div>
             )}
 
             {headerRightExtra}

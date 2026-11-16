@@ -76,6 +76,14 @@ const KnowledgeHubView = lazy(() =>
 const SettingsView = lazy(() =>
   import('../features/settings/SettingsView').then((m) => ({ default: m.SettingsView }))
 );
+const WorkflowsView = lazy(() =>
+  import('../features/workflows/WorkflowsView').then((m) => ({ default: m.WorkflowsView }))
+);
+const CommunicationHubView = lazy(() =>
+  import('../features/communication/CommunicationHubView').then((m) => ({
+    default: m.CommunicationHubView,
+  }))
+);
 const MarketingView = lazy(() =>
   import('../features/marketing/MarketingView').then((m) => ({ default: m.MarketingView }))
 );
@@ -101,17 +109,23 @@ const ViewLoadingFallback: React.FC = () => (
 
 const WorkspaceRouter: React.FC = () => {
   const [route, setRoute] = useState<AppRouteId>(readRouteFromHash);
-  const [isOnline, setIsOnline] = useState(
-    typeof navigator !== 'undefined' ? navigator.onLine : true
-  );
   const [commandOpen, setCommandOpen] = useState(false);
-  const { loading, error, settings, notifications } = useWorkspace();
+  const {
+    loading,
+    error,
+    isOnline,
+    syncStatus,
+    pendingSyncCount,
+    syncError,
+    lastSyncedAt,
+    retrySync,
+    settings,
+    notifications,
+  } = useWorkspace();
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
 
   useEffect(() => {
     const onHash = () => setRoute(readRouteFromHash());
-    const onOnline = () => setIsOnline(true);
-    const onOffline = () => setIsOnline(false);
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -119,13 +133,9 @@ const WorkspaceRouter: React.FC = () => {
       }
     };
     window.addEventListener('hashchange', onHash);
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
     window.addEventListener('keydown', onKeyDown);
     return () => {
       window.removeEventListener('hashchange', onHash);
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
       window.removeEventListener('keydown', onKeyDown);
     };
   }, []);
@@ -187,10 +197,14 @@ const WorkspaceRouter: React.FC = () => {
         return <FinanceView mode="profitability" />;
       case 'time-tracker':
         return <TimeTrackerView />;
+      case 'communication':
+        return <CommunicationHubView />;
       case 'reports':
         return <ReportsView />;
       case 'templates':
         return <TemplatesView />;
+      case 'workflows':
+        return <WorkflowsView onNavigate={navigate} />;
       case 'search':
         return <GlobalSearchView onNavigate={navigate} />;
       case 'import-export':
@@ -222,6 +236,11 @@ const WorkspaceRouter: React.FC = () => {
       onOpenCommandPalette={() => setCommandOpen(true)}
       unreadNotifications={unreadCount}
       isOnline={isOnline}
+      syncStatus={syncStatus}
+      pendingSyncCount={pendingSyncCount}
+      syncError={syncError}
+      lastSyncedAt={lastSyncedAt}
+      onRetrySync={() => void retrySync()}
       headerRightExtra={<PWAInstallButton />}
     >
       <Suspense fallback={<ViewLoadingFallback />}>{renderRouteContent()}</Suspense>

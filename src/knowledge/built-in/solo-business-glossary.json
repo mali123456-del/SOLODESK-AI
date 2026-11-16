@@ -1,0 +1,47 @@
+{
+  "glossaryVersion": "1.0.0",
+  "license": "MIT",
+  "author": "SOLODESK AI",
+  "terms": [
+    {
+      "term": "Net-14",
+      "definition": "Payment term indicating full invoice settlement is due within 14 calendar days of the invoice issue date."
+    },
+    {
+      "term": "Tax-Inclusive Pricing",
+      "definition": "Pricing model where the quoted line-item price already contains applicable tax; net amount equals Total / (1 + TaxRate), and tax equals Total - Net."
+    },
+    {
+      "term": "Tax-Exclusive Pricing",
+      "definition": "Pricing model where applicable tax is added on top of the discounted subtotal."
+    },
+    {
+      "term": "Invoice Aging",
+      "definition": "Grouping of unpaid open invoices by days past due date (Current, 1-30, 31-60, 61+ days) to manage cash collection risk."
+    },
+    {
+      "term": "Effective Hourly Rate",
+      "definition": "Estimated net project profit (Income minus direct Expenses) divided by total hours logged on the project."
+    },
+    {
+      "term": "Estimates vs Actuals",
+      "definition": "Comparison between budgeted project hours/cost and real tracked hours/billable value to spot scope creep."
+    },
+    {
+      "term": "Approval Gate",
+      "definition": "Mandatory human confirmation step before an AI tool or workflow writes, creates, or mutates business records in IndexedDB."
+    },
+    {
+      "term": "BYOK (Bring Your Own Key)",
+      "definition": "Optional configuration where a user supplies their own Gemini API key in volatile browser memory only, never saved to disk or backups."
+    },
+    {
+      "term": "PBKDF2 + AES-GCM",
+      "definition": "Web Crypto encryption workflow deriving a 256-bit AES key from a user passphrase using SHA-256 and 210,000 PBKDF2 iterations for offline encrypted backups."
+    },
+    {
+      "term": "RAG (Retrieval-Augmented Generation)",
+      "definition": "Pattern retrieving relevant local Knowledge Hub document chunks and attaching grounded citations to Copilot prompts without modifying model weights."
+    }
+  ]
+}

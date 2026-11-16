@@ -1,7 +1,14 @@
-import { runLocalRagBenchmark } from './benchmarks/runLocalBenchmark';
+import {
+  runExtendedRagBenchmark,
+  runLocalRagBenchmark,
+} from './benchmarks/runLocalBenchmark';
 
-export { runLocalRagBenchmark };
-export type { BenchmarkCaseOutcome, LocalBenchmarkSummary } from './benchmarks/runLocalBenchmark';
+export { runExtendedRagBenchmark, runLocalRagBenchmark };
+export type {
+  BenchmarkCaseOutcome,
+  ExtendedRagBenchmarkSummary,
+  LocalBenchmarkSummary,
+} from './benchmarks/runLocalBenchmark';
 
 export function evaluateDraftQuality(text: string): {
   wordCount: number;

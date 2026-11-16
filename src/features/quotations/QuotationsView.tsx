@@ -51,7 +51,8 @@ interface QuotationsViewProps {
 }
 
 export const QuotationsView: React.FC<QuotationsViewProps> = ({ onNavigate }) => {
-  const { quotations, clients, projects, businessProfile, settings, refresh } = useWorkspace();
+  const { quotations, clients, projects, serviceCatalog, businessProfile, settings, refresh } =
+    useWorkspace();
   const { pushToast } = useToast();
 
   const [statusFilter, setStatusFilter] = useState<'all' | QuotationStatus>('all');
@@ -480,21 +481,53 @@ export const QuotationsView: React.FC<QuotationsViewProps> = ({ onNavigate }) =>
           </div>
 
           <div className="space-y-2 border-t border-slate-200 dark:border-slate-800 pt-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">Line Items</p>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  setLineItems((prev) => [
-                    ...prev,
-                    { id: createId('li'), description: '', quantity: 1, unitPrice: 0 },
-                  ])
-                }
-                icon={<Plus className="w-3.5 h-3.5" />}
-              >
-                Add Item
-              </Button>
+              <div className="flex items-center gap-2">
+                {serviceCatalog.filter((s) => s.active).length > 0 && (
+                  <div className="w-48">
+                    <Select
+                      aria-label="Insert from Service Catalog"
+                      value=""
+                      onChange={(e) => {
+                        const svc = serviceCatalog.find((s) => s.id === e.target.value);
+                        if (!svc) return;
+                        setLineItems((prev) => [
+                          ...prev.filter((x) => x.description.trim() || x.unitPrice > 0),
+                          {
+                            id: createId('li'),
+                            description: svc.name,
+                            quantity: 1,
+                            unitPrice: svc.defaultUnitPrice,
+                          },
+                        ]);
+                      }}
+                      options={[
+                        { value: '', label: 'Insert service item…' },
+                        ...serviceCatalog
+                          .filter((s) => s.active)
+                          .map((s) => ({
+                            value: s.id,
+                            label: `${s.name} (${formatMoney(s.defaultUnitPrice, s.currency)})`,
+                          })),
+                      ]}
+                    />
+                  </div>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    setLineItems((prev) => [
+                      ...prev,
+                      { id: createId('li'), description: '', quantity: 1, unitPrice: 0 },
+                    ])
+                  }
+                  icon={<Plus className="w-3.5 h-3.5" />}
+                >
+                  Add Item
+                </Button>
+              </div>
             </div>
             {lineItems.map((li, idx) => (
               <div key={li.id} className="grid grid-cols-12 gap-2 items-end">

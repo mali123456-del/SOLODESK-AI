@@ -1,0 +1,1294 @@
+# SOLODESK AI — ULTIMATE BACKEND-FIRST HARDENING, INTELLIGENCE, FRONTEND & RELEASE MASTER COMMAND
+
+**Product:** SOLODESK AI  
+**Tagline:** Your Work. Your Clients. All in One Place.  
+**Project deadline:** 5 December 2026  
+**Current date:** 16 November 2026  
+**Target:** A reliable, secure, polished, responsive, local-first Freelancer Business OS and PWA.  
+**Repository:** https://github.com/mali123456-del/SOLODESK-AI  
+**Local workspace reference:** `G:\Temp\My projects\SOLODESK AI`  
+**Actual AI Studio workspace:** `/app/applet`
+
+---
+
+# 0. YOUR MISSION
+
+You are the principal software architect, senior full-stack engineer, database engineer, security engineer, AI/RAG engineer, QA engineer and product designer responsible for taking the EXISTING SOLODESK AI application from its reported Phase 1–12 completion to a genuinely verified release candidate by **5 December 2026**.
+
+Do not create a new application.
+
+Do not replace the existing product with a generic dashboard.
+
+Do not blindly rewrite working code.
+
+Your job is to inspect, strengthen, complete, test, document and polish the existing application.
+
+The product must remain:
+
+- Local-first.
+- Offline-capable.
+- Privacy-conscious.
+- Responsive.
+- Installable as a PWA.
+- Useful without an AI provider or internet connection.
+- Suitable for freelancers and small independent businesses.
+- Built around connected business workflows rather than disconnected feature panels.
+
+**Execution strategy: BACKEND AND DATA INTEGRITY FIRST → AI AND KNOWLEDGE SERVICES → FRONTEND AND INTERACTION → SECURITY AND QA → RELEASE.**
+
+Do not interpret backend-first as permission to introduce an unnecessary cloud backend. The current product is a local-first application. Its backend foundation includes its database, repositories, domain services, validation, transactions, import/export, backup/restore, search, knowledge ingestion and AI orchestration.
+
+A future remote backend must be optional and must not compromise the local-first architecture.
+
+# 1. NON-NEGOTIABLE EXECUTION RULES
+
+1. Begin with a complete READ-ONLY audit of the existing workspace and repository state.
+2. Inspect the actual files, package.json, lockfile, dependencies, scripts, architecture, database schema, migrations, tests, routes, components, assets, PWA configuration and documentation.
+3. Verify whether the supplied completion report matches the actual source code.
+4. Preserve all working features, user data, configurations, brand assets and documentation.
+5. Do not replace working modules merely to use a different library.
+6. Do not install a new dependency without identifying a specific technical need and checking compatibility, maintenance, bundle size, license and security.
+7. Do not create empty folders or meaningless placeholder modules.
+8. Every new module must have a real responsibility, implementation, tests and documentation.
+9. No fake functionality, dead buttons, misleading status indicators or fabricated AI responses presented as real analysis.
+10. Never claim a test passed unless you actually executed it.
+11. Never claim E2E, security, browser compatibility or performance verification when it was not run.
+12. Do not automatically commit, push, publish, deploy, configure billing or expose private credentials.
+13. Never execute destructive commands, force pushes, hard resets, blind deletions or database wipes.
+14. Do not silently overwrite user data during migration, import or restore.
+15. Do not introduce paid APIs, paid hosting or paid services without explicit authorization.
+16. No API keys, passwords, private client documents or credentials in source code, logs, public assets, Git history, IndexedDB or backups.
+17. If an operation could cause irreversible data loss, stop and request explicit approval.
+18. Continue through all safe, non-destructive work without asking for unnecessary approval after every phase.
+19. Maintain a truthful progress report with exact completed, tested, blocked and remaining work.
+20. Deadline is 5 December 2026. Prioritize reliability over feature count.
+
+# 2. PHASE ZERO — VERIFY THE CURRENT BASELINE
+
+Inspect and document:
+
+- Current branch and Git status.
+- Tracked, untracked and modified files.
+- Current package manager and lockfile.
+- Installed dependency versions.
+- Application entry points and routing.
+- Existing architecture and folder structure.
+- Dexie database schema and version.
+- All database tables and indexes.
+- Existing migrations.
+- All repositories and domain services.
+- Zod schemas and validation coverage.
+- All business workflows.
+- AI provider implementation.
+- Knowledge ingestion and retrieval.
+- Crawler or URL importer, if any.
+- Backup and restore implementation.
+- PWA manifest, service worker and icons.
+- Existing test suites and coverage configuration.
+- Documentation and release status.
+
+Execute the existing baseline checks:
+
+- `npm run lint`
+- `npm test`
+- `npm run build`
+
+Inspect the existing scripts first. If a script has different behavior, document it instead of assuming.
+
+Create or update:
+
+- `docs/RELEASE_BASELINE_AUDIT.md`
+- `docs/ARCHITECTURE_CURRENT_STATE.md`
+- `docs/RELEASE_GAPS.md`
+- `docs/DEADLINE_PLAN.md`
+
+Record every discrepancy between the supplied report and actual evidence.
+
+Do not start large-scale implementation until the baseline is understood.
+
+# 3. BACKEND FOUNDATION — HIGHEST PRIORITY
+
+First strengthen the existing local-first backend architecture.
+
+Use the current stack wherever appropriate:
+
+- React 19.
+- Vite 8.
+- TypeScript.
+- Dexie / IndexedDB.
+- Zod.
+- big.js.
+- Existing Recharts and jsPDF integrations.
+- Existing PWA implementation.
+
+Do not upgrade major versions just because a newer version exists. Check compatibility and migration risk.
+
+## 3.1 Recommended architecture
+
+Inspect the existing structure, then organize responsibilities into meaningful modules.
+
+Suggested architecture, adapted to actual source code:
+
+`src/core/`
+- configuration
+- errors
+- logging
+- result types
+- utilities
+- constants
+
+`src/database/`
+- database definition
+- schema
+- migrations
+- transaction helpers
+- indexes
+- database health
+- storage monitoring
+
+`src/domain/`
+- clients
+- leads
+- projects
+- tasks
+- milestones
+- documents
+- invoices
+- payments
+- expenses
+- time entries
+- reports
+- business rules
+
+`src/repositories/`
+- client repository
+- project repository
+- task repository
+- document repository
+- invoice repository
+- payment repository
+- expense repository
+- time repository
+- knowledge repository
+- settings repository
+
+`src/services/`
+- CRM services
+- project services
+- task services
+- document services
+- billing services
+- payment services
+- time tracking services
+- reporting services
+- search services
+- import services
+- export services
+- backup services
+
+`src/security/`
+- validation
+- sanitization
+- encryption
+- key handling
+- privacy controls
+- permission checks
+- safe URL validation
+
+`src/ai/`
+- providers
+- orchestration
+- prompts
+- tools
+- approval
+- context
+- evaluation
+- privacy
+
+`src/knowledge/`
+- documents
+- ingestion
+- parsers
+- chunking
+- indexing
+- retrieval
+- citations
+- collections
+- evaluation
+
+`src/integrations/`
+- importers
+- exporters
+- URL importer
+- external adapters
+- future connector interfaces
+
+`src/workflows/`
+- triggers
+- rules
+- actions
+- approval queue
+- execution history
+
+`src/observability/`
+- diagnostics
+- health checks
+- structured error reporting
+- performance measurements
+
+Do not duplicate existing modules. Reuse, refactor or relocate only when justified.
+
+## 3.2 Database correctness
+
+Audit and strengthen:
+
+- Dexie schema versioning.
+- Upgrade migrations.
+- Unique identifiers.
+- Foreign-key-like relationship validation.
+- Referential integrity.
+- Index selection.
+- Atomic transactions.
+- Duplicate detection.
+- Data consistency.
+- Date and timezone handling.
+- Decimal precision.
+- Error recovery.
+
+All related writes must use appropriate Dexie transactions.
+
+Important: do not await unrelated network, filesystem or cryptographic operations inside an IndexedDB transaction unless the implementation explicitly supports it. Perform expensive preparation outside the transaction, then execute the database changes atomically.
+
+Test important operations such as:
+
+- Quotation-to-invoice conversion.
+- Payment recording and invoice balance updates.
+- Project deletion/archive behavior.
+- Client archive behavior.
+- Time tracker start/stop/recovery.
+- Backup restore.
+- Import with duplicate records.
+- Migration from previous database versions.
+
+An interrupted operation must not leave half-written business records.
+
+## 3.3 Financial correctness
+
+Audit all financial calculations using big.js or the existing decimal-safe implementation.
+
+Verify:
+
+- Currency precision.
+- Inclusive and exclusive tax.
+- Discounts.
+- Partial payments.
+- Full payments.
+- Outstanding balances.
+- Refund and adjustment behavior, if supported.
+- Invoice totals.
+- Project budgets.
+- Expenses.
+- Profitability.
+- Rounding policy.
+- CSV/PDF output consistency.
+
+Never use ordinary floating-point arithmetic for financial totals when decimal-safe calculations are required.
+
+Document rounding rules and test boundary cases.
+
+## 3.4 Data persistence and recovery
+
+Improve:
+
+- Storage usage monitoring.
+- Storage quota handling.
+- Persistent storage request where appropriate.
+- QuotaExceededError handling.
+- Database health diagnostics.
+- Failed-write reporting.
+- Safe recovery instructions.
+- Backup reminders.
+- Restore preflight checks.
+
+Never promise that browser storage can never be evicted.
+
+The user must understand that browser storage is not a replacement for an independent backup.
+
+## 3.5 Repository and service contracts
+
+Each repository should have a clear responsibility.
+
+Each service should:
+
+- Validate input.
+- Enforce business rules.
+- Use repositories.
+- Handle errors consistently.
+- Return predictable results.
+- Avoid UI dependencies.
+- Be testable independently.
+
+The frontend must not contain duplicated business logic.
+
+# 4. BACKUP, RESTORE AND DATA SECURITY
+
+Treat this as a release-blocking area.
+
+Audit the existing versioned JSON backup and encrypted backup system.
+
+Verify:
+
+- Schema version.
+- Export completeness.
+- Import validation.
+- Duplicate handling.
+- Conflict inspection.
+- Pre-restore snapshot.
+- Atomic restore.
+- Rollback behavior.
+- Encryption/decryption.
+- Wrong passphrase behavior.
+- Corrupted file behavior.
+- Large backup handling.
+- Cross-version compatibility.
+- Sensitive-data exclusions.
+- Recovery instructions.
+
+For Web Crypto encryption:
+
+- Use a strong password-based key derivation design.
+- Use a unique cryptographic salt.
+- Use a unique AES-GCM nonce for each encryption operation.
+- Store required algorithm metadata with the encrypted backup.
+- Never hardcode passphrases.
+- Never silently persist the user's passphrase.
+- Clearly document the consequences of losing the passphrase.
+- Verify authentication failure for tampered backup content.
+
+Do not claim encryption makes all browser data safe against malicious JavaScript or XSS.
+
+# 5. AI FOUNDATION — PROVIDER-NEUTRAL AND PRIVACY-FIRST
+
+Build a clean AI architecture, not a fragile collection of API calls.
+
+## 5.1 Provider architecture
+
+Create or strengthen:
+
+- Provider interface.
+- Mock/offline provider.
+- Provider capability registry.
+- Prompt manager.
+- Context builder.
+- Response validator.
+- Usage and error reporting.
+- Permission checks.
+- Approval manager.
+- Provider settings.
+
+The app must continue working if every external AI provider is unavailable.
+
+Do not hardcode one model as a permanent assumption.
+
+Do not assume that a model name, model endpoint, quota or free tier exists without verification.
+
+Do not put API keys in frontend source, GitHub, IndexedDB, localStorage, sessionStorage, logs or exported backups.
+
+Do not implement age-restricted provider access or bypass provider terms. External AI adapters must remain disabled unless the account owner is legally eligible and the provider's current terms permit the intended use.
+
+Keep the MockProvider functional and useful offline.
+
+## 5.2 Context-aware AI tools
+
+Implement or improve meaningful tools for:
+
+- Proposal drafting.
+- Email drafting.
+- Client communication drafts.
+- Project planning.
+- Task suggestions.
+- Invoice explanation.
+- Expense categorization suggestions.
+- Project profitability explanation.
+- Business report summaries.
+- Knowledge question answering.
+
+AI must not invent client records, payments, invoices, expenses, project progress or business metrics.
+
+When responding with business insights, use actual application records and distinguish facts from suggestions.
+
+## 5.3 Tool permissions and approvals
+
+Every AI tool must have:
+
+- A defined schema.
+- Input validation.
+- Permission requirements.
+- A clear description.
+- A defined output.
+- Error handling.
+- Audit history where appropriate.
+
+Read-only operations can be allowed within the user's granted permissions.
+
+Write operations must create drafts first.
+
+Require explicit user approval before creating or modifying consequential business records.
+
+Never allow an AI response to directly execute an arbitrary command, database query, filesystem operation or unrestricted network request.
+
+## 5.4 AI privacy
+
+Before any external transfer:
+
+- Show what data will be sent.
+- Identify the destination provider.
+- Explain that external processing is occurring.
+- Obtain explicit consent.
+- Allow cancellation.
+- Avoid sending unrelated client data.
+- Support local-only mode.
+
+Do not send private client documents to an external service by default.
+
+# 6. KNOWLEDGE HUB AND RAG — BUILD REAL RETRIEVAL, NOT FAKE AI
+
+The existing local Knowledge Hub already supports pasted notes and text-oriented file ingestion. Strengthen it incrementally.
+
+## 6.1 Supported knowledge sources
+
+Preserve existing support for:
+
+- TXT.
+- MD.
+- MARKDOWN.
+- JSON.
+- CSV.
+- Pasted notes.
+
+Audit file-size limits, validation and parser safety.
+
+Add additional formats only when a genuine use case and safe parser are available.
+
+## 6.2 Ingestion pipeline
+
+Implement a clear pipeline:
+
+1. File/source validation.
+2. MIME and extension verification.
+3. Size validation.
+4. Safe text extraction.
+5. Normalization.
+6. Duplicate detection.
+7. Deterministic chunking.
+8. Metadata extraction.
+9. Index creation.
+10. Source attribution.
+11. Ingestion status.
+12. Error reporting.
+
+Each document must preserve:
+
+- Document ID.
+- Original filename or source.
+- Source URL when applicable.
+- Import date.
+- Content hash.
+- Document type.
+- License/rights metadata when relevant.
+- Chunk count.
+- Processing status.
+- User-defined collection.
+- User-defined tags.
+
+## 6.3 Retrieval quality
+
+Start with reliable local keyword retrieval.
+
+Improve:
+
+- Token normalization.
+- Case handling.
+- Phrase matching.
+- Ranking.
+- Exact-match preference.
+- Duplicate suppression.
+- Chunk relevance.
+- Context limits.
+- Citation extraction.
+- Search filters.
+- Source selection.
+
+Evaluate retrieval quality before introducing embeddings.
+
+Only add embeddings if measured retrieval failures justify them and the implementation remains compatible with the user's hardware and offline expectations.
+
+Do not download a large embedding model automatically.
+
+## 6.4 Grounded responses
+
+Every knowledge-based response should:
+
+- Cite the source document.
+- Show relevant excerpts.
+- Distinguish retrieved facts from model-generated interpretation.
+- Say when no reliable source was found.
+- Avoid fabricated citations.
+- Respect document deletion and access permissions.
+
+## 6.5 RAG evaluation
+
+Create a small, curated evaluation suite with questions and expected source documents.
+
+Measure:
+
+- Retrieval relevance.
+- Recall at K.
+- Precision at K where applicable.
+- Citation correctness.
+- Unsupported-answer rate.
+- Duplicate retrieval.
+- Latency.
+- Index size.
+
+Create reproducible tests for the existing local RAG benchmark.
+
+Document benchmark methodology and actual results.
+
+# 7. DATASETS — USE THEM CORRECTLY
+
+You may investigate public dataset sources, including:
+
+- Hugging Face Datasets: https://huggingface.co/datasets
+- Hugging Face documentation: https://huggingface.co/docs/datasets
+- Hugging Face dataset cards: https://huggingface.co/docs/hub/en/datasets-cards
+- Kaggle datasets: https://www.kaggle.com/datasets
+- Google Dataset Search: https://datasetsearch.research.google.com/
+- UCI Machine Learning Repository: https://archive.ics.uci.edu/
+- GitHub public repositories: https://github.com/
+
+However, do not automatically download random datasets.
+
+For every selected dataset:
+
+1. Identify its original source.
+2. Read its dataset card.
+3. Verify the license.
+4. Check commercial-use permissions.
+5. Check redistribution permissions.
+6. Check attribution requirements.
+7. Inspect privacy and personal-data risks.
+8. Inspect quality and known biases.
+9. Check size and format.
+10. Record the intended use.
+11. Record the source URL and retrieval date.
+12. Record the license and any restrictions.
+13. Keep only a small, relevant sample when possible.
+
+Create a dataset registry, for example:
+
+`src/knowledge/datasets/registry/`
+
+And documentation:
+
+- `docs/DATASET_POLICY.md`
+- `docs/DATASET_REGISTRY.md`
+- `docs/DATASET_LICENSE_AUDIT.md`
+
+Each dataset entry should include:
+
+- Dataset name.
+- Source.
+- License.
+- Version.
+- Language.
+- Size.
+- Intended purpose.
+- Commercial-use status.
+- Attribution requirements.
+- Privacy assessment.
+- Download status.
+- Evaluation status.
+
+## IMPORTANT: DO NOT CONFUSE DATASETS WITH MODEL TRAINING
+
+Downloading a dataset does not train an AI model.
+
+Do not claim the SOLODESK AI model has been trained simply because files have been downloaded, indexed or added to folders.
+
+Do not start model fine-tuning or large-scale training in this project.
+
+For the 5 December deadline, use curated datasets primarily for:
+
+- RAG testing.
+- Retrieval evaluation.
+- Classification test cases.
+- Synthetic demo data.
+- Prompt evaluation.
+- Business workflow testing.
+- Edge-case testing.
+
+Do not use real customer records as training data.
+
+Do not store copyrighted or restricted datasets merely to make the application appear more intelligent.
+
+Build a clean, documented knowledge library with relevant, licensed and traceable content.
+
+# 8. CRAWLER AND URL IMPORTER — CONTROLLED IMPLEMENTATION
+
+A crawler can be useful, but it must not become an unrestricted background scraper.
+
+Build a user-triggered URL import service only if it can be implemented safely within the current architecture.
+
+Recommended responsibilities:
+
+`src/integrations/crawler/`
+- URL validation.
+- Public URL policy.
+- robots.txt handling.
+- Fetch policy.
+- Content extraction.
+- Content normalization.
+- Source metadata.
+- Import limits.
+- Error reporting.
+- User approval.
+
+## Mandatory protections
+
+- Accept only appropriate public HTTP/HTTPS URLs.
+- Reject localhost and loopback destinations.
+- Reject private, link-local and reserved IP destinations.
+- Prevent DNS rebinding and redirect-based SSRF.
+- Revalidate every redirect destination.
+- Block access to cloud metadata endpoints.
+- Do not access login-protected or private pages.
+- Do not request or store passwords, cookies or authentication tokens.
+- Enforce connection and total request timeouts.
+- Enforce response-size limits.
+- Enforce content-type allowlists.
+- Limit redirects.
+- Limit pages per import.
+- Limit concurrent requests.
+- Respect applicable robots.txt rules and website terms.
+- Use conservative request rates.
+- Avoid repeated unnecessary requests.
+- Preserve source URL and retrieval date.
+- Allow the user to delete imported content.
+- Never execute scripts from retrieved pages.
+- Treat retrieved content as untrusted data.
+- Never follow instructions embedded in crawled content as privileged AI instructions.
+
+Do not build continuous crawling, massive scraping, account automation or unrestricted recursive crawling.
+
+For the deadline, a safe single-URL importer is more valuable than a complex crawler that is unreliable or unsafe.
+
+# 9. FRONTEND — AFTER BACKEND FOUNDATION
+
+Once the backend and data integrity work is complete, strengthen the UI.
+
+Preserve the current SOLODESK brand and existing design system.
+
+Do not copy competitor branding or proprietary interfaces.
+
+Use:
+
+- Existing React component architecture.
+- Existing Tailwind setup.
+- Existing Lucide React icons.
+- Existing theme system.
+- Existing responsive shell.
+- Existing command palette.
+- Existing PWA assets.
+
+Do not replace the icon library unless there is a demonstrated need.
+
+Create original brand SVG assets if improvements are needed. Avoid copying third-party logos.
+
+## 9.1 Design quality
+
+Improve:
+
+- Visual hierarchy.
+- Consistent spacing.
+- Typography.
+- Form layout.
+- Empty states.
+- Loading states.
+- Error states.
+- Success feedback.
+- Confirmation dialogs.
+- Keyboard accessibility.
+- Mobile navigation.
+- Touch targets.
+- Responsive tables.
+- Chart readability.
+- Print layouts.
+
+Keep the interface professional, modern, lightweight and fast.
+
+Avoid excessive animation, heavy 3D effects and unnecessary visual libraries.
+
+## 9.2 Every panel must work
+
+Inspect all navigation groups and feature panels.
+
+For every panel, verify:
+
+- It loads.
+- It displays real data.
+- It has meaningful actions.
+- Forms validate.
+- Save operations persist.
+- Edit operations work.
+- Delete/archive actions are safe.
+- Search and filtering work.
+- Empty states are helpful.
+- Errors are visible.
+- Mobile layout works.
+- Keyboard navigation works.
+
+Do not leave dead buttons or fake charts.
+
+If a feature is not implemented, label it honestly or hide it from the release UI.
+
+## 9.3 Business workflows
+
+Ensure the application has connected workflows:
+
+Lead → Client → Proposal → Quotation → Contract → Project → Tasks → Time Entries → Invoice → Payment → Profitability Report.
+
+Where the product supports only part of this workflow, document the limitation rather than fabricating completion.
+
+Ensure related records stay consistent.
+
+# 10. FEATURE PANELS — PRIORITIZE, DO NOT BLOAT
+
+Audit the existing modules and fill important gaps in this order.
+
+## P0 — Release essentials
+
+- Dashboard.
+- Clients and CRM.
+- Projects.
+- Tasks and milestones.
+- Time tracker.
+- Proposals.
+- Quotations.
+- Contracts.
+- Invoices.
+- Payments.
+- Expenses.
+- Income.
+- Profitability.
+- Reports.
+- Knowledge Hub.
+- AI Copilot offline mode.
+- Backup and restore.
+- Settings.
+- Privacy and storage diagnostics.
+- PWA installation and offline behavior.
+
+## P1 — High-value improvements
+
+- Lead pipeline.
+- Client follow-up manager.
+- Service catalog.
+- Document templates.
+- Calendar and agenda.
+- Project estimates versus actuals.
+- Business health indicators.
+- Knowledge collections.
+- Better global search.
+- Workflow templates.
+- Import validation and preview.
+- Export history.
+- Productivity insights.
+
+## P2 — Only if P0 and P1 are stable
+
+- User-triggered URL import.
+- More advanced RAG evaluation.
+- Workflow builder.
+- Appointment scheduling.
+- Additional integrations.
+- Client portal architecture planning.
+
+## P3 — Future roadmap, not deadline blockers
+
+- Multi-user teams.
+- Cloud synchronization.
+- White-label portals.
+- Multi-workspace support.
+- Advanced external integrations.
+- Real-time collaboration.
+- Hosted backend and account infrastructure.
+
+Do not introduce complex authentication, cloud synchronization or a client portal without a proper security and data-ownership design.
+
+# 11. WORKFLOW AUTOMATION
+
+Build a safe workflow engine only after the underlying domain services are stable.
+
+Potential workflow:
+
+Proposal accepted → project draft → task checklist draft → invoice draft → user approval.
+
+Every workflow must have:
+
+- Trigger.
+- Conditions.
+- Actions.
+- Validation.
+- Execution history.
+- Error state.
+- Retry policy.
+- Duplicate-execution protection.
+- User approval where necessary.
+
+Do not let an automation send emails, issue payments, publish content or perform other consequential actions without appropriate authorization and confirmation.
+
+# 12. SECURITY REVIEW
+
+Perform a practical security review.
+
+Inspect:
+
+- XSS risks.
+- Unsafe HTML rendering.
+- URL handling.
+- CSV formula injection.
+- JSON import validation.
+- File parsing.
+- Dependency vulnerabilities.
+- Secret leakage.
+- Error message leakage.
+- Backup encryption.
+- AI prompt injection.
+- External data transfer.
+- Crawler SSRF.
+- Service worker caching.
+- Content Security Policy.
+- Permissions and approval gates.
+
+Use a strict Content Security Policy where compatible with the application. Start in report-only mode if needed, inspect violations and then enforce a tested policy.
+
+Do not weaken CSP just to make a feature work.
+
+Do not treat IndexedDB as a secure vault.
+
+Do not store credentials or session tokens in browser storage.
+
+Document known risks and residual limitations.
+
+Create:
+
+- `docs/SECURITY_REVIEW.md`
+- `docs/PRIVACY_MODEL.md`
+- `docs/THREAT_MODEL.md`
+- `docs/KNOWN_LIMITATIONS.md`
+
+# 13. TESTING — RELEASE BLOCKING
+
+The current reported test result is 9 test files and 37/37 tests passed. Preserve those tests and expand them.
+
+Do not delete or weaken tests to make the suite pass.
+
+## 13.1 Unit and integration tests
+
+Test:
+
+- Database migrations.
+- Repository behavior.
+- Zod validation.
+- Financial calculations.
+- Tax calculations.
+- Payment consistency.
+- Invoice conversion.
+- Timer recovery.
+- Project and task relationships.
+- Search.
+- Backup and restore.
+- Encryption.
+- RAG ingestion.
+- RAG retrieval.
+- Citation correctness.
+- AI approval gates.
+- Provider failure handling.
+- Import/export validation.
+- Workflow execution.
+
+## 13.2 Browser E2E
+
+The previous report explicitly stated that Playwright E2E was NOT RUN.
+
+Resolve this gap.
+
+Use Playwright with Chromium first.
+
+Install only what is needed and verify compatibility with the current environment.
+
+If browser installation fails, document the exact error and provide a reproducible command for the local Windows environment.
+
+Build E2E coverage for:
+
+1. First launch.
+2. Demo workspace.
+3. Clean start.
+4. Create and edit client.
+5. Create project.
+6. Create task.
+7. Start and stop timer.
+8. Create proposal.
+9. Convert quotation to invoice.
+10. Record partial payment.
+11. Record expense.
+12. View profitability.
+13. Import knowledge document.
+14. Search knowledge.
+15. Generate offline AI draft.
+16. Approve a permitted draft action.
+17. Export backup.
+18. Restore backup.
+19. Installability checks.
+20. Offline reload.
+
+Test desktop and mobile viewport layouts.
+
+## 13.3 PWA tests
+
+Verify:
+
+- Manifest validity.
+- Icon files.
+- Service worker registration.
+- Offline app shell.
+- Offline navigation.
+- Update behavior.
+- Cache invalidation.
+- Old asset cleanup.
+- Install prompt behavior.
+- iOS installation instructions.
+- Recovery from failed updates.
+
+Do not cache sensitive user data or private API responses indiscriminately.
+
+## 13.4 Quality metrics
+
+Report:
+
+- Unit test count.
+- Integration test count.
+- E2E test count.
+- Passed tests.
+- Failed tests.
+- Skipped tests.
+- Coverage percentages where available.
+- Build status.
+- TypeScript status.
+- Lint status.
+- Browser results.
+- Known failures.
+
+A passing build alone is not sufficient evidence of release readiness.
+
+# 14. PERFORMANCE AND RESOURCE EFFICIENCY
+
+Optimize for ordinary computers and mobile devices.
+
+Avoid:
+
+- Large model downloads.
+- Heavy local inference.
+- GPU-dependent features.
+- Unnecessary 3D packages.
+- Oversized chart bundles.
+- Excessive dependencies.
+- Huge background jobs.
+- Unbounded file ingestion.
+- Unbounded crawler requests.
+
+Improve:
+
+- Lazy loading.
+- Code splitting.
+- Route-level loading.
+- IndexedDB query efficiency.
+- Search responsiveness.
+- Chunk processing.
+- Large table rendering.
+- Image optimization.
+- Service worker caching.
+- Bundle-size reporting.
+
+Measure actual results before and after changes.
+
+# 15. BRAND, ICONS, LOGOS AND ASSETS
+
+Preserve the existing SOLODESK identity.
+
+Audit the current logo, app icons, favicon, PWA icons and UI icon consistency.
+
+Use the installed Lucide React icon library where suitable.
+
+Use original SVG brand artwork and consistent icon sizing.
+
+Use properly licensed fonts and assets.
+
+Do not download random logo packs or copy competitor logos.
+
+Avoid unnecessary image assets and heavy animations.
+
+Verify all PWA icon dimensions and manifest references.
+
+# 16. DOCUMENTATION
+
+Maintain concise but complete documentation:
+
+- `README.md`
+- `docs/ARCHITECTURE.md`
+- `docs/DATABASE.md`
+- `docs/DATA_MODEL.md`
+- `docs/API_AND_SERVICE_CONTRACTS.md`
+- `docs/AI_ARCHITECTURE.md`
+- `docs/RAG_ARCHITECTURE.md`
+- `docs/DATASET_POLICY.md`
+- `docs/DATASET_REGISTRY.md`
+- `docs/CRAWLER_SAFETY.md`
+- `docs/SECURITY_REVIEW.md`
+- `docs/PRIVACY_MODEL.md`
+- `docs/TESTING.md`
+- `docs/PWA.md`
+- `docs/USER_GUIDE.md`
+- `docs/RELEASE_CHECKLIST.md`
+- `docs/CHANGELOG.md`
+
+Update existing documents instead of creating duplicate documentation.
+
+# 17. DEADLINE AND EXECUTION PLAN
+
+The deadline is fixed: **5 December 2026**.
+
+Use the following schedule as a target, adjusting based on real audit findings.
+
+### 16–17 November: Audit and architecture
+
+- Verify baseline.
+- Inspect all source files.
+- Map dependencies.
+- Identify missing implementation.
+- Produce gap report.
+- Finalize backend work plan.
+
+### 18–21 November: Backend hardening
+
+- Database integrity.
+- Transactions.
+- Repositories.
+- Domain services.
+- Financial correctness.
+- Storage health.
+- Backup/restore.
+- Import/export safety.
+
+### 22–24 November: AI and knowledge
+
+- Provider-neutral architecture.
+- Offline AI reliability.
+- RAG ingestion.
+- Retrieval quality.
+- Citation correctness.
+- Dataset registry.
+- Safe URL importer only if justified.
+
+### 25–28 November: Frontend and workflows
+
+- Interactive feature panels.
+- Responsive layout.
+- Connected business workflows.
+- Form validation.
+- Empty/loading/error states.
+- Search and command palette.
+- Dashboard improvements.
+
+### 29 November–2 December: Security and QA
+
+- Security review.
+- Unit and integration tests.
+- Playwright Chromium E2E.
+- PWA offline checks.
+- Browser compatibility.
+- Performance checks.
+- Fix regressions.
+
+### 3–4 December: Release candidate
+
+- Final bug fixes.
+- Documentation.
+- Backup and restore verification.
+- Final production build.
+- Final release checklist.
+- Known limitations report.
+
+### 5 December: Completion checkpoint
+
+- Final evidence-based report.
+- Release candidate status.
+- Remaining blockers.
+- Manual release instructions.
+- No automatic publishing or GitHub push.
+
+If the deadline becomes threatened, cut P2/P3 scope first. Never compromise data integrity or security to meet a feature-count target.
+
+# 18. REQUIRED FINAL REPORT
+
+At the end, provide:
+
+## A. Project status
+
+- Actual implementation status.
+- Actual release readiness.
+- Deadline status.
+- Major blockers.
+
+## B. Backend
+
+- Database architecture.
+- Migrations.
+- Repositories.
+- Domain services.
+- Transactions.
+- Financial correctness.
+- Backup/restore.
+- Storage health.
+
+## C. AI and knowledge
+
+- Provider architecture.
+- Offline capabilities.
+- AI tool permissions.
+- RAG ingestion.
+- Retrieval benchmark.
+- Citation quality.
+- Dataset registry.
+- Crawler status.
+- Privacy limitations.
+
+## D. Frontend
+
+- Implemented panels.
+- Working workflows.
+- Responsive behavior.
+- Accessibility.
+- Visual improvements.
+
+## E. Testing evidence
+
+For every test command, include:
+
+- Exact command.
+- Whether it ran.
+- Actual result.
+- Passed/failed/skipped counts.
+- Relevant errors.
+
+## F. Performance
+
+- Build output.
+- Bundle sizes.
+- Lazy-loaded modules.
+- Runtime observations.
+- Storage observations.
+
+## G. Security
+
+- Issues found.
+- Issues fixed.
+- Remaining risks.
+- External data transfer behavior.
+- Credential handling.
+
+## H. Final classification
+
+Classify every major feature as one of:
+
+- IMPLEMENTED.
+- TESTED.
+- VERIFIED.
+- PARTIALLY IMPLEMENTED.
+- BLOCKED.
+- NOT IMPLEMENTED.
+- NOT APPLICABLE.
+
+Do not use the word COMPLETE when only the UI exists.
+
+Do not use VERIFIED when only a unit test passed.
+
+Do not call the app production-ready without the relevant release checks.
+
+---
+
+# 19. RELATED OFFICIAL DOCUMENTATION
+
+Use official documentation as the first reference and verify current versions before making changes.
+
+**Core application**
+- React: https://react.dev/
+- Vite: https://vite.dev/guide/
+- TypeScript: https://www.typescriptlang.org/docs/
+- Tailwind CSS: https://tailwindcss.com/docs
+- Dexie: https://dexie.org/docs/
+- Dexie best practices: https://dexie.org/docs/Tutorial/Best-Practices
+- Zod: https://zod.dev/
+- big.js: https://github.com/MikeMcl/big.js
+
+**PWA and browser storage**
+- Vite PWA: https://vite-pwa-org.netlify.app/
+- Workbox: https://developer.chrome.com/docs/workbox/
+- MDN IndexedDB: https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API
+- MDN Storage quotas: https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria
+- Web Crypto API: https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API
+
+**Testing**
+- Vitest: https://vitest.dev/guide/
+- Vitest coverage: https://vitest.dev/guide/coverage
+- Playwright: https://playwright.dev/docs/intro
+- Testing Library: https://testing-library.com/docs/
+
+**AI and datasets**
+- Hugging Face Datasets: https://huggingface.co/docs/datasets
+- Hugging Face Hub: https://huggingface.co/docs/hub/
+- Hugging Face dataset cards: https://huggingface.co/docs/hub/en/datasets-cards
+- UCI Repository: https://archive.ics.uci.edu/
+- Google Dataset Search: https://datasetsearch.research.google.com/
+
+**Security**
+- OWASP Cheat Sheet Series: https://cheatsheetseries.owasp.org/
+- OWASP HTML5 Security: https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html
+- OWASP Web Security Testing Guide: https://owasp.org/www-project-web-security-testing-guide/
+- MDN CSP: https://developer.mozilla.org/en-US/docs/Web/Security/Practical_implementation_guides/CSP
+- RFC 9309 Robots Exclusion Protocol: https://www.rfc-editor.org/rfc/rfc9309.html
+
+**Icons and visual assets**
+- Lucide: https://lucide.dev/
+- Google Fonts: https://fonts.google.com/
+
+---
+
+# FINAL INSTRUCTION
+
+Start with Phase Zero.
+
+Inspect the actual project before changing anything.
+
+Then execute the safest, highest-value work in the specified order.
+
+Backend and data integrity first. AI/RAG second. Frontend third. Security and full verification fourth.
+
+Do not waste time downloading huge datasets, training models without a justified training plan, installing unnecessary frameworks, rebuilding existing working modules or creating a complex cloud backend that the product does not need.
+
+The goal is not to make SOLODESK AI look enormous.
+
+The goal is to make it genuinely useful, reliable, private, fast, connected, interactive and ready for a responsible release by **5 December 2026**.
+
+**Build real functionality. Preserve existing work. Test everything. Report only what the evidence proves.**

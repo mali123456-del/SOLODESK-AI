@@ -262,6 +262,33 @@ export async function seedDemoWorkspace(database: SolodeskDatabase = defaultDb):
     isDemo: true,
   });
 
+  await repo.createServiceItem({
+    name: '[Demo] Storefront Performance Audit & Sprint',
+    description: 'Lighthouse audit, render profiling, and checkout speed improvements.',
+    category: 'Web Performance',
+    defaultUnitPrice: 1200,
+    currency: settings.defaultCurrency,
+    billingUnit: 'fixed',
+    estimatedHours: 20,
+    defaultTaxable: true,
+    active: true,
+    isDemo: true,
+  });
+
+  await repo.createAppointment({
+    clientId: clientA.id,
+    projectId: projectA.id,
+    title: '[Demo] Weekly Storefront Sprint Check-in',
+    date: addDaysToDateStr(today, 1),
+    startTime: '11:00',
+    durationMinutes: 30,
+    locationOrLink: 'Video Call',
+    status: 'scheduled',
+    meetingNotes: 'Review cart drawer latency numbers and deployment checklist.',
+    followUpRequired: true,
+    isDemo: true,
+  });
+
   await repo.saveSettings({
     demoDataActive: true,
     onboardingCompleted: true,
@@ -284,6 +311,8 @@ export async function clearDemoWorkspaceData(
       database.payments,
       database.financeEntries,
       database.timeEntries,
+      database.serviceCatalog,
+      database.appointments,
       database.appSettings,
     ],
     async () => {
@@ -298,6 +327,8 @@ export async function clearDemoWorkspaceData(
         database.payments,
         database.financeEntries,
         database.timeEntries,
+        database.serviceCatalog,
+        database.appointments,
       ];
       for (const tbl of tables) {
         const all = await tbl.toArray();

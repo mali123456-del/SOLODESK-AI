@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { db } from '../database/db';
 import {
   activityEventSchema,
+  appointmentSchema,
   appSettingsSchema,
   businessProfileSchema,
   clientSchema,
@@ -16,9 +17,15 @@ import {
   proposalSchema,
   quotationSchema,
   reusableTemplateSchema,
+  serviceCatalogItemSchema,
   taskSchema,
   timeEntrySchema,
+  workflowRunSchema,
+  workspaceGoalSchema,
 } from '../domain/schemas/entities';
+
+export const CURRENT_BACKUP_SCHEMA_VERSION = 4;
+export const DEFAULT_PBKDF2_ITERATIONS = 210_000;
 
 export const backupDataSchema = z.object({
   businessProfile: z.array(businessProfileSchema).default([]),
@@ -36,13 +43,17 @@ export const backupDataSchema = z.object({
   templates: z.array(reusableTemplateSchema).default([]),
   knowledgeDocs: z.array(knowledgeDocumentSchema).default([]),
   documentChunks: z.array(documentChunkSchema).default([]),
+  workflowRuns: z.array(workflowRunSchema).default([]),
+  serviceCatalog: z.array(serviceCatalogItemSchema).default([]),
+  appointments: z.array(appointmentSchema).default([]),
+  workspaceGoals: z.array(workspaceGoalSchema).default([]),
   activities: z.array(activityEventSchema).default([]),
   notifications: z.array(notificationItemSchema).default([]),
 });
 
 export const backupPayloadSchema = z.object({
   format: z.literal('solodesk-backup'),
-  schemaVersion: z.number().int().min(1).max(2),
+  schemaVersion: z.number().int().min(1).max(CURRENT_BACKUP_SCHEMA_VERSION),
   exportedAt: z.string().min(1),
   recordCounts: z.record(z.string(), z.number().int().min(0)),
   data: backupDataSchema,
@@ -77,7 +88,11 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-async function deriveAesKey(passphrase: string, salt: Uint8Array, iterations = 100_000): Promise<CryptoKey> {
+async function deriveAesKey(
+  passphrase: string,
+  salt: Uint8Array,
+  iterations = DEFAULT_PBKDF2_ITERATIONS
+): Promise<CryptoKey> {
   const subtle = globalThis.crypto?.subtle;
   if (!subtle) {
     throw new Error('Web Crypto API is unavailable in this environment.');
@@ -110,7 +125,7 @@ export async function encryptBackupJson(plainJson: string, passphrase: string): 
   }
   const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
-  const iterations = 100_000;
+  const iterations = DEFAULT_PBKDF2_ITERATIONS;
   const key = await deriveAesKey(passphrase, salt, iterations);
   const encoded = new TextEncoder().encode(plainJson);
   const cipherBuf = await globalThis.crypto.subtle.encrypt(
@@ -135,6 +150,11 @@ export async function decryptBackupJson(encryptedJson: string, passphrase: strin
   const salt = base64ToBytes(parsed.saltB64);
   const iv = base64ToBytes(parsed.ivB64);
   const ciphertext = base64ToBytes(parsed.ciphertextB64);
+
+  if (salt.length !== 16 || iv.length !== 12 || ciphertext.length === 0) {
+    throw new Error('Corrupted encrypted backup metadata (invalid salt or IV length).');
+  }
+
   const key = await deriveAesKey(passphrase, salt, parsed.iterations);
   try {
     const plainBuf = await globalThis.crypto.subtle.decrypt(
@@ -165,6 +185,10 @@ export async function createBackupPayload(): Promise<BackupPayload> {
     templates,
     knowledgeDocs,
     documentChunks,
+    workflowRuns,
+    serviceCatalog,
+    appointments,
+    workspaceGoals,
     activities,
     notifications,
   ] = await Promise.all([
@@ -183,6 +207,10 @@ export async function createBackupPayload(): Promise<BackupPayload> {
     db.templates.toArray(),
     db.knowledgeDocs.toArray(),
     db.documentChunks.toArray(),
+    db.workflowRuns.toArray(),
+    db.serviceCatalog.toArray(),
+    db.appointments.toArray(),
+    db.workspaceGoals.toArray(),
     db.activities.toArray(),
     db.notifications.toArray(),
   ]);
@@ -203,6 +231,10 @@ export async function createBackupPayload(): Promise<BackupPayload> {
     templates,
     knowledgeDocs,
     documentChunks,
+    workflowRuns,
+    serviceCatalog,
+    appointments,
+    workspaceGoals,
     activities,
     notifications,
   };
@@ -220,11 +252,15 @@ export async function createBackupPayload(): Promise<BackupPayload> {
     timeEntries: timeEntries.length,
     templates: templates.length,
     knowledgeDocs: knowledgeDocs.length,
+    workflowRuns: workflowRuns.length,
+    serviceCatalog: serviceCatalog.length,
+    appointments: appointments.length,
+    workspaceGoals: workspaceGoals.length,
   };
 
   return backupPayloadSchema.parse({
     format: 'solodesk-backup',
-    schemaVersion: 2,
+    schemaVersion: CURRENT_BACKUP_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
     recordCounts,
     data,
@@ -237,8 +273,13 @@ export interface BackupInspectionResult {
   conflicts: {
     matchingClientIds: number;
     duplicateInvoiceNumbers: string[];
+    invoiceNumberCollisionsAcrossIds: string[];
     matchingProjectIds: number;
     matchingTaskIds: number;
+    matchingQuotationIds: number;
+    matchingProposalIds: number;
+    matchingContractIds: number;
+    matchingKnowledgeDocIds: number;
   };
 }
 
@@ -266,8 +307,13 @@ export async function inspectBackupText(
         conflicts: {
           matchingClientIds: 0,
           duplicateInvoiceNumbers: [],
+          invoiceNumberCollisionsAcrossIds: [],
           matchingProjectIds: 0,
           matchingTaskIds: 0,
+          matchingQuotationIds: 0,
+          matchingProposalIds: 0,
+          matchingContractIds: 0,
+          matchingKnowledgeDocIds: 0,
         },
       };
     }
@@ -277,28 +323,59 @@ export async function inspectBackupText(
 
   const payload = backupPayloadSchema.parse(rawObj);
 
-  const [existingClients, existingInvoices, existingProjects, existingTasks] = await Promise.all([
+  const [
+    existingClients,
+    existingInvoices,
+    existingProjects,
+    existingTasks,
+    existingQuotations,
+    existingProposals,
+    existingContracts,
+    existingDocs,
+  ] = await Promise.all([
     db.clients.toArray(),
     db.invoices.toArray(),
     db.projects.toArray(),
     db.tasks.toArray(),
+    db.quotations.toArray(),
+    db.proposals.toArray(),
+    db.contracts.toArray(),
+    db.knowledgeDocs.toArray(),
   ]);
 
   const existingClientIds = new Set(existingClients.map((c) => c.id));
-  const existingInvoiceNums = new Set(existingInvoices.map((i) => i.number));
+  const existingInvoiceByNumber = new Map(existingInvoices.map((i) => [i.number, i.id]));
   const existingProjectIds = new Set(existingProjects.map((p) => p.id));
   const existingTaskIds = new Set(existingTasks.map((t) => t.id));
+  const existingQuotationIds = new Set(existingQuotations.map((q) => q.id));
+  const existingProposalIds = new Set(existingProposals.map((p) => p.id));
+  const existingContractIds = new Set(existingContracts.map((c) => c.id));
+  const existingDocIds = new Set(existingDocs.map((d) => d.id));
+
+  const duplicateInvoiceNumbers = payload.data.invoices
+    .filter((i) => existingInvoiceByNumber.has(i.number))
+    .map((i) => i.number);
+
+  const invoiceNumberCollisionsAcrossIds = payload.data.invoices
+    .filter((i) => {
+      const existingId = existingInvoiceByNumber.get(i.number);
+      return existingId !== undefined && existingId !== i.id;
+    })
+    .map((i) => i.number);
 
   return {
     requiresPassphrase: false,
     payload,
     conflicts: {
       matchingClientIds: payload.data.clients.filter((c) => existingClientIds.has(c.id)).length,
-      duplicateInvoiceNumbers: payload.data.invoices
-        .filter((i) => existingInvoiceNums.has(i.number))
-        .map((i) => i.number),
+      duplicateInvoiceNumbers,
+      invoiceNumberCollisionsAcrossIds,
       matchingProjectIds: payload.data.projects.filter((p) => existingProjectIds.has(p.id)).length,
       matchingTaskIds: payload.data.tasks.filter((t) => existingTaskIds.has(t.id)).length,
+      matchingQuotationIds: payload.data.quotations.filter((q) => existingQuotationIds.has(q.id)).length,
+      matchingProposalIds: payload.data.proposals.filter((p) => existingProposalIds.has(p.id)).length,
+      matchingContractIds: payload.data.contracts.filter((c) => existingContractIds.has(c.id)).length,
+      matchingKnowledgeDocIds: payload.data.knowledgeDocs.filter((d) => existingDocIds.has(d.id)).length,
     },
   };
 }
@@ -306,9 +383,10 @@ export async function inspectBackupText(
 export async function restoreBackupPayload(
   payload: BackupPayload,
   mode: 'replace' | 'merge'
-): Promise<{ safetySnapshot: BackupPayload }> {
+): Promise<{ safetySnapshot: BackupPayload; renamedInvoiceNumbers: string[] }> {
   const validated = backupPayloadSchema.parse(payload);
   const safetySnapshot = await createBackupPayload();
+  const renamedInvoiceNumbers: string[] = [];
 
   await db.transaction(
     'rw',
@@ -328,6 +406,10 @@ export async function restoreBackupPayload(
       db.templates,
       db.knowledgeDocs,
       db.documentChunks,
+      db.workflowRuns,
+      db.serviceCatalog,
+      db.appointments,
+      db.workspaceGoals,
       db.activities,
       db.notifications,
     ],
@@ -349,12 +431,42 @@ export async function restoreBackupPayload(
           db.templates.clear(),
           db.knowledgeDocs.clear(),
           db.documentChunks.clear(),
+          db.workflowRuns.clear(),
+          db.serviceCatalog.clear(),
+          db.appointments.clear(),
+          db.workspaceGoals.clear(),
           db.activities.clear(),
           db.notifications.clear(),
         ]);
       }
 
       const d = validated.data;
+
+      // Reconcile unique `&number` index collisions on invoices before bulkPut so merge never aborts with ConstraintError
+      let invoicesToWrite = d.invoices;
+      if (d.invoices.length > 0) {
+        const existingInvoices = mode === 'merge' ? await db.invoices.toArray() : [];
+        const usedNumbers = new Map<string, string>(
+          existingInvoices.map((inv) => [inv.number, inv.id])
+        );
+        invoicesToWrite = d.invoices.map((inv) => {
+          const ownerId = usedNumbers.get(inv.number);
+          if (!ownerId || ownerId === inv.id) {
+            usedNumbers.set(inv.number, inv.id);
+            return inv;
+          }
+          let suffix = 1;
+          let candidate = `${inv.number}-IMPORT-${suffix}`;
+          while (usedNumbers.has(candidate)) {
+            suffix += 1;
+            candidate = `${inv.number}-IMPORT-${suffix}`;
+          }
+          usedNumbers.set(candidate, inv.id);
+          renamedInvoiceNumbers.push(`${inv.number} -> ${candidate}`);
+          return { ...inv, number: candidate };
+        });
+      }
+
       if (d.businessProfile.length) await db.businessProfile.bulkPut(d.businessProfile);
       if (d.appSettings.length) await db.appSettings.bulkPut(d.appSettings);
       if (d.clients.length) await db.clients.bulkPut(d.clients);
@@ -363,19 +475,23 @@ export async function restoreBackupPayload(
       if (d.proposals.length) await db.proposals.bulkPut(d.proposals);
       if (d.quotations.length) await db.quotations.bulkPut(d.quotations);
       if (d.contracts.length) await db.contracts.bulkPut(d.contracts);
-      if (d.invoices.length) await db.invoices.bulkPut(d.invoices);
+      if (invoicesToWrite.length) await db.invoices.bulkPut(invoicesToWrite);
       if (d.payments.length) await db.payments.bulkPut(d.payments);
       if (d.financeEntries.length) await db.financeEntries.bulkPut(d.financeEntries);
       if (d.timeEntries.length) await db.timeEntries.bulkPut(d.timeEntries);
       if (d.templates.length) await db.templates.bulkPut(d.templates);
       if (d.knowledgeDocs.length) await db.knowledgeDocs.bulkPut(d.knowledgeDocs);
       if (d.documentChunks.length) await db.documentChunks.bulkPut(d.documentChunks);
+      if (d.workflowRuns.length) await db.workflowRuns.bulkPut(d.workflowRuns);
+      if (d.serviceCatalog.length) await db.serviceCatalog.bulkPut(d.serviceCatalog);
+      if (d.appointments.length) await db.appointments.bulkPut(d.appointments);
+      if (d.workspaceGoals.length) await db.workspaceGoals.bulkPut(d.workspaceGoals);
       if (d.activities.length) await db.activities.bulkPut(d.activities);
       if (d.notifications.length) await db.notifications.bulkPut(d.notifications);
     }
   );
 
-  return { safetySnapshot };
+  return { safetySnapshot, renamedInvoiceNumbers };
 }
 
 export async function markBackupCompleted(): Promise<void> {

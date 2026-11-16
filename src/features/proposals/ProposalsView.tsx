@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Download, Edit3, FileText, Plus, Search, Trash2 } from 'lucide-react';
+import { Check, Download, Edit3, FileText, GitBranch, Plus, Search, Trash2, X } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -22,6 +22,11 @@ import { formatDisplayDate } from '../../domain/calculations/dates';
 import { formatMoney, SUPPORTED_CURRENCIES } from '../../domain/calculations/money';
 import type { Proposal, ProposalStatus } from '../../domain/schemas/entities';
 import { generateProposalPdf } from '../../pdf/pdfGenerator';
+import {
+  executeProposalWorkflowWithApproval,
+  previewProposalWorkflow,
+  type WorkflowProposalPreview,
+} from '../../workflows/workflowEngine';
 
 export const ProposalsView: React.FC = () => {
   const { proposals, clients, projects, templates, businessProfile, settings, refresh } =
@@ -51,6 +56,59 @@ export const ProposalsView: React.FC = () => {
   const [validUntil, setValidUntil] = useState('');
   const [status, setStatus] = useState<ProposalStatus>('draft');
   const [saving, setSaving] = useState(false);
+
+  const [workflowPreview, setWorkflowPreview] = useState<WorkflowProposalPreview | null>(null);
+  const [workflowLoading, setWorkflowLoading] = useState(false);
+
+  const handleOpenWorkflowPreview = async (proposal: Proposal) => {
+    setWorkflowLoading(true);
+    try {
+      const preview = await previewProposalWorkflow(proposal.id);
+      setWorkflowPreview(preview);
+    } catch (err) {
+      pushToast({
+        tone: 'error',
+        title: 'Cannot preview workflow',
+        description: err instanceof Error ? err.message : 'Unexpected error.',
+      });
+    } finally {
+      setWorkflowLoading(false);
+    }
+  };
+
+  const handleWorkflowDecision = async (approved: boolean) => {
+    if (!workflowPreview) return;
+    setWorkflowLoading(true);
+    try {
+      const result = await executeProposalWorkflowWithApproval(
+        workflowPreview.triggerEntityId,
+        approved
+      );
+      await refresh();
+      setWorkflowPreview(null);
+      if (approved && result.project) {
+        pushToast({
+          tone: 'success',
+          title: 'Project & deliverable tasks created',
+          description: `Created "${result.project.name}" with ${result.tasks.length} task(s).`,
+        });
+      } else {
+        pushToast({
+          tone: 'info',
+          title: 'Workflow cancelled',
+          description: 'No project or task records were created.',
+        });
+      }
+    } catch (err) {
+      pushToast({
+        tone: 'error',
+        title: 'Workflow blocked',
+        description: err instanceof Error ? err.message : 'Execution failed.',
+      });
+    } finally {
+      setWorkflowLoading(false);
+    }
+  };
 
   const clientMap = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
   const proposalTemplates = useMemo(
@@ -307,6 +365,17 @@ export const ProposalsView: React.FC = () => {
               >
                 Download PDF
               </Button>
+              {selected.status === 'accepted' && (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  loading={workflowLoading}
+                  onClick={() => void handleOpenWorkflowPreview(selected)}
+                  icon={<GitBranch className="w-3.5 h-3.5" />}
+                >
+                  Generate Project & Tasks
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="ghost"
@@ -473,6 +542,76 @@ export const ProposalsView: React.FC = () => {
         confirmLabel="Delete"
         danger
       />
+
+      <Dialog
+        open={Boolean(workflowPreview)}
+        onClose={() => setWorkflowPreview(null)}
+        title={workflowPreview?.title ?? 'Generate Project & Tasks'}
+        description="Approval-gated automation: review the project and deliverable tasks before creating workspace records."
+        size="md"
+        footer={
+          workflowPreview && (
+            <>
+              <Button
+                variant="outline"
+                disabled={workflowLoading}
+                icon={<X className="w-3.5 h-3.5" />}
+                onClick={() => void handleWorkflowDecision(false)}
+              >
+                Decline
+              </Button>
+              <Button
+                variant="primary"
+                disabled={workflowPreview.alreadyExecuted}
+                loading={workflowLoading}
+                icon={<Check className="w-3.5 h-3.5" />}
+                onClick={() => void handleWorkflowDecision(true)}
+              >
+                Approve & Create
+              </Button>
+            </>
+          )
+        }
+      >
+        {workflowPreview && (
+          <div className="space-y-4 text-sm">
+            {workflowPreview.alreadyExecuted && (
+              <div className="p-3 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/70 dark:bg-amber-950/30 text-xs text-amber-900 dark:text-amber-200">
+                This proposal already generated a project and tasks (Run {workflowPreview.existingRun?.id}). Duplicate execution is prevented.
+              </div>
+            )}
+            <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Draft Project
+              </p>
+              <p className="font-semibold text-slate-900 dark:text-white">
+                {workflowPreview.draftProject.name}
+              </p>
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                Budget: {formatMoney(workflowPreview.draftProject.budget, workflowPreview.draftProject.currency)} · Due {formatDisplayDate(workflowPreview.draftProject.dueDate, dateFormat)}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Draft Deliverable Tasks ({workflowPreview.draftTasks.length})
+              </p>
+              <ul className="space-y-1.5">
+                {workflowPreview.draftTasks.map((task, idx) => (
+                  <li
+                    key={`${task.title}-${idx}`}
+                    className="flex items-center justify-between gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs"
+                  >
+                    <span className="text-slate-800 dark:text-slate-200">{task.title}</span>
+                    <Badge tone={task.priority === 'high' ? 'warning' : 'neutral'}>
+                      {task.priority}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+      </Dialog>
     </div>
   );
 };

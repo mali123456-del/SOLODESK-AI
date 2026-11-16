@@ -10,14 +10,16 @@
    - `calculations/money.ts`: Exact decimal arithmetic via `big.js` (`roundHalfUp`, tax-inclusive/exclusive breakdowns, partial payment reconciliation).
    - `calculations/dates.ts`: Calendar-date arithmetic via UTC day math avoiding DST shifts.
 
-3. **Persistence & Repository Abstraction (`src/database/*`)**
-   - `db.ts`: Dexie (`solodesk_ai_workspace`, schema v2) with non-destructive migrations.
-   - `repositories/interfaces.ts` & `dexieRepositories.ts`: Adapter boundary allowing future optional cloud sync without rewriting UI components.
+3. **Persistence & Repository Abstraction (`src/database/*`, `src/core/errors.ts`, `src/observability/*`)**
+   - `db.ts`: Dexie (`solodesk_ai_workspace`, schema `v3`) with non-destructive v1 -> v2 -> v3 migrations.
+   - `repositories/interfaces.ts` & `dexieRepositories.ts`: Adapter boundary with typed domain/storage errors, FK checks, and atomic transactions.
+   - `observability/healthCheck.ts`: Non-destructive table count, orphan FK, and quota utilization scanner.
 
-4. **AI, RAG & Agent Isolation (`src/ai/*`)**
-   - `providers/*`: `AIProvider` abstraction with `GeminiProvider` (`gemini-4-hydrogen`) and `MockProvider` (offline deterministic drafts).
-   - `rag/*` & `knowledge/*`: Client-side document ingestion, deterministic chunking, keyword indexing, and citation retrieval.
-   - `agent/*`: Allowlisted Zod-validated read/write tools with explicit user approval required before workspace mutations.
+4. **AI, RAG, Workflows & Security (`src/ai/*`, `src/workflows/*`, `src/security/*`, `src/integrations/crawler/*`)**
+   - `providers/*`: `AI_PROVIDER_REGISTRY` + `GeminiProvider` (`gemini-4-hydrogen`) + `MockProvider` (offline deterministic drafts).
+   - `rag/*` & `knowledge/*`: SHA-256 deduplicated document ingestion, collections, word-boundary-safe retrieval, and 6-case evaluation benchmark (`Recall@K`, `Precision@K`).
+   - `agent/*` & `workflows/*`: Allowlisted Zod-validated read/write tools and idempotent Proposal-to-Project+Tasks workflow automation gated by explicit user approval.
+   - `security/*` & `integrations/crawler/*`: SSRF host policy, `robots.txt` check, HTML script stripping, untrusted-context wrapping, and single-URL import preview.
 
-5. **PWA & Static Delivery (`vite.config.ts`, `src/pwa/*`)**
-   - `vite-plugin-pwa` generates precached static assets (`dist/sw.js` and `dist/manifest.webmanifest`) while keeping user data inside IndexedDB.
+5. **PWA & Static Delivery (`vite.config.ts`, `src/pwa/*`, `index.html`)**
+   - `vite-plugin-pwa` generates precached static assets (`dist/sw.js` and `dist/manifest.webmanifest`) under a compatible Content Security Policy while keeping user data inside IndexedDB.

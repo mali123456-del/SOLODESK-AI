@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Activity,
   CheckCircle2,
   Database,
   Globe,
   KeyRound,
   Moon,
+  RefreshCw,
   Shield,
   Sparkles,
   Sun,
@@ -14,6 +16,7 @@ import { useTheme, type ThemePreference } from '../../app/providers/ThemeProvide
 import { useWorkspace } from '../../app/providers/WorkspaceProvider';
 import { db, requestPersistentBrowserStorage } from '../../database/db';
 import { repositories } from '../../database/repositories/dexieRepositories';
+import { runDatabaseHealthCheck, type DatabaseHealthReport } from '../../observability/healthCheck';
 import type { DateFormatPreference } from '../../domain/calculations/dates';
 import { SUPPORTED_CURRENCIES } from '../../domain/calculations/money';
 import {
@@ -50,8 +53,20 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate }) => {
-  const { businessProfile, settings, storageHealth, refresh, loadDemoWorkspace, removeDemoWorkspace } =
-    useWorkspace();
+  const {
+    businessProfile,
+    settings,
+    storageHealth,
+    isOnline,
+    syncStatus,
+    pendingSyncCount,
+    lastSyncedAt,
+    syncError,
+    retrySync,
+    refresh,
+    loadDemoWorkspace,
+    removeDemoWorkspace,
+  } = useWorkspace();
   const { preference, setPreference } = useTheme();
   const { pushToast } = useToast();
 
@@ -90,11 +105,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate 
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  // Save/Reset state
+  // Save/Reset & Health diagnostics state
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingLocalization, setSavingLocalization] = useState(false);
   const [savingReset, setSavingReset] = useState(false);
   const [confirmResetAll, setConfirmResetAll] = useState(false);
+  const [healthReport, setHealthReport] = useState<DatabaseHealthReport | null>(null);
+  const [checkingHealth, setCheckingHealth] = useState(false);
+
+  const handleRunHealthCheck = async () => {
+    setCheckingHealth(true);
+    try {
+      const report = await runDatabaseHealthCheck();
+      setHealthReport(report);
+    } finally {
+      setCheckingHealth(false);
+    }
+  };
+
+  useEffect(() => {
+    if (section === 'settings-privacy') {
+      void handleRunHealthCheck();
+    }
+  }, [section]);
 
   useEffect(() => {
     if (businessProfile) {
@@ -594,6 +627,135 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate 
                 Export Encrypted Backup
               </Button>
             </div>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Database Integrity & Diagnostics"
+              description="Live local scan across all IndexedDB tables, schema migration state, and foreign-key relationships."
+              action={
+                <div className="flex items-center gap-2">
+                  {healthReport && (
+                    <Badge tone={healthReport.status === 'healthy' ? 'success' : 'warning'}>
+                      {healthReport.status === 'healthy' ? 'Healthy' : 'Attention'}
+                    </Badge>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    icon={<RefreshCw className="w-3.5 h-3.5" />}
+                    loading={checkingHealth}
+                    onClick={() => void handleRunHealthCheck()}
+                  >
+                    Re-run Check
+                  </Button>
+                </div>
+              }
+            />
+            {healthReport ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-sm">
+                  <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Schema Version</p>
+                    <p className="font-mono font-semibold mt-0.5 text-slate-900 dark:text-white">
+                      v{healthReport.schemaVersion}
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Total Local Records</p>
+                    <p className="font-mono font-semibold mt-0.5 text-slate-900 dark:text-white">
+                      {healthReport.totalRecords}
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Orphaned Links</p>
+                    <p className="font-mono font-semibold mt-0.5 text-slate-900 dark:text-white">
+                      {healthReport.orphans.reduce((s, o) => s + o.count, 0)}
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Quota Used</p>
+                    <p className="font-mono font-semibold mt-0.5 text-slate-900 dark:text-white">
+                      {healthReport.storage.usagePercent !== null
+                        ? `${healthReport.storage.usagePercent}%`
+                        : 'N/A'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {Object.entries(healthReport.tableCounts).map(([table, count]) => (
+                    <span
+                      key={table}
+                      className="px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-[#101827]/70 font-mono text-slate-700 dark:text-slate-300"
+                    >
+                      {table}: {count}
+                    </span>
+                  ))}
+                </div>
+
+                {healthReport.issues.length > 0 && (
+                  <div className="p-3 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50/70 dark:bg-amber-950/30 text-xs text-amber-900 dark:text-amber-200 space-y-1">
+                    <div className="flex items-center gap-1.5 font-semibold">
+                      <Activity className="w-3.5 h-3.5" />
+                      <span>Diagnostic Advisories</span>
+                    </div>
+                    {healthReport.issues.map((issue) => (
+                      <p key={issue}>• {issue}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500 dark:text-slate-400">Running local IndexedDB diagnostics...</p>
+            )}
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Local Database Synchronization & Shortcuts"
+              description="Tracks browser connectivity, IndexedDB read/write synchronization state, and workspace keyboard shortcuts."
+              action={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void retrySync()}
+                  icon={<RefreshCw className="w-3.5 h-3.5" />}
+                >
+                  Sync Now
+                </Button>
+              }
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                <p className="text-slate-500">Connectivity</p>
+                <p className="font-semibold mt-0.5 text-slate-900 dark:text-white">
+                  {isOnline ? 'Online' : 'Offline (Local Mode)'}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                <p className="text-slate-500">Local DB Sync</p>
+                <p className="font-semibold mt-0.5 text-slate-900 dark:text-white">
+                  {syncStatus} {pendingSyncCount > 0 ? `(${pendingSyncCount} pending)` : ''}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                <p className="text-slate-500">Last Verified Sync</p>
+                <p className="font-mono mt-0.5 text-slate-900 dark:text-white">
+                  {lastSyncedAt ? new Date(lastSyncedAt).toLocaleTimeString() : 'Not yet synced'}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                <p className="text-slate-500">Keyboard Shortcuts</p>
+                <p className="mt-0.5 text-slate-900 dark:text-white">
+                  <kbd className="font-mono px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800">Ctrl/Cmd + K</kbd> Search ·{' '}
+                  <kbd className="font-mono px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800">Esc</kbd> Close
+                </p>
+              </div>
+            </div>
+            {syncError && (
+              <p className="mt-3 text-xs text-rose-600 dark:text-rose-400">Last Sync Error: {syncError}</p>
+            )}
           </Card>
 
           <Card>

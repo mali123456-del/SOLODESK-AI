@@ -6,6 +6,7 @@ export type AppRouteId =
   | 'projects'
   | 'tasks'
   | 'time-tracker'
+  | 'communication'
   | 'proposals'
   | 'quotations'
   | 'contracts'
@@ -18,6 +19,7 @@ export type AppRouteId =
   | 'ai-copilot'
   | 'knowledge'
   | 'templates'
+  | 'workflows'
   | 'search'
   | 'import-export'
   | 'settings-profile'
@@ -88,6 +90,12 @@ export const APP_NAVIGATION: NavItemConfig[] = [
     group: 'Workspace',
     description: 'Persistent timer, manual logs, billable hours, and timesheets.',
   },
+  {
+    id: 'communication',
+    label: 'Schedule & Follow-Ups',
+    group: 'Workspace',
+    description: 'Client appointments, meeting notes, and prioritized follow-up outreach drafts.',
+  },
   // Business Documents
   {
     id: 'proposals',
@@ -142,7 +150,7 @@ export const APP_NAVIGATION: NavItemConfig[] = [
     id: 'reports',
     label: 'Financial Reports',
     group: 'Finance',
-    description: 'Date-filtered financial analytics, invoice aging, and CSV/PDF reports.',
+    description: 'Date-filtered financial analytics, invoice aging, and estimates vs actuals.',
   },
   // Intelligence
   {
@@ -155,15 +163,21 @@ export const APP_NAVIGATION: NavItemConfig[] = [
     id: 'knowledge',
     label: 'Knowledge Hub',
     group: 'Intelligence',
-    description: 'Local-first document library, chunk indexing, and cited search.',
+    description: 'Local-first document library, 14 freelancer packs, URL importer, and RAG evaluation.',
   },
   {
     id: 'templates',
-    label: 'Templates',
+    label: 'Templates & Services',
     group: 'Intelligence',
-    description: 'Reusable templates for proposals, contracts, and client emails.',
+    description: 'Reusable templates for proposals, contracts, emails, and your service catalog.',
   },
   // Productivity
+  {
+    id: 'workflows',
+    label: 'Automation',
+    group: 'Productivity',
+    description: 'Approval-gated workflow triggers, dry-run rule tester, and run audit log.',
+  },
   {
     id: 'search',
     label: 'Global Search',

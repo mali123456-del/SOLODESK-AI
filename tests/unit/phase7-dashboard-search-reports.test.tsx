@@ -71,8 +71,10 @@ describe('Phase 7: Dashboard, Global Search & Notifications', () => {
 
     renderWithWorkspace(<DashboardView onNavigate={() => {}} />);
 
-    expect(await screen.findByText(/\$1,500\.00/)).toBeInTheDocument();
-    expect(screen.getByText(/\$1,300\.00/)).toBeInTheDocument();
+    const incomeMatches = await screen.findAllByText(/\$1,500\.00/);
+    expect(incomeMatches.length).toBeGreaterThanOrEqual(1);
+    const netMatches = screen.getAllByText(/\$1,300\.00/);
+    expect(netMatches.length).toBeGreaterThanOrEqual(1);
   });
 
   it('searches across local IndexedDB clients and invoices', async () => {

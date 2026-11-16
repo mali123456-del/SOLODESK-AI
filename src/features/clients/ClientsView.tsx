@@ -36,7 +36,8 @@ import { useWorkspace } from '../../app/providers/WorkspaceProvider';
 import { formatDisplayDate } from '../../domain/calculations/dates';
 import { formatMoney } from '../../domain/calculations/money';
 import type { Client, ClientStatus } from '../../domain/schemas/entities';
-import { buildCsvContent, downloadTextFile, parseCsvRecords } from '../../export/csvUtils';
+import { buildCsvContent, downloadTextFile } from '../../export/csvUtils';
+import { importClientsFromCsvText } from '../../services/importService';
 
 interface ClientFormState {
   name: string;
@@ -237,47 +238,22 @@ export const ClientsView: React.FC = () => {
       pushToast({ tone: 'error', title: 'File too large', description: 'CSV import limit is 2 MB.' });
       return;
     }
-    const text = await file.text();
-    const rows = parseCsvRecords(text);
-    if (rows.length === 0) {
-      pushToast({ tone: 'warning', title: 'No rows found', description: 'CSV file appears empty or missing headers.' });
-      return;
-    }
-    let imported = 0;
-    let skipped = 0;
-    for (const row of rows) {
-      const name = row.name || row['client name'] || '';
-      if (!name) {
-        skipped += 1;
-        continue;
-      }
-      const email = row.email || '';
-      const dups = await repositories.findDuplicateClients({ name, email });
-      if (dups.length > 0) {
-        skipped += 1;
-        continue;
-      }
-      await repositories.createClient({
-        name,
-        company: row.company || '',
-        email,
-        phone: row.phone || '',
-        website: row.website || '',
-        location: row.location || '',
-        status: row.status === 'lead' || row.status === 'archived' ? row.status : 'active',
-        category: row.category || 'General',
-        tags: row.tags ? row.tags.split(/[;|,]/).map((t) => t.trim()).filter(Boolean) : [],
-        notes: row.notes || '',
-        isDemo: false,
+    try {
+      const text = await file.text();
+      const result = await importClientsFromCsvText(text);
+      await refresh();
+      pushToast({
+        tone: 'success',
+        title: 'CSV import complete',
+        description: `Imported ${result.importedCount} client(s). Skipped ${result.skippedDuplicateCount} duplicate(s) and ${result.skippedInvalidCount} invalid row(s).`,
       });
-      imported += 1;
+    } catch (err) {
+      pushToast({
+        tone: 'warning',
+        title: 'CSV import stopped',
+        description: err instanceof Error ? err.message : 'Unable to parse CSV file.',
+      });
     }
-    await refresh();
-    pushToast({
-      tone: 'success',
-      title: 'CSV import complete',
-      description: `Imported ${imported} client(s). Skipped ${skipped} duplicate or blank row(s).`,
-    });
   };
 
   const columns: ColumnDef<Client>[] = [

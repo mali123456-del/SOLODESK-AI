@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import type {
   ActivityEvent,
+  Appointment,
   AppSettings,
   BusinessProfile,
   Client,
@@ -15,12 +16,15 @@ import type {
   Proposal,
   Quotation,
   ReusableTemplate,
+  ServiceCatalogItem,
   Task,
   TimeEntry,
+  WorkflowRun,
+  WorkspaceGoal,
 } from '../domain/schemas/entities';
 
 export const SOLODESK_DB_NAME = 'solodesk_ai_workspace';
-export const SOLODESK_SCHEMA_VERSION = 2;
+export const SOLODESK_SCHEMA_VERSION = 4;
 
 export class SolodeskDatabase extends Dexie {
   businessProfile!: Table<BusinessProfile, string>;
@@ -38,6 +42,10 @@ export class SolodeskDatabase extends Dexie {
   knowledgeDocs!: Table<KnowledgeDocument, string>;
   documentChunks!: Table<DocumentChunk, string>;
   templates!: Table<ReusableTemplate, string>;
+  workflowRuns!: Table<WorkflowRun, string>;
+  serviceCatalog!: Table<ServiceCatalogItem, string>;
+  appointments!: Table<Appointment, string>;
+  workspaceGoals!: Table<WorkspaceGoal, string>;
   activities!: Table<ActivityEvent, string>;
   notifications!: Table<NotificationItem, string>;
 
@@ -95,6 +103,66 @@ export class SolodeskDatabase extends Dexie {
             if (!Array.isArray(client.tags)) client.tags = [];
           });
       });
+
+    // v3 non-destructive migration: knowledge provenance/hash/collection indexes + workflowRuns audit table
+    this.version(3)
+      .stores({
+        businessProfile: 'id',
+        appSettings: 'id',
+        clients: 'id, status, category, email, name, updatedAt',
+        projects: 'id, clientId, status, dueDate, updatedAt',
+        tasks: 'id, projectId, clientId, status, priority, dueDate, updatedAt',
+        proposals: 'id, number, clientId, projectId, status, updatedAt',
+        quotations: 'id, number, clientId, projectId, status, issueDate, updatedAt',
+        contracts: 'id, number, clientId, projectId, status, updatedAt',
+        invoices: 'id, &number, clientId, projectId, quotationId, status, dueDate, updatedAt',
+        payments: 'id, invoiceId, clientId, paymentDate, updatedAt',
+        financeEntries: 'id, type, category, date, clientId, projectId, invoiceId, paymentId',
+        timeEntries: 'id, projectId, taskId, isRunning, startTime',
+        knowledgeDocs: 'id, title, sourceType, collection, contentHash, updatedAt',
+        documentChunks: 'id, documentId, chunkIndex, *keywords',
+        templates: 'id, kind, name',
+        workflowRuns: 'id, workflowType, triggerEntityId, status, createdAt',
+        activities: 'id, entityType, entityId, createdAt',
+        notifications: 'id, read, createdAt',
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table('knowledgeDocs')
+          .toCollection()
+          .modify((doc: Partial<KnowledgeDocument>) => {
+            if (!doc.collection) doc.collection = 'General';
+            if (!doc.processingStatus) doc.processingStatus = 'indexed';
+            if (typeof doc.sourceUrl !== 'string') doc.sourceUrl = '';
+            if (typeof doc.contentHash !== 'string') doc.contentHash = '';
+            if (typeof doc.licenseOrRights !== 'string') doc.licenseOrRights = '';
+          });
+      });
+
+    // v4 non-destructive migration: Service Catalog, Appointments & Meeting Notes, Monthly Workspace Goals
+    this.version(4).stores({
+      businessProfile: 'id',
+      appSettings: 'id',
+      clients: 'id, status, category, email, name, updatedAt',
+      projects: 'id, clientId, status, dueDate, updatedAt',
+      tasks: 'id, projectId, clientId, status, priority, dueDate, updatedAt',
+      proposals: 'id, number, clientId, projectId, status, updatedAt',
+      quotations: 'id, number, clientId, projectId, status, issueDate, updatedAt',
+      contracts: 'id, number, clientId, projectId, status, updatedAt',
+      invoices: 'id, &number, clientId, projectId, quotationId, status, dueDate, updatedAt',
+      payments: 'id, invoiceId, clientId, paymentDate, updatedAt',
+      financeEntries: 'id, type, category, date, clientId, projectId, invoiceId, paymentId',
+      timeEntries: 'id, projectId, taskId, isRunning, startTime',
+      knowledgeDocs: 'id, title, sourceType, collection, contentHash, updatedAt',
+      documentChunks: 'id, documentId, chunkIndex, *keywords',
+      templates: 'id, kind, name',
+      workflowRuns: 'id, workflowType, triggerEntityId, status, createdAt',
+      serviceCatalog: 'id, category, active, updatedAt',
+      appointments: 'id, clientId, projectId, date, status, updatedAt',
+      workspaceGoals: 'id, &monthPrefix, updatedAt',
+      activities: 'id, entityType, entityId, createdAt',
+      notifications: 'id, read, createdAt',
+    });
   }
 }
 

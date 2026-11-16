@@ -346,7 +346,12 @@ export type TimeEntry = z.infer<typeof timeEntrySchema>;
 export const knowledgeDocumentSchema = z.object({
   id: z.string().min(1),
   title: z.string().trim().min(1).max(200),
-  sourceType: z.enum(['note', 'markdown', 'text', 'json']).default('note'),
+  sourceType: z.enum(['note', 'markdown', 'text', 'json', 'url']).default('note'),
+  sourceUrl: z.string().max(1000).optional().default(''),
+  collection: z.string().trim().max(80).optional().default('General'),
+  contentHash: z.string().max(128).optional().default(''),
+  processingStatus: z.enum(['indexed', 'failed', 'pending']).optional().default('indexed'),
+  licenseOrRights: z.string().trim().max(240).optional().default(''),
   fileName: z.string().max(200).default(''),
   mimeType: z.string().max(120).default('text/plain'),
   sizeBytes: z.number().int().min(0).default(0),
@@ -382,6 +387,74 @@ export const reusableTemplateSchema = z.object({
 });
 export type ReusableTemplate = z.infer<typeof reusableTemplateSchema>;
 
+export const workflowTypeEnum = z.enum([
+  'proposal_to_project_and_tasks',
+  'quotation_to_invoice_draft',
+  'overdue_invoice_followup_task',
+]);
+export type WorkflowType = z.infer<typeof workflowTypeEnum>;
+
+export const workflowRunSchema = z.object({
+  id: z.string().min(1),
+  workflowType: workflowTypeEnum,
+  triggerEntityType: z.enum(['proposal', 'quotation', 'invoice']),
+  triggerEntityId: z.string().min(1),
+  status: z.enum(['pending_approval', 'executed', 'rejected', 'failed']),
+  summary: z.string().min(1).max(400),
+  createdEntityIds: z.array(z.string()).default([]),
+  errorMessage: z.string().max(500).optional().default(''),
+  createdAt: isoTimestampSchema,
+  executedAt: z.string().optional().default(''),
+});
+export type WorkflowRun = z.infer<typeof workflowRunSchema>;
+
+export const serviceCatalogItemSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1, 'Service name is required').max(160),
+  description: z.string().max(2000).default(''),
+  category: z.string().trim().max(80).default('Consulting'),
+  defaultUnitPrice: z.number().finite().min(0).default(0),
+  currency: z.string().min(3).max(5).default('USD'),
+  billingUnit: z.enum(['fixed', 'hourly', 'monthly', 'milestone']).default('fixed'),
+  estimatedHours: z.number().finite().min(0).default(0),
+  defaultTaxable: z.boolean().default(true),
+  active: z.boolean().default(true),
+  isDemo: z.boolean().optional().default(false),
+  createdAt: isoTimestampSchema,
+  updatedAt: isoTimestampSchema,
+});
+export type ServiceCatalogItem = z.infer<typeof serviceCatalogItemSchema>;
+
+export const appointmentSchema = z.object({
+  id: z.string().min(1),
+  clientId: z.string().optional().default(''),
+  projectId: z.string().optional().default(''),
+  title: z.string().trim().min(1, 'Appointment title is required').max(200),
+  date: dateOnlySchema,
+  startTime: z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Expected HH:mm time').default('10:00'),
+  durationMinutes: z.number().int().min(5).max(480).default(45),
+  locationOrLink: z.string().trim().max(300).default(''),
+  status: z.enum(['scheduled', 'completed', 'cancelled']).default('scheduled'),
+  meetingNotes: z.string().max(6000).default(''),
+  followUpRequired: z.boolean().default(false),
+  isDemo: z.boolean().optional().default(false),
+  createdAt: isoTimestampSchema,
+  updatedAt: isoTimestampSchema,
+});
+export type Appointment = z.infer<typeof appointmentSchema>;
+
+export const workspaceGoalSchema = z.object({
+  id: z.string().min(1),
+  monthPrefix: z.string().regex(/^\d{4}-\d{2}$/, 'Expected YYYY-MM month format'),
+  targetRevenue: z.number().finite().min(0).default(0),
+  targetBillableHours: z.number().finite().min(0).default(80),
+  maxExpenseBudget: z.number().finite().min(0).default(0),
+  currency: z.string().min(3).max(5).default('USD'),
+  notes: z.string().max(1000).default(''),
+  updatedAt: isoTimestampSchema,
+});
+export type WorkspaceGoal = z.infer<typeof workspaceGoalSchema>;
+
 export const activityEventSchema = z.object({
   id: z.string().min(1),
   entityType: z.enum([
@@ -396,6 +469,10 @@ export const activityEventSchema = z.object({
     'finance',
     'time',
     'knowledge',
+    'workflow',
+    'service',
+    'appointment',
+    'goal',
     'backup',
     'settings',
   ]),
