@@ -1,0 +1,1129 @@
+# SOLODESK AI — COMPLETE MASTER BUILD COMMAND
+## Full Product Development | Phase 1–12 | Production-Ready Freelancer Business Workspace
+
+You are the principal software architect, senior full-stack engineer, UI/UX designer, database engineer, QA engineer, security engineer, and release engineer responsible for building SOLODESK AI.
+
+Your mission is to transform the existing Google AI Studio workspace into a complete, polished, reliable, responsive, offline-capable freelancer business management application.
+
+Do not create another prototype, landing-page-only project, static dashboard, or collection of nonfunctional mock screens. Build the actual working product.
+
+---
+
+# 1. PRODUCT IDENTITY
+
+**Product:** SOLODESK AI  
+**Tagline:** Your Work. Your Clients. All in One Place.
+
+**Product category:** Freelancer Business Management Workspace / Freelancer Business OS.
+
+**Target users:**
+- Freelancers
+- Software developers
+- UI/UX and graphic designers
+- Writers and content creators
+- Digital marketers
+- Virtual assistants
+- Consultants
+- Independent professionals
+- Small freelance agencies
+
+**Primary market:** Global, including Pakistan.
+
+**Primary delivery:** Responsive web application and installable Progressive Web App (PWA).
+
+**Future possibilities:** Desktop packaging, cloud synchronization, team collaboration, and secure client portals. These must not delay or destabilize the core product.
+
+## Product principle
+
+SOLODESK AI must help an independent professional manage the complete business workflow:
+
+Client → Proposal → Quotation → Contract → Project → Tasks → Time → Invoice → Payment → Expenses → Profitability → Reports.
+
+All important workflows must use real persistent application data.
+
+---
+
+# 2. EXISTING ENVIRONMENT — INSPECT FIRST
+
+Phase 0 has been completed and documented.
+
+Reported environment:
+- Node.js v22.23.2
+- npm 10.9.8
+- Vite 8.3.8
+- TypeScript 7.0.2
+- React 19.3.1 compatibility verified
+- Tailwind CSS 4.3.5 compatibility verified
+- Gemini SDK @google/genai 2.32.0 installed
+- Playwright browser environment available
+- GitHub repository: https://github.com/mali123456-del/SOLODESK-AI
+- GitHub main initially contains only README.md.
+- The actual application workspace is /app/applet.
+
+Before every implementation phase:
+1. Inspect the current workspace and relevant files.
+2. Read existing documentation and the previous phase report.
+3. Check package.json, installed dependencies, scripts, and build configuration.
+4. Identify completed functionality before changing anything.
+5. Preserve user data, existing useful assets, and working functionality.
+6. Do not assume a reported feature is implemented until its code and behavior are verified.
+
+The five Phase 0 documents must be preserved:
+- docs/INITIAL_AUDIT.md
+- docs/ARCHITECTURE_DECISIONS.md
+- docs/IMPLEMENTATION_ROADMAP.md
+- docs/DEPENDENCY_AUDIT.md
+- docs/RISK_REGISTER.md
+
+Do not overwrite these historical documents. Update them only when a genuine architecture decision changes, preserving their history.
+
+---
+
+# 3. CRITICAL EXECUTION RULES
+
+These instructions are mandatory.
+
+1. Build the actual application, not just a design mockup.
+2. Implement phases sequentially from Phase 1 through Phase 12.
+3. Do not stop after Phase 1 or after producing a roadmap.
+4. Continue to the next phase automatically after the current phase passes its acceptance checks.
+5. If context or execution limits interrupt development, create a precise continuation checkpoint and resume from it.
+6. Never claim a feature is complete without implementation and verification.
+7. Never replace real functionality with fake buttons, fabricated metrics, or placeholder interactions.
+8. Never silently delete existing user files, records, or data.
+9. Never execute destructive database migrations without a safe migration strategy.
+10. Never expose API keys, credentials, private client data, or sensitive financial information.
+11. Never automatically send emails, issue invoices, record payments, or perform destructive actions without explicit user confirmation.
+12. Do not automatically commit, push, deploy, purchase services, or enable billing.
+13. Avoid unnecessary dependencies, duplicate libraries, and excessive bundle size.
+14. Do not introduce heavy 3D, WebGPU, XR, or GPU-dependent functionality.
+15. Do not ask the owner to make routine technical decisions that can safely be made using the approved architecture.
+16. If an important external dependency or service is unavailable, implement the appropriate offline/mock-compatible architecture and document the limitation.
+17. Report blockers honestly and continue with independent work wherever possible.
+
+**Priority:** Reliability > Real functionality > Security > Usability > Performance > Visual polish > Additional features.
+
+---
+
+# 4. APPROVED TECHNOLOGY ARCHITECTURE
+
+Use the following stack, subject to actual compatibility verification:
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19 |
+| Language | TypeScript 7 |
+| Build | Vite 8 |
+| Styling | Tailwind CSS 4 |
+| UI | Accessible reusable shadcn/ui-style components with Radix where needed |
+| Icons | Lucide React |
+| Database | Dexie + IndexedDB |
+| Validation | Zod |
+| Financial arithmetic | big.js or rigorously tested decimal-safe calculations |
+| Charts | Recharts |
+| PDF | jsPDF |
+| Testing | Vitest + React Testing Library |
+| Browser tests | Playwright if compatible |
+| PWA | vite-plugin-pwa after actual compatibility testing |
+| AI | @google/genai with an AIProvider abstraction |
+
+Use the verified compatible versions from Phase 0. Before installing or upgrading anything, verify peer dependencies and avoid unnecessary upgrades.
+
+## Architecture requirements
+
+Use feature-based modular architecture.
+
+Suggested structure:
+
+src/
+  app/
+    App.tsx
+    router/
+    providers/
+    layouts/
+    error-boundary/
+  components/
+    ui/
+    common/
+    feedback/
+    forms/
+    charts/
+  features/
+    dashboard/
+    clients/
+    projects/
+    tasks/
+    proposals/
+    quotations/
+    contracts/
+    invoices/
+    payments/
+    finance/
+    time-tracker/
+    reports/
+    ai-copilot/
+    knowledge/
+    templates/
+    search/
+    notifications/
+    settings/
+    backup/
+  database/
+    db.ts
+    schema/
+    migrations/
+    repositories/
+    seeds/
+  services/
+  ai/
+  hooks/
+  lib/
+  types/
+  utils/
+  styles/
+  assets/
+
+tests/
+  unit/
+  integration/
+  e2e/
+
+docs/
+  phases/
+  architecture/
+  user-guide/
+  security/
+  release/
+
+You may refine this structure when technically justified. Do not create meaningless empty folders.
+
+**Important:** UI components must not directly manipulate IndexedDB. Use typed repositories and domain services.
+
+Keep the architecture ready for future cloud synchronization without requiring a backend for the initial product.
+
+---
+
+# 5. COMPLETE PRODUCT NAVIGATION
+
+Build a professional application shell with responsive desktop sidebar, mobile navigation, header, global search, command palette, notifications, profile menu, and contextual page actions.
+
+## Main navigation
+
+### Overview
+- Dashboard
+- Activity
+- Notifications
+
+### Workspace
+- Clients
+- Projects
+- Tasks
+- Time Tracker
+
+### Business Documents
+- Proposals
+- Quotations
+- Contracts
+- Invoices
+- Payments
+
+### Finance
+- Income
+- Expenses
+- Profitability
+- Financial Reports
+
+### Intelligence
+- AI Copilot
+- Knowledge Hub
+- Templates
+
+### Productivity
+- Global Search
+- Command Palette
+- Import & Export
+
+### Settings
+- Business Profile
+- Appearance
+- Currency & Localization
+- AI Configuration
+- Backup & Restore
+- Privacy & Security
+- About SOLODESK AI
+
+Every navigation item must open a real implemented page. Do not show unavailable features as functional.
+
+---
+
+# 6. PHASE-BY-PHASE IMPLEMENTATION
+
+## PHASE 1 — FOUNDATION & DESIGN SYSTEM
+
+Implement:
+- React 19 application foundation.
+- Vite 8 integration.
+- TypeScript 7 React JSX configuration.
+- Tailwind CSS 4 integration.
+- Application entry point and routing.
+- Reusable accessible UI component system.
+- Buttons, inputs, selects, dialogs, dropdowns, tooltips, cards, tables, badges, tabs, breadcrumbs, pagination, skeletons, toasts, and empty states.
+- Application shell and responsive navigation.
+- Light and dark themes.
+- Original SOLODESK AI SVG logo and monogram.
+- Design tokens and typography.
+- Error boundaries.
+- Loading, error, empty, and success states.
+- Vitest and React Testing Library setup.
+
+Design direction:
+- Premium modern SaaS workspace.
+- Deep navy/charcoal sidebar.
+- Clean light content surfaces.
+- Restrained cyan and blue accents.
+- Excellent spacing and typography.
+- Consistent 10–14px corner radius.
+- Lucide icons.
+- Smooth but restrained animations.
+- Reduced-motion accessibility support.
+- Desktop, tablet, and mobile layouts.
+
+Avoid copying another product's branding or exact interface.
+
+Acceptance:
+- Application starts.
+- Routes work.
+- Theme switching works.
+- Navigation works.
+- Components are reusable.
+- TypeScript and production build pass.
+
+## PHASE 2 — DATABASE & DOMAIN FOUNDATION
+
+Build a robust IndexedDB data layer using Dexie.
+
+Implement entities and relationships for:
+- BusinessProfile
+- Client
+- Project
+- Task
+- Proposal
+- Quotation
+- Contract
+- Invoice
+- InvoiceItem
+- Payment
+- Expense
+- TimeEntry
+- KnowledgeDocument
+- Template
+- Activity
+- Notification
+- AppSettings
+
+Requirements:
+- Stable IDs.
+- Created and updated timestamps.
+- Referential integrity at application level.
+- Database schema versioning.
+- Safe migrations.
+- Repository layer.
+- Typed domain services.
+- Validation with Zod.
+- Demo workspace with clearly identified sample records.
+- Empty workspace onboarding.
+
+Do not silently overwrite existing data.
+
+Create tested database migrations and repository tests.
+
+## PHASE 3 — CLIENT CRM
+
+Implement a functional CRM.
+
+Features:
+- Add, edit, archive, and view clients.
+- Client profile and contact information.
+- Company details.
+- Email, phone, website, location.
+- Client status.
+- Tags and categories.
+- Internal notes.
+- Associated projects.
+- Associated proposals and invoices.
+- Payment history.
+- Client activity timeline.
+- Search, filtering, sorting, and pagination.
+- Duplicate detection.
+- Import and export.
+
+Provide useful client detail pages with real connected data.
+
+## PHASE 4 — PROJECT & TASK MANAGEMENT
+
+Projects:
+- Create and edit projects.
+- Assign clients.
+- Project descriptions.
+- Start and due dates.
+- Status and priority.
+- Budget and agreed value.
+- Progress tracking.
+- Project overview.
+- Project activity.
+- Linked tasks, time entries, and invoices.
+
+Tasks:
+- Create, edit, complete, reopen, and archive.
+- Due dates.
+- Priority.
+- Status.
+- Project association.
+- Client association where relevant.
+- Tags.
+- List and Kanban views.
+- Filters and search.
+- Task counts and progress.
+
+All dashboard numbers must derive from actual records.
+
+## PHASE 5 — BUSINESS DOCUMENT STUDIO
+
+Build real document creation and editing workflows.
+
+### Proposal Builder
+- Proposal title.
+- Client.
+- Project overview.
+- Scope of work.
+- Deliverables.
+- Timeline.
+- Pricing.
+- Terms.
+- Reusable sections.
+- Draft, accepted, rejected, and archived states.
+- Preview and PDF export.
+
+### Quotation Studio
+- Line items.
+- Quantity.
+- Unit price.
+- Discounts.
+- Tax configuration.
+- Currency.
+- Expiry date.
+- Notes.
+- Totals.
+- PDF export.
+
+### Contract Templates
+- Reusable contract templates.
+- Editable sections.
+- Client and project details.
+- Preview and PDF export.
+- Clearly label contracts as editable templates, not legal advice or guaranteed legally enforceable documents.
+
+### Invoice Studio
+- Business profile.
+- Client details.
+- Invoice number.
+- Issue date.
+- Due date.
+- Line items.
+- Quantity and unit price.
+- Discount.
+- Tax.
+- Currency.
+- Notes.
+- Payment instructions.
+- Draft, sent, partially paid, paid, overdue, and cancelled states where applicable.
+- PDF export.
+- Print-friendly layout.
+
+Use safe calculations. Do not rely on floating-point arithmetic for financial totals.
+
+Never invent invoice or payment data.
+
+## PHASE 6 — PAYMENTS, FINANCE & TIME TRACKING
+
+### Payment Tracker
+- Record manual payments.
+- Payment date.
+- Amount.
+- Currency.
+- Payment method.
+- Reference.
+- Associated invoice.
+- Partial payments.
+- Outstanding balances.
+- Payment history.
+
+No real payment gateway or automatic bank access in the MVP.
+
+### Income & Expenses
+- Record income.
+- Record expenses.
+- Categories.
+- Dates.
+- Notes.
+- Client/project association.
+- Currency.
+- Filters.
+- CSV export.
+
+### Time Tracker
+- Start, pause, resume, and stop timer.
+- Manual time entries.
+- Project association.
+- Task association.
+- Hourly rate.
+- Billable/non-billable status.
+- Duration calculations.
+- Time reports.
+
+Timer state must survive normal page navigation and refresh where practical.
+
+### Financial calculations
+- Income.
+- Expenses.
+- Net profit.
+- Outstanding invoices.
+- Collected payments.
+- Project profitability.
+- Billable hours.
+- Unpaid balances.
+
+Clearly distinguish recorded data from estimates.
+
+## PHASE 7 — DASHBOARD & REPORTING INTELLIGENCE
+
+Build a genuinely useful dashboard.
+
+Metrics:
+- Active clients.
+- Active projects.
+- Pending tasks.
+- Completed tasks.
+- Total income.
+- Total expenses.
+- Net profit.
+- Outstanding invoices.
+- Payments received.
+- Hours tracked.
+- Upcoming deadlines.
+
+Charts:
+- Income over time.
+- Expense breakdown.
+- Profit trends.
+- Project status distribution.
+- Task progress.
+- Time allocation.
+
+Reports:
+- Financial summary.
+- Client performance.
+- Project profitability.
+- Invoice aging.
+- Payment history.
+- Time reports.
+- Date-range filtering.
+- CSV export.
+- PDF export where appropriate.
+
+All charts and metrics must use actual database records. Display helpful empty states when there is insufficient data.
+
+## PHASE 8 — BACKUP, RESTORE, IMPORT & EXPORT
+
+Build user-controlled data portability.
+
+Features:
+- Full JSON backup.
+- Backup metadata and version.
+- Data validation.
+- Import preview.
+- Import confirmation.
+- Duplicate/conflict detection.
+- Safe restore.
+- CSV client import.
+- CSV project import where supported.
+- CSV financial exports.
+- Export progress and error handling.
+
+Optional encrypted backup:
+- Web Crypto API.
+- AES-GCM.
+- User-controlled password.
+- Never store the password.
+- Never claim encryption is enabled unless it is actually applied.
+
+Protect against malformed, oversized, or incompatible import files.
+
+Do not silently replace existing records.
+
+Provide a recovery-oriented error experience.
+
+## PHASE 9 — AI COPILOT, KNOWLEDGE HUB & RAG
+
+This phase must work with Gemini 4 Hydrogen when a valid key and API access are available, but the rest of SOLODESK AI must never depend on AI.
+
+### AI architecture
+
+Create:
+src/ai/
+  agent/
+    agent.ts
+    tools.ts
+    schemas.ts
+    permissions.ts
+    actionApproval.ts
+    systemInstructions.ts
+  providers/
+    AIProvider.ts
+    GeminiProvider.ts
+    MockProvider.ts
+    providerFactory.ts
+  knowledge/
+    documents/
+    templates/
+    knowledgeService.ts
+    README.md
+  rag/
+    ingestion.ts
+    chunking.ts
+    retrieval.ts
+    citations.ts
+    indexing.ts
+    README.md
+  datasets/
+    manifests/
+    validation/
+    LICENSES.md
+    README.md
+  evaluation/
+    test-cases/
+    benchmarks/
+    evaluation.ts
+    README.md
+
+### AI Copilot capabilities
+
+- Draft client proposals.
+- Improve proposal wording.
+- Draft professional emails.
+- Generate polite follow-up drafts.
+- Suggest project descriptions.
+- Summarize project information.
+- Organize tasks.
+- Explain financial summaries from actual application data.
+- Suggest next actions.
+- Search approved knowledge documents.
+- Recommend reusable templates.
+- Help with client onboarding.
+- Explain application workflows.
+
+### Agent tools
+
+Create typed, validated, allowlisted tools for:
+- Search clients.
+- Search projects.
+- Search tasks.
+- Read invoice summaries.
+- Read financial summaries.
+- Search approved knowledge.
+- Draft proposals.
+- Draft emails.
+- Suggest tasks.
+
+For create/update/delete operations:
+- Validate inputs.
+- Show a preview.
+- Ask the user for explicit confirmation.
+- Execute only after approval.
+- Return a truthful result.
+
+Never let the AI silently delete records, issue invoices, send emails, or record payments.
+
+### Gemini requirements
+
+- Use Gemini 4 Hydrogen only as the available target model.
+- Verify the exact model identifier and SDK support before calling it.
+- Do not assume other Gemini models are available.
+- Do not invent quota, speed, or capability claims.
+- If API credentials are missing, AI features must show a clear configuration state.
+- Implement MockProvider for testing and offline development.
+- Never put secrets in source code.
+- Never save BYOK keys in IndexedDB, localStorage, backups, or logs.
+- If browser-based BYOK is used, keep the key in memory only and clearly disclose that browser developer tools can expose it.
+- Never send private client information or documents to an external AI service without clear user consent.
+- Handle API errors, unavailable models, rate limits, and network failures gracefully.
+
+### Knowledge Hub and RAG
+
+Implement:
+- Knowledge document management.
+- User-provided document ingestion where supported.
+- Text extraction with clear limitations.
+- Chunking.
+- Metadata.
+- Local indexing.
+- Keyword retrieval.
+- Optional embeddings only after compatibility and performance checks.
+- Source-aware answers.
+- Document citations.
+- Document deletion and re-indexing.
+
+Use local-first retrieval as the default.
+
+### AI data and evaluation
+
+Research candidate Hugging Face datasets only when they genuinely improve evaluation.
+
+For every dataset:
+- Verify its dataset card.
+- Verify license and commercial-use rights.
+- Check provenance.
+- Check quality and relevance.
+- Check size and resource requirements.
+- Document language coverage.
+- Record source and license in a manifest.
+
+Do not download massive datasets unnecessarily.
+
+Do not claim the model is trained or fine-tuned merely because datasets were downloaded.
+
+Use this order:
+1. System instructions.
+2. Structured application tools.
+3. Curated knowledge.
+4. Local RAG.
+5. Evaluation datasets and repeatable tests.
+6. Carefully reviewed synthetic examples.
+7. Fine-tuning only if measurable improvement and affordable infrastructure justify it.
+
+Do not attempt heavy local model training on the owner's Intel i5 / 8 GB RAM / integrated graphics machine.
+
+## PHASE 10 — PWA, OFFLINE & PERFORMANCE
+
+Implement:
+- Installable PWA.
+- Manifest.
+- Original application icons.
+- Service worker.
+- Offline application shell.
+- Offline database access.
+- Update notification.
+- Safe update activation.
+- Network status indicator.
+- Offline/online states.
+- Data persistence guidance.
+
+Test actual behavior rather than assuming plugin compatibility.
+
+Important:
+IndexedDB is local storage, not a backup system. Explain this clearly to users.
+
+### Performance requirements
+
+The owner's development machine is a low-resource Intel i5 / 8 GB RAM system.
+
+Therefore:
+- Avoid XR and 3D imports.
+- Avoid WebGPU requirements.
+- Lazy-load heavy routes.
+- Lazy-load Recharts and jsPDF.
+- Keep initial application bundle lean.
+- Use efficient list rendering.
+- Avoid unnecessary re-renders.
+- Avoid loading large datasets at startup.
+- Avoid excessive animations.
+- Do not require a GPU.
+
+Measure bundle output and identify unexpectedly large chunks.
+
+## PHASE 11 — COMPLETE QUALITY, SECURITY & UX HARDENING
+
+Perform a full product audit.
+
+### Functional tests
+- Client CRUD.
+- Project CRUD.
+- Task CRUD.
+- Relationship integrity.
+- Search and filtering.
+- Proposal creation.
+- Quotation calculations.
+- Contract template rendering.
+- Invoice numbering.
+- Invoice calculations.
+- Discounts and taxes.
+- Partial payments.
+- Outstanding balances.
+- Currency handling.
+- Date and timezone handling.
+- Timer behavior.
+- Financial summaries.
+- CSV import/export.
+- PDF export.
+- Backup and restore.
+- Invalid import handling.
+- Database migrations.
+- AI provider errors.
+- RAG retrieval and citations.
+- Confirmation and permissions.
+
+### UI tests
+- Desktop.
+- Tablet.
+- Mobile.
+- Navigation.
+- Forms.
+- Dialogs.
+- Keyboard navigation.
+- Theme switching.
+- Empty states.
+- Loading states.
+- Error states.
+- Accessibility.
+- Responsive layouts.
+
+### Security and privacy audit
+- No exposed API secrets.
+- No accidental sensitive logging.
+- No silent destructive actions.
+- No unsafe HTML rendering.
+- Input validation.
+- Import validation.
+- Safe error messages.
+- Clear AI privacy disclosure.
+- No false encryption claims.
+- No false cloud-sync claims.
+
+### Accessibility
+- Semantic HTML.
+- Keyboard access.
+- Visible focus states.
+- Accessible labels.
+- Dialog focus management.
+- Contrast.
+- Reduced motion.
+- Screen-reader-friendly status messages.
+
+Fix verified defects before declaring the phase complete.
+
+## PHASE 12 — PRODUCT POLISH, DOCUMENTATION & RELEASE PREPARATION
+
+Create a polished, complete product experience.
+
+### Onboarding
+- Welcome screen.
+- Business profile setup.
+- Currency selection.
+- First client.
+- First project.
+- Optional demo data.
+- Optional AI configuration.
+- Backup education.
+
+### Marketing website
+Create an original marketing experience with:
+- Product overview.
+- Feature sections.
+- Genuine application screenshots.
+- How it works.
+- Pricing structure.
+- FAQ.
+- Privacy.
+- Documentation.
+- Support information.
+
+Do not fabricate:
+- Customer testimonials.
+- User counts.
+- Revenue claims.
+- Certifications.
+- Integrations.
+- Security audits.
+- Performance statistics.
+
+### Pricing architecture
+
+Prepare a future-ready pricing structure without implementing fake subscription enforcement.
+
+Potential tiers:
+- Free
+- Pro
+- Ultimate
+- Business
+
+Keep feature access modular and documented. Do not add paid services, payment gateways, or billing dependencies without approval.
+
+### Documentation
+
+Create:
+- README.md
+- docs/USER_GUIDE.md
+- docs/FEATURES.md
+- docs/ARCHITECTURE.md
+- docs/SECURITY_AND_PRIVACY.md
+- docs/DATA_BACKUP.md
+- docs/AI_GUIDE.md
+- docs/INSTALLATION.md
+- docs/RELEASE_CHECKLIST.md
+- docs/KNOWN_LIMITATIONS.md
+
+Include screenshots only if genuine screenshots can be produced from the running application.
+
+### Release readiness
+
+Prepare:
+- Production build.
+- PWA verification.
+- Deployment instructions.
+- Environment variable documentation.
+- Version information.
+- Changelog.
+- Release checklist.
+
+Do not deploy or publish without owner approval.
+
+---
+
+# 7. DESIGN QUALITY REQUIREMENTS
+
+SOLODESK AI should feel like a polished, modern commercial SaaS product.
+
+Use:
+- Original logo and brand identity.
+- Consistent design tokens.
+- Professional typography.
+- Thoughtful whitespace.
+- Clear visual hierarchy.
+- Responsive data tables.
+- Useful dashboard cards.
+- Carefully designed forms.
+- Contextual actions.
+- Helpful tooltips.
+- Consistent icons.
+- Professional PDF documents.
+- Light and dark themes.
+
+Do not use:
+- Generic AI-generated dashboard layouts repeated on every page.
+- Excessive gradients.
+- Unnecessary glassmorphism.
+- Random decorative charts.
+- Fake activity feeds.
+- Fake financial metrics.
+- Dead buttons.
+- Placeholder pages presented as complete features.
+
+Every feature must have a coherent workflow.
+
+---
+
+# 8. DATA INTEGRITY & BUSINESS LOGIC
+
+This is a business application. Incorrect financial calculations or lost records are unacceptable.
+
+Implement and test:
+- Currency-safe arithmetic.
+- Tax and discount rules.
+- Partial payment calculations.
+- Invoice outstanding balances.
+- Invoice numbering.
+- Time calculations.
+- Date boundaries.
+- Timezone behavior.
+- Project/client relationships.
+- Backup/restore equivalence.
+- Migration safety.
+
+Use integer minor units or a decimal library for money. Never rely on ordinary floating-point arithmetic for financial totals.
+
+Clearly distinguish:
+- Draft
+- Estimated
+- Recorded
+- Paid
+- Outstanding
+- Archived
+
+Never invent financial information.
+
+---
+
+# 9. USER EXPERIENCE & PRODUCTIVITY FEATURES
+
+Include:
+- Global search.
+- Command palette.
+- Keyboard shortcuts.
+- Quick-create actions.
+- Recent records.
+- Activity history.
+- Notification center.
+- Reusable templates.
+- Filters and saved views where practical.
+- Helpful empty states.
+- Demo workspace.
+- Import/export.
+- User-controlled backup.
+
+Shortcuts must not conflict with browser or operating-system shortcuts without a clear reason.
+
+---
+
+# 10. IMPLEMENTATION AND VERIFICATION RULES
+
+At the end of EVERY phase:
+
+1. Run TypeScript checks.
+2. Run lint if configured.
+3. Run relevant unit tests.
+4. Run relevant integration tests.
+5. Run production build.
+6. Fix failures caused by your changes.
+7. Inspect changed files.
+8. Check for broken routes and dead controls.
+9. Update documentation.
+10. Produce a phase report.
+
+Do not claim tests were run if they were not run.
+
+If a test cannot run, report the exact reason.
+
+Use these statuses consistently:
+
+- IMPLEMENTED
+- TESTED
+- VERIFIED
+- BLOCKED
+- NOT IMPLEMENTED
+- ASSUMED
+
+A successful TypeScript check is not proof that the application works.
+
+A successful production build is not proof that all workflows work.
+
+---
+
+# 11. GIT AND FILE SAFETY
+
+The existing GitHub main branch initially contains only README.md. The AI Studio workspace is the actual application development environment.
+
+Do not assume /app/applet is a Git repository.
+
+Do not automatically:
+- Initialize or replace a Git repository.
+- Overwrite remote history.
+- Force push.
+- Reset hard.
+- Delete branches.
+- Commit.
+- Push.
+- Publish.
+- Deploy.
+
+Preserve the original assets and configuration wherever useful.
+
+Before removing any dependency:
+- Search its imports.
+- Search its configuration.
+- Search its usage.
+- Verify it is not required by another dependency.
+- Document the reason.
+
+---
+
+# 12. EXECUTION STRATEGY
+
+Start with Phase 1 and proceed through Phase 12 in order.
+
+Do not merely explain what should be built. Actually implement it.
+
+Work in small, verifiable steps:
+- Inspect.
+- Plan the current phase.
+- Implement.
+- Test.
+- Fix.
+- Build.
+- Document.
+- Continue.
+
+If context limits interrupt the process:
+- Save the current state.
+- Update docs/phases/ with the latest checkpoint.
+- List completed work.
+- List remaining work.
+- List exact verification results.
+- Identify the next file and task to continue.
+- Never restart or duplicate completed work.
+
+Do not ask for approval between routine phases. The owner has authorized the complete build under the safety restrictions in this command.
+
+Stop and ask only when:
+- An irreversible destructive action is required.
+- Existing user data may be lost.
+- A paid service or billing activation is needed.
+- Publishing, deployment, or external communication is required.
+- A security-sensitive decision cannot be made safely.
+- A genuine blocker requires an owner decision.
+
+---
+
+# 13. FINAL DEFINITION OF DONE
+
+SOLODESK AI is not complete merely because its dashboard looks good.
+
+The product is complete when:
+
+- The application runs reliably.
+- Core business workflows work end-to-end.
+- Client and project data persist.
+- Tasks and time tracking work.
+- Proposals, quotations, contracts, and invoices can be created.
+- Financial records and partial payments work.
+- Reports reflect real data.
+- Backup and restore work safely.
+- AI Copilot integrates through the provider abstraction when configured.
+- The application remains useful without AI.
+- Knowledge retrieval provides source references.
+- PWA installation and offline behavior are verified.
+- Responsive layouts work.
+- Critical business logic has automated tests.
+- Security and privacy limitations are documented.
+- No critical dead buttons or fake features remain.
+- Production build passes.
+- User documentation is complete.
+- Known limitations are explicitly reported.
+
+At completion, provide:
+
+1. Executive summary.
+2. Phase-by-phase implementation status.
+3. Complete feature inventory.
+4. Architecture and dependency changes.
+5. Database schema and migrations.
+6. AI provider and RAG implementation status.
+7. Dataset research and licensing inventory.
+8. Test results with exact counts.
+9. TypeScript, lint, and build results.
+10. Performance and bundle analysis.
+11. Security and privacy audit.
+12. PWA/offline verification.
+13. Known limitations.
+14. Exact run and build commands.
+15. GitHub synchronization instructions, without executing them.
+16. Recommended next steps.
+
+## FINAL COMMAND
+
+Begin implementation now.
+
+Inspect the current workspace, read the Phase 0 documents, and implement Phase 1. Then continue automatically through every remaining phase until the complete SOLODESK AI product is built, tested, documented, and release-ready.
+
+Do not stop at a plan, mockup, or Phase 1. Build the actual product.
+
+**SOLODESK AI — Your Work. Your Clients. All in One Place.**

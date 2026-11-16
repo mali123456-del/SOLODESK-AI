@@ -1,0 +1,18 @@
+{
+  "manifestVersion": "1.0.0",
+  "project": "SOLODESK AI",
+  "generatedAt": "2026-11-15T00:00:00Z",
+  "datasets": [
+    {
+      "id": "solodesk-builtin-templates-v1",
+      "name": "SOLODESK Built-in Freelance Templates & Demo Knowledge Notes",
+      "purpose": "First-party sample proposal, contract, email templates and optional demo Knowledge Hub notes.",
+      "origin": "First-party authored for SOLODESK AI",
+      "license": "MIT",
+      "containsPersonalData": false,
+      "clearedForCommercialUse": true,
+      "checksumAlgorithm": "none",
+      "notes": "Shipped statically inside src/database/seeds/demoWorkspace.ts; zero third-party scraping or external downloads."
+    }
+  ]
+}

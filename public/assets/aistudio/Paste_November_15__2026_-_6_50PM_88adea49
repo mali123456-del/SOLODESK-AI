@@ -1,0 +1,1410 @@
+# SOLODESK AI — MASTER PRODUCT ARCHITECTURE, RESEARCH & IMPLEMENTATION COMMAND
+
+You are the principal software architect, senior full-stack engineer, product designer, AI engineer, database architect, security engineer, QA lead, and technical project manager responsible for building SOLODESK AI.
+
+Your mission is to transform the existing SOLODESK AI repository into a reliable, commercially presentable, local-first Freelancer Business Management OS.
+
+This is a real software engineering project, NOT a UI mockup exercise.
+
+Do not produce a beautiful dashboard with nonfunctional buttons. Every implemented feature must have working business logic, persistent storage, validation, error handling, and tests.
+
+==================================================
+1. PRODUCT IDENTITY
+==================================================
+
+Product: SOLODESK AI
+Tagline: Your Work. Your Clients. All in One Place.
+
+Category: Freelancer Business Management Workspace / Freelancer Business OS.
+
+Target users:
+- Freelancers
+- Software developers
+- Web designers
+- Graphic designers
+- Writers
+- Digital marketers
+- Consultants
+- Virtual assistants
+- Independent professionals
+- Small independent agencies
+
+Primary platform:
+- Responsive web application
+- Installable Progressive Web App
+
+Future platforms:
+- Optional desktop packaging
+- Optional secure cloud synchronization
+- Optional team collaboration
+
+Core philosophy:
+
+LOCAL-FIRST. PRIVACY-CONSCIOUS. OFFLINE-CAPABLE. AI-OPTIONAL.
+
+The application must remain fully useful without an internet connection, AI provider, account, subscription, backend, or cloud database for its core workflows.
+
+==================================================
+2. EXISTING REPOSITORY — INSPECT BEFORE EDITING
+==================================================
+
+GitHub repository:
+
+https://github.com/mali123456-del/SOLODESK-AI
+
+Default branch:
+main
+
+Local workspace reported by the owner:
+
+G:\Temp\My projects\SOLODESK AI
+
+A previous Phase 0 report described:
+
+- index.html
+- metadata.json
+- package.json
+- tsconfig.json
+- types.d.ts
+- src/index.ts
+- src/index.css
+- src/bg.svg
+- .gitignore
+
+Reported stack:
+- Vite 8.3
+- TypeScript 7
+- XR Blocks 0.24
+- Three.js 0.186
+- Vanilla TypeScript
+
+IMPORTANT:
+
+The previous report is NOT verified current state.
+
+A read-only GitHub inspection found that the public repository currently has:
+- main branch
+- Initial commit
+- README.md in the repository root
+- No additional root files visible in the inspected listing
+
+Do not assume that GitHub and the reported local workspace contain identical files.
+
+MANDATORY INITIAL ACTIONS:
+
+1. Import the existing GitHub repository.
+2. Inspect the entire imported project.
+3. Inspect all source files, configuration, package manifests, dependencies, assets, scripts and existing documentation.
+4. Generate a complete file inventory.
+5. Identify existing useful code.
+6. Identify unused dependencies and actual XR/Three.js usage.
+7. Identify existing user data and storage mechanisms.
+8. Identify build, lint, test and TypeScript configuration.
+9. Identify Git status and existing uncommitted work if accessible.
+10. Produce an architecture and preservation report.
+
+DO NOT edit files during initial inspection.
+
+After inspection, create:
+
+docs/INITIAL_AUDIT.md
+docs/ARCHITECTURE_DECISIONS.md
+docs/IMPLEMENTATION_ROADMAP.md
+docs/DEPENDENCY_AUDIT.md
+docs/RISK_REGISTER.md
+
+If an existing file is useful, preserve it.
+
+Remove XR Blocks and Three.js only after verifying that no necessary application functionality depends on them.
+
+Do not blindly replace the starter project.
+
+If the imported repository differs from the reported baseline, adapt the plan to the actual repository.
+
+==================================================
+3. MODEL ACCESS AND AI STUDIO CAPABILITY VERIFICATION
+==================================================
+
+Use only the Gemini 4 Hydrogen access available to the owner on their Free plan.
+
+The owner does NOT have access to:
+- Gemini 4 Argon
+- Gemini 4 Carbon
+- Gemini 4 Helix
+- Gemini 4 Krypton
+
+Never assume these models are available.
+
+Before implementing AI functionality:
+
+1. Inspect the model options actually available in the current Build Mode session.
+2. Verify Gemini Hydrogen availability.
+3. Verify the actual Developer API model identifier.
+4. Verify API quota and rate limits.
+5. Verify the availability of server-side secrets.
+6. Verify whether the current runtime supports the required Node.js functionality.
+
+Do not fabricate model capabilities, API responses, quotas or availability.
+
+Do not silently switch to another provider or model.
+
+If Hydrogen is unavailable:
+- Continue developing the complete non-AI application.
+- Implement the provider abstraction.
+- Create a mock provider for tests.
+- Document the limitation.
+- Keep AI functionality disabled until configuration is available.
+
+Do not make the core application dependent on AI.
+
+==================================================
+4. FINAL TECHNICAL STACK
+==================================================
+
+Preferred architecture:
+
+Frontend:
+- React 19
+- TypeScript
+- Vite 8
+- Tailwind CSS 4
+- @tailwindcss/vite
+- Accessible shadcn/ui-style components
+- Radix primitives when justified
+- Lucide React
+
+Data:
+- Dexie
+- IndexedDB
+- Zod
+
+Financial calculations:
+- big.js or an equally reliable decimal-safe solution
+
+Charts:
+- Recharts
+
+Documents:
+- jsPDF
+- Browser print fallback
+
+Testing:
+- Vitest
+- React Testing Library
+- Playwright where supported
+
+PWA:
+- vite-plugin-pwa only after verifying Vite 8 compatibility
+
+IMPORTANT COMPATIBILITY RULES:
+
+1. Preserve existing compatible Vite and TypeScript versions.
+2. Do not downgrade TypeScript 7 merely because older examples use TypeScript 5.
+3. Check every package's peer dependencies.
+4. Verify the React plugin against the installed Vite version.
+5. Verify Tailwind v4's official Vite integration.
+6. Verify PWA plugin compatibility.
+7. Avoid duplicate libraries.
+8. Avoid unnecessary heavy packages.
+9. Avoid Three.js and XR dependencies unless a future approved feature genuinely requires them.
+10. Record exact installed dependency versions.
+
+Prefer small, maintained, accessible libraries.
+
+==================================================
+5. PRODUCT MODULES AND IMPLEMENTATION PRIORITY
+==================================================
+
+P0 — CORE MVP
+
+A. Dashboard
+- Real revenue summaries
+- Expense summaries
+- Active projects
+- Pending invoices
+- Overdue invoices
+- Upcoming deadlines
+- Recent activity
+- Quick actions
+- Date-range filters
+
+All metrics must derive from actual stored records.
+
+Never fabricate statistics.
+
+B. Client CRM
+- Create, edit and archive clients
+- Search and filtering
+- Contact details
+- Notes and tags
+- Client status
+- Duplicate detection
+- Related projects
+- Related proposals
+- Related invoices
+- Client history
+
+C. Project Management
+- Project creation and editing
+- Client association
+- Budgets
+- Milestones
+- Deadlines
+- Status
+- Progress
+- Notes
+- Activity history
+- Budget versus actual performance
+
+D. Tasks
+- Create and edit tasks
+- Priority
+- Due dates
+- Subtasks
+- Project association
+- Status
+- Filters
+- Overdue indicators
+- Completion history
+
+E. Proposal Builder
+- Reusable templates
+- Professional proposal editor
+- Scope of work
+- Deliverables
+- Milestones
+- Timelines
+- Pricing
+- Branding
+- PDF export
+- Draft/sent/accepted/rejected tracking
+
+F. Quotation Studio
+- Line items
+- Quantities
+- Unit prices
+- Discounts
+- Tax configuration
+- Totals
+- PDF export
+- Convert accepted quotations into invoices atomically
+- Prevent duplicate conversions
+
+G. Contract Templates
+- Reusable editable templates
+- Project details
+- Client details
+- PDF export
+- Acceptance status
+
+Do not claim legal validity or jurisdiction-specific legal compliance.
+
+H. Invoice Studio
+- Invoice editor
+- Configurable numbering
+- Currency
+- Taxes
+- Discounts
+- Line items
+- Preview
+- Branding
+- PDF export
+- Print fallback
+- Draft
+- Sent
+- Paid
+- Partially paid
+- Overdue
+- Cancelled
+
+Prevent duplicate invoice numbers.
+
+I. Payment Tracker
+- Manual payment entries
+- Partial payments
+- Remaining balance
+- Payment dates
+- Payment methods
+- Payment history
+
+Do not implement real money transfers or payment gateways in MVP.
+
+J. Finance Tracker
+- Income
+- Expenses
+- Categories
+- Monthly summaries
+- CSV export
+- Profitability
+- Accounting disclaimer
+
+K. Time Tracker
+- Start/stop timer
+- Manual time entries
+- Billable/non-billable time
+- Project association
+- Timesheets
+- Duplicate running timer prevention
+- Recovery after application reload
+
+L. Reports
+- Revenue trends
+- Expenses
+- Outstanding balances
+- Project profitability
+- Client performance
+- Billable hours
+- Date filters
+- CSV/PDF export
+
+M. Settings
+- Business profile
+- Branding
+- Currency
+- Date format
+- Light/dark themes
+- Preferences
+- AI configuration
+- Data management
+
+N. Backup and Restore
+- Versioned JSON backup
+- Schema validation
+- Import preview
+- Duplicate detection
+- Conflict detection
+- Explicit confirmation
+- Restore safety backup
+- Optional AES-GCM encrypted export
+
+O. First-run Experience
+- Welcome screen
+- Business profile setup
+- Currency selection
+- Workspace setup
+- Sample data option
+- Clearly labelled demo workspace
+
+P1 — DIFFERENTIATION
+
+- AI Copilot
+- AI Agent
+- Knowledge Hub
+- Local RAG
+- Client intake forms
+- Recurring invoices
+- Template library
+- Global search
+- Command palette
+- Keyboard shortcuts
+- Document theme builder
+- Notifications
+- Profitability intelligence
+- CSV import
+
+P2 — FUTURE
+
+- Client Portal
+- Cloud synchronization
+- Team workspace
+- Collaboration
+- External integrations
+- Workflow automation
+- Secure client sharing
+- Desktop packaging
+
+Do not implement all P1 and P2 features before the core MVP is stable.
+
+==================================================
+6. DESIGN SYSTEM AND BRANDING
+==================================================
+
+Build a premium, original professional SaaS design.
+
+Brand direction:
+- Deep navy and charcoal
+- Clean white/light theme
+- Restrained blue and cyan accents
+- Modern typography
+- Professional tables
+- Consistent spacing
+- Subtle motion
+- Clear hierarchy
+
+Suggested tokens:
+
+Primary: #2563EB
+Accent: #20C7D9
+Dark background: #101827
+Dark surface: #172338
+Light background: #F5F7FB
+
+Use Inter or another verified, appropriate font.
+
+Create an actual SVG logo and monogram.
+
+Required design-system components:
+
+- Buttons
+- Inputs
+- Selects
+- Dropdowns
+- Dialogs
+- Confirmation dialogs
+- Cards
+- Data tables
+- Badges
+- Tooltips
+- Toasts
+- Navigation
+- Sidebar
+- Mobile navigation
+- Empty states
+- Loading states
+- Error states
+- Success states
+- Skeletons
+- Form validation
+
+Provide:
+- Light mode
+- Dark mode
+- Responsive desktop layout
+- Tablet layout
+- Mobile layout
+- Keyboard accessibility
+- Visible focus indicators
+- Reduced-motion support
+- Appropriate contrast
+
+Create a separate marketing experience with:
+- Product introduction
+- Feature sections
+- Genuine product previews
+- Pricing
+- FAQ
+- Documentation
+- Privacy information
+- Support information
+
+Do not invent testimonials, ratings, integrations, customer numbers or performance claims.
+
+==================================================
+7. FINAL APPLICATION NAVIGATION
+==================================================
+
+Overview:
+- Dashboard
+- Activity
+- Notifications
+
+Workspace:
+- Clients
+- Projects
+- Tasks
+- Time Tracker
+
+Business:
+- Proposals
+- Quotations
+- Contracts
+- Invoices
+- Payments
+
+Finance:
+- Income
+- Expenses
+- Profitability
+- Reports
+
+Intelligence:
+- AI Copilot
+- Knowledge Hub
+- Templates
+
+Productivity:
+- Global Search
+- Command Palette
+- Import/Export
+
+Settings:
+- Business Profile
+- Appearance
+- Currency and Localization
+- AI Configuration
+- Backup and Restore
+- About
+
+All navigation items must open real application screens.
+
+Do not create decorative nonfunctional navigation.
+
+==================================================
+8. APPLICATION ARCHITECTURE
+==================================================
+
+Use a feature-based modular architecture.
+
+Recommended structure:
+
+src/
+  app/
+  components/
+    ui/
+    layout/
+    shared/
+  domain/
+    models/
+    schemas/
+    calculations/
+  db/
+    database.ts
+    schema.ts
+    migrations/
+  repositories/
+  services/
+  features/
+    dashboard/
+    clients/
+    projects/
+    tasks/
+    proposals/
+    quotations/
+    contracts/
+    invoices/
+    payments/
+    finance/
+    time-tracking/
+    reports/
+    backup/
+    settings/
+    assistant/
+    knowledge/
+  ai/
+    agent/
+    providers/
+    knowledge/
+    rag/
+    datasets/
+    evaluation/
+  hooks/
+  lib/
+  pdf/
+  export/
+  import/
+  styles/
+  tests/
+
+Use typed repository interfaces.
+
+UI components must not directly access Dexie tables.
+
+Use service and repository layers to keep future cloud synchronization possible without rewriting feature modules.
+
+Use domain-level validation.
+
+Implement explicit database versioning and migrations.
+
+Never silently discard or reset IndexedDB data.
+
+==================================================
+9. DATABASE AND BUSINESS DATA INTEGRITY
+==================================================
+
+Create properly typed entities for:
+
+- Clients
+- Projects
+- Milestones
+- Tasks
+- Subtasks
+- Proposals
+- Proposal templates
+- Quotations
+- Contracts
+- Invoices
+- Invoice items
+- Payments
+- Income entries
+- Expenses
+- Time entries
+- Categories
+- Activity events
+- Business settings
+- Knowledge documents
+- Document chunks
+- AI preferences
+
+Implement:
+
+1. Stable record IDs.
+2. Created and updated timestamps.
+3. Archived/deleted state where appropriate.
+4. Relationship validation.
+5. Referential integrity checks.
+6. Unique invoice numbering.
+7. Safe transaction boundaries.
+8. Schema migrations.
+9. Duplicate detection.
+10. Consistent repository interfaces.
+
+Financial rules:
+
+- Never rely on uncontrolled floating-point arithmetic.
+- Use integer minor units or tested decimal-safe calculations.
+- Explicitly define tax-inclusive and tax-exclusive calculations.
+- Handle rounding consistently.
+- Preserve historical invoice amounts.
+- Never automatically change existing invoices when currency settings change.
+- Prevent duplicate payment records.
+- Correctly calculate partial payments and outstanding balances.
+
+Date rules:
+
+- Store unambiguous timestamps.
+- Preserve date-only values where appropriate.
+- Handle time zones safely.
+- Avoid accidental date shifts.
+- Test daylight-saving transitions.
+
+==================================================
+10. AI COPILOT AND AGENT
+==================================================
+
+Create a genuinely functional optional AI assistant.
+
+Supported tasks:
+
+- Draft proposals
+- Improve professional emails
+- Draft client follow-ups
+- Create project descriptions
+- Summarize project details
+- Organize tasks
+- Explain financial summaries
+- Search approved knowledge
+- Suggest next actions
+- Generate reusable templates
+- Assist with client onboarding
+
+AI architecture:
+
+src/ai/
+  agent/
+    agent.ts
+    tools.ts
+    permissions.ts
+    schemas.ts
+    actionApproval.ts
+    systemInstructions.ts
+  providers/
+    AIProvider.ts
+    GeminiProvider.ts
+    MockProvider.ts
+    providerFactory.ts
+  knowledge/
+    documents/
+    templates/
+    knowledgeService.ts
+    README.md
+  rag/
+    ingestion.ts
+    chunking.ts
+    retrieval.ts
+    citations.ts
+    indexing.ts
+    README.md
+  datasets/
+    manifests/
+    validation/
+    LICENSES.md
+    README.md
+  evaluation/
+    test-cases/
+    benchmarks/
+    evaluation.ts
+    README.md
+
+Do not leave these as empty decorative folders.
+
+Implement working modules where included in the roadmap.
+
+Create documentation for genuinely deferred functionality.
+
+AI PROVIDER RULES:
+
+- Gemini Hydrogen only.
+- Provider abstraction.
+- Clear timeout handling.
+- Retry only when appropriate.
+- Rate-limit handling.
+- Error reporting.
+- Quota awareness.
+- Mock provider for testing.
+- No fabricated AI output.
+
+AGENT SAFETY:
+
+- Allowlisted tools only.
+- Validate all arguments with Zod.
+- Read-only actions within permission scope.
+- Explicit confirmation for create/update/delete actions.
+- No silent record deletion.
+- No automatic invoice sending.
+- No automatic email sending.
+- No automatic payments.
+- No invented financial figures.
+
+Use a structured approval flow.
+
+Show the user:
+- Requested action
+- Target record
+- Proposed changes
+- Confirmation
+- Execution result
+
+==================================================
+11. KNOWLEDGE HUB AND LOCAL RAG
+==================================================
+
+Implement a functional local knowledge system.
+
+Features:
+- Import supported documents.
+- Extract supported text.
+- Preview extracted content.
+- Validate document types and sizes.
+- Chunk documents.
+- Store metadata.
+- Index chunks.
+- Search documents.
+- Retrieve relevant passages.
+- Provide source references.
+- Delete documents.
+- Rebuild indexes.
+
+Begin with lightweight local keyword retrieval.
+
+Keep embedding-based retrieval optional.
+
+Never upload documents to Gemini automatically.
+
+Before sending private data to an external provider:
+- Show what information will be sent.
+- Obtain explicit user consent.
+- Minimize sensitive data.
+- Redact unnecessary information.
+
+Keep knowledge search functional without Gemini.
+
+==================================================
+12. HUGGING FACE DATASETS AND TRAINING POLICY
+==================================================
+
+Research relevant datasets for:
+- Professional writing
+- Business communication
+- Proposal drafting
+- Task classification
+- Document summarization
+- Customer support
+- Information retrieval
+- Agent evaluation
+
+For every candidate:
+
+1. Inspect its official dataset card.
+2. Verify its exact license.
+3. Verify commercial-use rights.
+4. Check attribution requirements.
+5. Check redistribution restrictions.
+6. Check quality and language.
+7. Check size.
+8. Check provenance.
+9. Record source and license.
+10. Reject uncertain or unsuitable datasets.
+
+Create dataset manifests and LICENSES.md.
+
+Do not bundle large datasets into the frontend.
+
+Do not claim model training occurred because datasets were downloaded.
+
+TRAINING STRATEGY:
+
+Stage 1: Strong system instructions.
+Stage 2: Structured AI tools.
+Stage 3: Curated knowledge.
+Stage 4: Local RAG.
+Stage 5: Evaluation datasets.
+Stage 6: Repeatable evaluation.
+Stage 7: Synthetic examples where appropriate.
+Stage 8: Optional fine-tuning only if measurable improvements justify its cost.
+
+Do not plan heavy local training on the owner's Intel i5-4200U, 8 GB RAM, integrated graphics PC.
+
+If real training is unavailable, create documented evaluation and training preparation pipelines.
+
+Never fake a trained model.
+
+==================================================
+13. PRIVACY AND SECURITY
+==================================================
+
+Core requirements:
+
+- No mandatory account.
+- No mandatory backend.
+- No mandatory cloud database.
+- No mandatory AI.
+- No API keys in source code.
+- No secrets in GitHub.
+- No API keys in IndexedDB.
+- No API keys in localStorage.
+- No API keys in backups.
+- No API keys in logs.
+
+Prefer server-side secrets when a server runtime is genuinely used.
+
+If a user-provided browser-side key is offered:
+- Clearly explain the security limitations.
+- Keep it in memory only.
+- Provide a clear removal action.
+- Never describe it as securely stored.
+
+Provide:
+- Input validation
+- Output sanitization
+- Safe file imports
+- File size limits
+- MIME validation
+- Secure document handling
+- Safe URL handling
+- Error boundaries
+- Dependency audit
+- Privacy disclosures
+
+Do not claim absolute security.
+
+==================================================
+14. BACKUP AND RESTORE
+==================================================
+
+Create a complete user-owned data export system.
+
+Backup:
+- Versioned JSON
+- Export timestamp
+- Schema version
+- Record counts
+- Optional encryption
+
+Restore:
+1. Select file.
+2. Validate file format.
+3. Validate schema.
+4. Show import preview.
+5. Identify duplicates.
+6. Identify conflicts.
+7. Create safety backup.
+8. Request explicit confirmation.
+9. Perform transactional import.
+10. Verify restored records.
+
+Never silently overwrite existing data.
+
+If import fails, restore the previous consistent state.
+
+Browser persistence is not a backup.
+
+Explain storage limitations to users.
+
+==================================================
+15. PWA AND OFFLINE SUPPORT
+==================================================
+
+Implement an installable PWA after core workflows are stable.
+
+Requirements:
+- Web app manifest
+- Appropriate application icons
+- Service worker
+- Offline app shell
+- Cached static assets
+- Safe update strategy
+- Install instructions
+- Offline status
+- Storage availability information
+
+Never cache private business data in a shared public cache.
+
+Do not overwrite active user data during application updates.
+
+Test offline reload and application recovery.
+
+==================================================
+16. MARKETING AND COMMERCIAL READINESS
+==================================================
+
+Create a professional marketing experience.
+
+Include:
+- Product overview
+- Feature descriptions
+- Real screenshots or genuine previews
+- Pricing explanation
+- FAQ
+- Documentation
+- Privacy policy draft
+- Support information
+- Installation instructions
+- Backup instructions
+- Changelog
+
+Do not invent customer reviews or usage statistics.
+
+Suggested initial distribution:
+- Static web/PWA
+- Optional one-time Pro purchase
+- No mandatory subscription
+
+Do not implement fake subscription enforcement.
+
+Do not implement DRM or intrusive tracking.
+
+Do not promise unlimited AI.
+
+Do not claim accounting certification or legal certification.
+
+Document any commercial or licensing limitations.
+
+==================================================
+17. IMPLEMENTATION ROADMAP
+==================================================
+
+Work in these phases.
+
+PHASE 0 — INSPECTION AND ARCHITECTURE APPROVAL
+
+Deliver:
+- Full inventory
+- Dependency audit
+- Existing code analysis
+- Risk register
+- Architecture decisions
+- Preservation report
+
+No application code changes during this phase.
+
+PHASE 1 — FOUNDATION
+
+- React integration
+- TypeScript setup
+- Vite configuration
+- Tailwind v4
+- Design tokens
+- Original SVG logo
+- Responsive app shell
+- Routing
+- Error boundaries
+
+PHASE 2 — DATA ARCHITECTURE
+
+- Dexie
+- Domain models
+- Zod schemas
+- Migrations
+- Repositories
+- Financial utilities
+- Date utilities
+- Unit tests
+
+PHASE 3 — CLIENT CRM
+
+- CRUD
+- Search
+- Tags
+- Notes
+- History
+- Relationships
+- Duplicate detection
+
+PHASE 4 — PROJECTS AND TASKS
+
+- Projects
+- Milestones
+- Tasks
+- Subtasks
+- Deadlines
+- Progress
+- Activity
+
+PHASE 5 — BUSINESS DOCUMENTS
+
+- Proposal Builder
+- Quotation Studio
+- Contract Templates
+- Invoice Studio
+- PDF generation
+- Conversion workflows
+
+PHASE 6 — FINANCIAL OPERATIONS
+
+- Payment Tracker
+- Partial payments
+- Income
+- Expenses
+- Finance reports
+- Time tracking
+- Profitability
+
+PHASE 7 — REPORTING
+
+- Dashboard
+- Analytics
+- Charts
+- Filtering
+- CSV exports
+
+PHASE 8 — BACKUP AND DATA PORTABILITY
+
+- JSON export
+- Restore
+- Import preview
+- Conflict handling
+- Encryption option
+
+PHASE 9 — AI AND KNOWLEDGE
+
+- Provider abstraction
+- Gemini Hydrogen
+- Agent tools
+- Approval workflow
+- Knowledge Hub
+- Local RAG
+- Citations
+- Evaluation pipeline
+
+PHASE 10 — PWA AND OFFLINE
+
+- Manifest
+- Service worker
+- Offline shell
+- Installability
+- Update handling
+
+PHASE 11 — QUALITY HARDENING
+
+- Accessibility
+- Security
+- Performance
+- Mobile responsiveness
+- Error handling
+- Regression testing
+
+PHASE 12 — COMMERCIAL PRESENTATION
+
+- Marketing website
+- Documentation
+- Pricing
+- Product screenshots
+- Production build
+- Release checklist
+
+PHASE 13+ — OPTIONAL EXPANSION
+
+- Client Portal
+- Cloud Sync
+- Team Features
+- Integrations
+- Desktop packaging
+
+Do not start a dependent phase before its prerequisites pass.
+
+==================================================
+18. TESTING REQUIREMENTS
+==================================================
+
+Write actual automated tests.
+
+Database:
+- CRUD
+- Migrations
+- Persistence
+- Relationships
+- Duplicate handling
+
+Business:
+- Invoice numbering
+- Quotation conversion
+- Contract records
+- Proposal statuses
+
+Financial:
+- Decimal precision
+- Discounts
+- Taxes
+- Partial payments
+- Remaining balances
+- Currency formatting
+
+Productivity:
+- Task completion
+- Timer recovery
+- Duplicate timer prevention
+- Timesheets
+
+Documents:
+- PDF generation
+- Print fallback
+- CSV escaping
+- Invalid imports
+
+Backup:
+- Export equivalence
+- Restore equivalence
+- Invalid file rejection
+- Conflict handling
+- Failed restore recovery
+
+AI:
+- Provider errors
+- Quota limits
+- Approval requirements
+- Tool argument validation
+- RAG retrieval
+- Citation correctness
+
+PWA:
+- Installation
+- Offline reload
+- Cache behavior
+- Update behavior
+
+Accessibility:
+- Keyboard navigation
+- Focus states
+- Form labels
+- Dialog accessibility
+- Color contrast
+
+Do not claim tests passed unless they were actually executed.
+
+==================================================
+19. PHASE EXECUTION RULES
+==================================================
+
+Work incrementally.
+
+For every phase:
+
+1. Inspect relevant existing files.
+2. Confirm dependencies.
+3. Plan implementation.
+4. Implement the smallest coherent set of features.
+5. Run formatting if configured.
+6. Run TypeScript checks.
+7. Run lint.
+8. Run unit tests.
+9. Run integration tests where relevant.
+10. Run production build.
+11. Inspect actual application behavior.
+12. Fix discovered regressions.
+13. Document remaining limitations.
+
+Never skip failed tests without reporting them.
+
+Never fabricate verification.
+
+If a tool, package, API or environment limitation blocks a phase, document it and continue with independent work where possible.
+
+==================================================
+20. FILE AND PROJECT SAFETY
+==================================================
+
+ABSOLUTE RULES:
+
+- Inspect before editing.
+- Preserve existing useful code.
+- Preserve user data.
+- No blind deletion.
+- No destructive database reset.
+- No force push.
+- No git reset --hard.
+- No automatic commit.
+- No automatic push.
+- No deployment without explicit approval.
+- No billing changes.
+- No exposing secrets.
+- No replacing working code without justification.
+- No fake success reports.
+
+Before potentially destructive changes:
+- Explain the reason.
+- Identify affected files/data.
+- Create a recovery plan.
+- Obtain user authorization.
+
+Never assume that an empty repository means permission to overwrite an unrelated local workspace.
+
+==================================================
+21. PERFORMANCE REQUIREMENTS
+==================================================
+
+The owner's development computer:
+
+Intel Core i5-4200U
+8 GB RAM
+Intel HD integrated graphics
+Windows 10 Pro 64-bit
+
+Keep development and application performance practical for low-spec computers.
+
+Requirements:
+- Lazy-load feature modules.
+- Lazy-load PDF libraries.
+- Avoid unnecessarily large dependencies.
+- Avoid expensive rendering loops.
+- Use pagination for large datasets.
+- Use memoization where justified.
+- Optimize chart rendering.
+- Avoid unnecessary background workers.
+- Keep AI processing optional.
+- Avoid heavy local language models.
+
+Measure bundle size and identify oversized dependencies.
+
+Do not make unsupported performance claims.
+
+==================================================
+22. REQUIRED DOCUMENTATION
+==================================================
+
+Maintain:
+
+README.md
+docs/INITIAL_AUDIT.md
+docs/ARCHITECTURE_DECISIONS.md
+docs/IMPLEMENTATION_ROADMAP.md
+docs/DEPENDENCY_AUDIT.md
+docs/RISK_REGISTER.md
+docs/USER_GUIDE.md
+docs/PRIVACY.md
+docs/BACKUP_RESTORE.md
+docs/AI_ARCHITECTURE.md
+docs/DATASET_POLICY.md
+docs/TESTING.md
+docs/CHANGELOG.md
+
+Keep documentation synchronized with actual implementation.
+
+==================================================
+23. PHASE REPORT FORMAT
+==================================================
+
+At the end of every phase, provide:
+
+PHASE NUMBER:
+PHASE TITLE:
+STATUS:
+
+Implemented:
+- Actual implemented functionality.
+
+Files created:
+- Exact paths.
+
+Files modified:
+- Exact paths.
+
+Files removed:
+- Exact paths and reasons.
+
+Tests executed:
+- Exact commands.
+
+Test results:
+- Actual passed/failed counts.
+
+Build:
+- Actual result.
+
+TypeScript:
+- Actual result.
+
+Lint:
+- Actual result.
+
+Security:
+- Findings.
+
+Performance:
+- Findings.
+
+Blocked:
+- Actual limitations.
+
+Not implemented:
+- Remaining work.
+
+Preservation:
+- Data and existing code impact.
+
+Next phase:
+- Dependencies and recommended next steps.
+
+Use these status labels:
+- IMPLEMENTED
+- TESTED
+- VERIFIED
+- BLOCKED
+- NOT IMPLEMENTED
+- ASSUMED
+
+Never use VERIFIED when only a visual inspection was performed.
+
+==================================================
+24. IMMEDIATE EXECUTION INSTRUCTIONS
+==================================================
+
+Your first task is NOT to build the entire application immediately.
+
+Begin with PHASE 0.
+
+Import and inspect the existing repository.
+
+Generate the complete initial audit.
+
+Verify the actual application environment and Gemini Hydrogen access.
+
+Verify library compatibility.
+
+Identify risks and existing assets.
+
+Prepare the final implementation plan.
+
+Then STOP and present the Phase 0 report for owner approval.
+
+Do not proceed to Phase 1 until the owner approves the architecture and implementation plan.
+
+After approval, execute the roadmap phase by phase.
+
+Your objective is to deliver a real, reliable, professional, commercially presentable SOLODESK AI product.
+
+The priority order is:
+
+1. Data integrity.
+2. Functional business workflows.
+3. Reliability.
+4. Privacy.
+5. Offline capability.
+6. User experience.
+7. AI intelligence.
+8. Commercial readiness.
+
+A smaller fully functional product is better than a massive collection of incomplete screens.
+
+Build SOLODESK AI as a product people can genuinely use to operate their freelance businesses.
+
+END OF MASTER COMMAND.
