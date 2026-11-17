@@ -96,7 +96,12 @@ export function retrieveRelevantChunks(
       score += coverage * 2;
     }
 
-    if (score > 0) {
+    const exactPhraseMatched =
+      trimmed.length >= 4 && (lowerContent.includes(trimmed) || lowerTitle.includes(trimmed));
+    const passesNoiseFloor =
+      exactPhraseMatched || queryTerms.length < 5 || matchedTerms.length >= 2;
+
+    if (score > 0 && passesNoiseFloor) {
       scored.push({
         chunk,
         score: Number(score.toFixed(3)),

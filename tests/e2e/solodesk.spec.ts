@@ -99,17 +99,55 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await expect(page.getByText('E2E Sprint Timer').first()).toBeVisible();
     await page.getByRole('button', { name: /Stop Timer/i }).click();
 
-    // 7. Invoices, Quotations & Payments rendering cleanly
+    // 7. Service Catalog -> Templates & Invoice Quick-Insert
+    await page.goto('/#/templates');
+    await expect(page.getByRole('heading', { name: 'Templates & Service Catalog', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: /New Service Item/i }).click();
+    await page.getByLabel('Service Name').fill('E2E UI Architecture');
+    await page.getByLabel('Default Unit Price').fill('750');
+    await page.getByRole('button', { name: /Save Service Item/i }).click();
+    await page.getByRole('tab', { name: /Service Catalog/i }).click();
+    await expect(page.getByText('E2E UI Architecture').first()).toBeVisible();
+
     await page.goto('/#/quotations');
     await expect(page.getByRole('heading', { name: 'Quotations', exact: true })).toBeVisible();
     await page.goto('/#/invoices');
     await expect(page.getByRole('heading', { name: 'Invoices', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: /New Invoice/i }).click();
+    await page.getByLabel('Insert from Service Catalog').selectOption({ label: 'E2E UI Architecture ($750.00)' });
+    await expect(page.locator('input[value="E2E UI Architecture"]')).toBeVisible();
+    await page.getByRole('button', { name: /Cancel/i }).click();
+
     await page.goto('/#/payments');
     await expect(page.getByRole('heading', { name: 'Payments', exact: true })).toBeVisible();
 
-    // 8. Knowledge Hub: local note, offline search, and 6-case RAG check
+    // 7b. Schedule & Follow-Ups + Automation Dry-Run
+    await page.goto('/#/communication');
+    await expect(page.getByRole('heading', { name: 'Schedule & Client Follow-Ups', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: /Schedule Meeting/i }).click();
+    await page.getByLabel('Meeting Title').fill('E2E Discovery Sync');
+    await page.getByRole('button', { name: /Save Meeting/i }).click();
+    await expect(page.getByText('E2E Discovery Sync').first()).toBeVisible();
+
+    await page.goto('/#/workflows');
+    await expect(page.getByRole('heading', { name: 'Automation & Workflow Engine', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: /Run Dry-Run Simulation/i }).click();
+    await expect(page.getByText(/Condition Not Met|Condition Passed/i)).toBeVisible();
+
+    await page.goto('/#/reports');
+    await expect(page.getByRole('heading', { name: 'Financial Reports', exact: true })).toBeVisible();
+    await expect(page.getByText('Project Estimates vs Actuals')).toBeVisible();
+
+    // 8. Knowledge Hub: 14 built-in packs, dataset audit, local note, and 14-case RAG check
     await page.goto('/#/knowledge');
     await expect(page.getByRole('heading', { name: 'Knowledge Hub', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: /Load 14 Freelancer Packs/i }).click();
+    await expect(page.getByText(/Installed 14 first-party MIT pack/i)).toBeVisible();
+
+    await page.getByRole('button', { name: /Dataset Audit/i }).click();
+    await expect(page.getByText('Dataset Registry & License Compliance Audit')).toBeVisible();
+    await page.keyboard.press('Escape');
+
     await page.getByLabel('Note Title').fill('E2E Payment SOP');
     await page.getByLabel('Collection', { exact: true }).fill('Finance');
     await page.getByLabel('Content').fill('All E2E retainers settle within Net-10 business days.');
@@ -117,7 +155,7 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await expect(page.getByText('E2E Payment SOP').first()).toBeVisible();
 
     await page.getByRole('button', { name: /Run Local RAG Check/i }).click();
-    await expect(page.getByText(/6\/6 \(100%\)/i)).toBeVisible();
+    await expect(page.getByText(/14\/14 \(100%\)/i)).toBeVisible();
 
     // 9. AI Copilot offline deterministic draft & zero stored secrets
     await page.goto('/#/ai-copilot');
@@ -131,23 +169,27 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     expect(storageCounts.ls).toBe(0);
     expect(storageCounts.ss).toBe(0);
 
-    // 10. Settings Privacy & Live Database Health Check
+    // 10. Settings Privacy, Sync Card & Live Database Health Check (v4)
     await page.goto('/#/settings-privacy');
     await expect(page.getByText('Database Integrity & Diagnostics')).toBeVisible();
     await expect(page.getByText('Healthy', { exact: true })).toBeVisible();
-    await expect(page.getByText('v3', { exact: true })).toBeVisible();
+    await expect(page.getByText('v4', { exact: true })).toBeVisible();
+    await expect(page.getByText('Local Database Synchronization & Shortcuts')).toBeVisible();
 
     // 11. Mobile responsiveness check (375x812) with zero horizontal overflow
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto('/#/dashboard');
     await expect(page.getByRole('heading', { name: /Welcome/i })).toBeVisible();
+    await expect(page.getByText('My Day — Priority Focus')).toBeVisible();
     const mobileOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth
     );
     expect(mobileOverflow).toBe(false);
 
-    // 12. Offline mode resilience test
+    // 12. Offline mode resilience + Offline indicator test
     await context.setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+    await expect(page.getByLabel('Browser is offline; working on local IndexedDB')).toBeVisible();
     await page.goto('/#/clients');
     await expect(page.getByRole('heading', { name: 'Clients', exact: true })).toBeVisible();
     await expect(page.getByText('E2E Horizon Labs').first()).toBeVisible();

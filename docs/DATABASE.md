@@ -1,11 +1,13 @@
 # SOLODESK AI — Database Architecture & Migrations
 
+> See also: [`docs/DATABASE_ARCHITECTURE.md`](./DATABASE_ARCHITECTURE.md) for the Phase 14 v4 architecture specification.
+
 ## Storage Engine
 - **Engine:** Browser IndexedDB via **Dexie `4.4.7`** (`SolodeskDatabase`, database name `solodesk_ai_workspace`).
-- **Current Schema Version:** `v3` (`SOLODESK_SCHEMA_VERSION = 3` in `src/database/db.ts`).
+- **Current Schema Version:** `v4` (`SOLODESK_SCHEMA_VERSION = 4` in `src/database/db.ts`).
 - **Source of Truth:** Local-first on the user's device; zero mandatory cloud database.
 
-## Tables & Indexes (v3)
+## Tables & Indexes (v4 — 21 Tables)
 | Table | Primary Key & Indexes | Purpose |
 |---|---|---|
 | `businessProfile` | `id` | Studio branding, tax label, payment instructions |
@@ -24,14 +26,20 @@
 | `documentChunks` | `id, documentId, chunkIndex, *keywords` | Indexed RAG text chunks & keyword multi-entry index |
 | `templates` | `id, kind, name` | Reusable proposal/contract/email templates |
 | `workflowRuns` | `id, workflowType, triggerEntityId, status, createdAt` | Idempotent workflow execution audit trail |
+| `serviceCatalog` | `id, category, active, name, updatedAt` | Reusable service packages for Invoice/Quote quick-insert *(v4)* |
+| `appointments` | `id, clientId, projectId, date, status, updatedAt` | Client meetings, reminders & follow-up status *(v4)* |
+| `workspaceGoals` | `id, &monthPrefix, updatedAt` | Monthly revenue, billable hour & expense targets *(v4)* |
 | `activities` | `id, entityType, entityId, createdAt` | Workspace activity timeline |
 | `notifications` | `id, read, createdAt` | Local alerts & overdue indicators |
 
 ## Non-Destructive Schema Migrations
 - **v1 -> v2:** Added `clients.category` and `*keywords` multi-entry index on `documentChunks`; backfilled `category = 'General'` and `tags = []`.
 - **v2 -> v3:** Added `workflowRuns` table and indexed `knowledgeDocs.collection` & `knowledgeDocs.contentHash`; backfilled `collection = 'General'`, `processingStatus = 'indexed'`, `sourceUrl`, `contentHash`, and `licenseOrRights` on existing documents without data loss.
+- **v3 -> v4:** Added `serviceCatalog`, `appointments`, and `workspaceGoals` (`&monthPrefix` uniqueness) without modifying or deleting existing v1–v3 records.
 
-## Transaction & Referential Integrity Rules
+## Transaction, Integrity & Sync Telemetry Rules
 - `convertQuotationToInvoice`, `recordPayment`, `updateInvoice`, `refreshOverdueInvoices`, `stopTimer`, `deleteProject`, `deleteTask`, `saveKnowledgeDocWithChunks`, and `restoreBackupPayload` execute inside atomic `db.transaction('rw', ...)`.
-- `deleteProject` throws `ReferentialIntegrityError` if non-cancelled invoices link to the project; otherwise unlinks child tasks, time entries, proposals, quotations, contracts, finance entries, and cancelled invoices atomically.
-- Live integrity diagnostics (`runDatabaseHealthCheck()` in `src/observability/healthCheck.ts`) scan record counts, 6 FK relationships, storage usage %, and persistence status.
+- `createAppointment` and `updateAppointment` validate referenced `clientId` and `projectId` foreign keys (`ReferentialIntegrityError`).
+- `deleteProject` throws `ReferentialIntegrityError` if non-cancelled invoices link to the project; otherwise unlinks child tasks, time entries, appointments, proposals, quotations, contracts, finance entries, and cancelled invoices atomically.
+- Repository write calls wrap persistence through `runWrite(...)` (`src/core/syncEvents.ts`), updating `WorkspaceProvider` sync status (`idle | syncing | synced | error`), pending write counter, and error recovery state.
+- Live integrity diagnostics (`runDatabaseHealthCheck()` in `src/observability/healthCheck.ts`) scan record counts across all 21 tables, foreign-key relationships, storage usage %, and persistence status.
