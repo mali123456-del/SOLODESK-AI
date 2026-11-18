@@ -46,6 +46,40 @@ export const businessProfileSchema = z.object({
 });
 export type BusinessProfile = z.infer<typeof businessProfileSchema>;
 
+export const dashboardWidgetConfigSchema = z.object({
+  id: z.string().min(1),
+  visible: z.boolean().default(true),
+  order: z.number().int().min(0).default(0),
+});
+export type DashboardWidgetConfig = z.infer<typeof dashboardWidgetConfigSchema>;
+
+export const recentWorkspaceItemSchema = z.object({
+  id: z.string().min(1),
+  entityType: z.string().min(1),
+  label: z.string().min(1),
+  route: z.string().min(1),
+  viewedAt: isoTimestampSchema,
+});
+export type RecentWorkspaceItem = z.infer<typeof recentWorkspaceItemSchema>;
+
+export const taxProfileSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(80),
+  rate: z.number().finite().min(0).max(100),
+  inclusive: z.boolean().default(false),
+  country: z.string().trim().max(60).default(''),
+});
+export type TaxProfile = z.infer<typeof taxProfileSchema>;
+
+export const notificationPrefsSchema = z.object({
+  invoiceReminders: z.boolean().default(true),
+  taskDeadlines: z.boolean().default(true),
+  appointmentReminders: z.boolean().default(true),
+  digestHour: z.number().int().min(0).max(23).default(9),
+  snoozedIds: z.record(z.string(), z.string()).default({}),
+});
+export type NotificationPrefs = z.infer<typeof notificationPrefsSchema>;
+
 export const appSettingsSchema = z.object({
   id: z.literal('default').default('default'),
   defaultCurrency: z.string().min(3).max(5).default('USD'),
@@ -66,6 +100,34 @@ export const appSettingsSchema = z.object({
   onboardingCompleted: z.boolean().default(false),
   demoDataActive: z.boolean().default(false),
   lastBackupAt: z.string().optional().default(''),
+  // Phase 15-25 extensions (backward-compatible optional defaults)
+  language: z.enum(['en', 'ur', 'es', 'ar']).optional().default('en'),
+  rtl: z.boolean().optional().default(false),
+  accentColor: z.enum(['blue', 'cyan', 'emerald', 'indigo', 'amber']).optional().default('blue'),
+  dashboardWidgets: z.array(dashboardWidgetConfigSchema).optional().default([]),
+  pinnedIds: z.array(z.string()).optional().default([]),
+  favoriteIds: z.array(z.string()).optional().default([]),
+  recentItems: z.array(recentWorkspaceItemSchema).optional().default([]),
+  activePlanTier: z.enum(['free', 'pro', 'ultimate', 'business', 'enterprise']).optional().default('free'),
+  notificationPrefs: notificationPrefsSchema.optional().default({
+    invoiceReminders: true,
+    taskDeadlines: true,
+    appointmentReminders: true,
+    digestHour: 9,
+    snoozedIds: {},
+  }),
+  taxProfiles: z.array(taxProfileSchema).optional().default([]),
+  fxRates: z.record(z.string(), z.number().positive()).optional().default({
+    USD: 1,
+    EUR: 0.92,
+    GBP: 0.79,
+    PKR: 278.5,
+    CAD: 1.36,
+    AUD: 1.52,
+    AED: 3.67,
+  }),
+  retentionDays: z.number().int().min(7).max(3650).optional().default(365),
+  tourCompleted: z.boolean().optional().default(false),
   updatedAt: isoTimestampSchema,
 });
 export type AppSettings = z.infer<typeof appSettingsSchema>;
@@ -105,6 +167,23 @@ export type ProjectStatus = z.infer<typeof projectStatusEnum>;
 export const priorityEnum = z.enum(['low', 'medium', 'high', 'urgent']);
 export type Priority = z.infer<typeof priorityEnum>;
 
+export const projectRiskSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1).max(200),
+  severity: z.enum(['low', 'medium', 'high']).default('medium'),
+  mitigation: z.string().max(500).default(''),
+  status: z.enum(['open', 'mitigated']).default('open'),
+});
+export type ProjectRisk = z.infer<typeof projectRiskSchema>;
+
+export const projectOkrSchema = z.object({
+  id: z.string().min(1),
+  objective: z.string().trim().min(1).max(200),
+  keyResult: z.string().trim().min(1).max(240),
+  progressPercent: z.number().min(0).max(100).default(0),
+});
+export type ProjectOkr = z.infer<typeof projectOkrSchema>;
+
 export const projectSchema = z.object({
   id: z.string().min(1),
   clientId: z.string().min(1, 'Client is required'),
@@ -120,6 +199,9 @@ export const projectSchema = z.object({
   hourlyRate: z.number().finite().min(0).default(50),
   progress: z.number().min(0).max(100).default(0),
   milestones: z.array(milestoneSchema).default([]),
+  risks: z.array(projectRiskSchema).optional().default([]),
+  okrs: z.array(projectOkrSchema).optional().default([]),
+  isTemplate: z.boolean().optional().default(false),
   notes: z.string().max(4000).default(''),
   isDemo: z.boolean().optional().default(false),
   createdAt: isoTimestampSchema,
@@ -148,6 +230,10 @@ export const taskSchema = z.object({
   dueDate: optionalDateOnlySchema,
   tags: z.array(z.string().trim().min(1).max(40)).default([]),
   subtasks: z.array(subtaskSchema).default([]),
+  dependsOnIds: z.array(z.string()).optional().default([]),
+  estimatedHours: z.number().finite().min(0).optional().default(0),
+  recurrenceRule: z.enum(['none', 'daily', 'weekly', 'monthly']).optional().default('none'),
+  autoPriorityScore: z.number().finite().optional().default(0),
   completedAt: z.string().optional().default(''),
   isDemo: z.boolean().optional().default(false),
   createdAt: isoTimestampSchema,
@@ -252,6 +338,15 @@ export const invoiceStatusEnum = z.enum([
 ]);
 export type InvoiceStatus = z.infer<typeof invoiceStatusEnum>;
 
+export const paymentInstallmentSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().trim().min(1).max(120),
+  dueDate: dateOnlySchema,
+  amount: z.number().finite().min(0),
+  status: z.enum(['pending', 'paid']).default('pending'),
+});
+export type PaymentInstallment = z.infer<typeof paymentInstallmentSchema>;
+
 export const invoiceSchema = z.object({
   id: z.string().min(1),
   number: z.string().trim().min(1, 'Invoice number is required').max(40),
@@ -275,6 +370,13 @@ export const invoiceSchema = z.object({
   notes: z.string().max(4000).default(''),
   paymentInstructions: z.string().max(2000).default(''),
   status: invoiceStatusEnum.default('draft'),
+  recurrenceRule: z
+    .enum(['none', 'weekly', 'monthly', 'quarterly', 'yearly'])
+    .optional()
+    .default('none'),
+  nextRecurrenceDate: optionalDateOnlySchema,
+  exchangeRateToBase: z.number().finite().positive().optional().default(1),
+  paymentSchedule: z.array(paymentInstallmentSchema).optional().default([]),
   isDemo: z.boolean().optional().default(false),
   createdAt: isoTimestampSchema,
   updatedAt: isoTimestampSchema,
@@ -320,6 +422,11 @@ export const financeEntrySchema = z.object({
   paymentId: z.string().optional().default(''),
   description: z.string().trim().min(1, 'Description is required').max(240),
   notes: z.string().max(2000).default(''),
+  receiptFileName: z.string().max(200).optional().default(''),
+  receiptMimeType: z.string().max(100).optional().default(''),
+  receiptDataUrl: z.string().max(1_500_000).optional().default(''),
+  taxProfileName: z.string().max(80).optional().default(''),
+  exchangeRateToBase: z.number().finite().positive().optional().default(1),
   isDemo: z.boolean().optional().default(false),
   createdAt: isoTimestampSchema,
   updatedAt: isoTimestampSchema,
@@ -352,6 +459,8 @@ export const knowledgeDocumentSchema = z.object({
   contentHash: z.string().max(128).optional().default(''),
   processingStatus: z.enum(['indexed', 'failed', 'pending']).optional().default('indexed'),
   licenseOrRights: z.string().trim().max(240).optional().default(''),
+  accessScope: z.enum(['workspace', 'client_portal', 'internal_only']).optional().default('workspace'),
+  indexVersion: z.number().int().min(1).optional().default(2),
   fileName: z.string().max(200).default(''),
   mimeType: z.string().max(120).default('text/plain'),
   sizeBytes: z.number().int().min(0).default(0),
@@ -475,6 +584,12 @@ export const activityEventSchema = z.object({
     'goal',
     'backup',
     'settings',
+    'vault',
+    'portal',
+    'retainer',
+    'webhook',
+    'sync',
+    'security',
   ]),
   entityId: z.string().min(1),
   action: z.string().min(1).max(80),
@@ -489,7 +604,203 @@ export const notificationItemSchema = z.object({
   message: z.string().min(1).max(400),
   severity: z.enum(['info', 'warning', 'danger', 'success']).default('info'),
   read: z.boolean().default(false),
+  snoozedUntil: z.string().optional().default(''),
   route: z.string().optional().default('dashboard'),
   createdAt: isoTimestampSchema,
 });
 export type NotificationItem = z.infer<typeof notificationItemSchema>;
+
+// Phase 16: Client Experience & Portal Links
+export const portalChecklistItemSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1).max(160),
+  completed: z.boolean().default(false),
+});
+
+export const portalApprovalRequestSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1).max(160),
+  description: z.string().max(1000).default(''),
+  status: z.enum(['pending', 'approved', 'changes_requested']).default('pending'),
+  clientComment: z.string().max(1000).default(''),
+  updatedAt: isoTimestampSchema,
+});
+
+export const clientPortalLinkSchema = z.object({
+  id: z.string().min(1),
+  clientId: z.string().min(1),
+  projectId: z.string().optional().default(''),
+  token: z.string().min(8).max(120),
+  label: z.string().trim().min(1).max(160),
+  status: z.enum(['active', 'revoked', 'expired']).default('active'),
+  expiresAt: dateOnlySchema,
+  permissions: z
+    .object({
+      showMilestones: z.boolean().default(true),
+      showInvoices: z.boolean().default(true),
+      showSharedFiles: z.boolean().default(true),
+      allowApprovals: z.boolean().default(true),
+      allowFeedback: z.boolean().default(true),
+    })
+    .default({
+      showMilestones: true,
+      showInvoices: true,
+      showSharedFiles: true,
+      allowApprovals: true,
+      allowFeedback: true,
+    }),
+  onboardingChecklist: z.array(portalChecklistItemSchema).default([]),
+  approvals: z.array(portalApprovalRequestSchema).default([]),
+  feedbackNotes: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        author: z.string().trim().min(1).max(100),
+        message: z.string().trim().min(1).max(2000),
+        createdAt: isoTimestampSchema,
+      })
+    )
+    .default([]),
+  surveyRating: z.number().int().min(1).max(5).optional(),
+  surveyComment: z.string().max(1000).optional().default(''),
+  createdAt: isoTimestampSchema,
+  updatedAt: isoTimestampSchema,
+});
+export type ClientPortalLink = z.infer<typeof clientPortalLinkSchema>;
+
+// Phase 18: Retainers
+export const retainerSchema = z.object({
+  id: z.string().min(1),
+  clientId: z.string().min(1),
+  projectId: z.string().optional().default(''),
+  title: z.string().trim().min(1).max(160),
+  monthlyAmount: z.number().finite().min(0),
+  currency: z.string().min(3).max(5).default('USD'),
+  includedHours: z.number().finite().min(0).default(20),
+  hoursUsed: z.number().finite().min(0).default(0),
+  billingDay: z.number().int().min(1).max(28).default(1),
+  status: z.enum(['active', 'paused', 'ended']).default('active'),
+  notes: z.string().max(1000).default(''),
+  createdAt: isoTimestampSchema,
+  updatedAt: isoTimestampSchema,
+});
+export type Retainer = z.infer<typeof retainerSchema>;
+
+// Phase 19: Document Vault
+export const vaultFileVersionSchema = z.object({
+  version: z.number().int().min(1),
+  sizeBytes: z.number().int().min(0),
+  sha256: z.string().min(1),
+  note: z.string().max(300).default(''),
+  createdAt: isoTimestampSchema,
+});
+
+export const vaultFileSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(180),
+  folder: z.string().trim().min(1).max(100).default('General'),
+  mimeType: z.string().trim().min(1).max(120),
+  sizeBytes: z.number().int().min(0).max(5_000_000),
+  sha256: z.string().min(1),
+  contentDataUrl: z.string().max(7_000_000),
+  previewText: z.string().max(100_000).optional().default(''),
+  classification: z.enum(['public', 'client_shared', 'internal', 'confidential']).default('internal'),
+  approvalStatus: z.enum(['draft', 'pending_review', 'approved', 'rejected']).default('draft'),
+  clientId: z.string().optional().default(''),
+  projectId: z.string().optional().default(''),
+  shareToken: z.string().optional().default(''),
+  tags: z.array(z.string().trim().min(1)).default([]),
+  version: z.number().int().min(1).default(1),
+  versions: z.array(vaultFileVersionSchema).default([]),
+  createdAt: isoTimestampSchema,
+  updatedAt: isoTimestampSchema,
+});
+export type VaultFile = z.infer<typeof vaultFileSchema>;
+
+// Phase 21: Custom Automation Workflows & Webhooks
+export const customWorkflowTriggerEnum = z.enum([
+  'invoice_created',
+  'invoice_overdue',
+  'payment_received',
+  'task_completed',
+  'project_created',
+  'appointment_approaching',
+  'client_onboarded',
+  'approval_requested',
+]);
+export type CustomWorkflowTrigger = z.infer<typeof customWorkflowTriggerEnum>;
+
+export const customWorkflowSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(160),
+  description: z.string().max(400).default(''),
+  triggerType: customWorkflowTriggerEnum,
+  conditionField: z.string().max(80).default('status'),
+  conditionOperator: z.enum(['equals', 'not_equals', 'greater_than', 'contains']).default('equals'),
+  conditionValue: z.string().max(120).default(''),
+  actionType: z.enum([
+    'create_task',
+    'push_notification',
+    'log_activity',
+    'create_portal_approval',
+    'queue_webhook',
+  ]),
+  actionConfig: z.record(z.string(), z.string()).default({}),
+  requireApproval: z.boolean().default(true),
+  enabled: z.boolean().default(true),
+  version: z.number().int().min(1).default(1),
+  lastExecutedAt: z.string().optional().default(''),
+  createdAt: isoTimestampSchema,
+  updatedAt: isoTimestampSchema,
+});
+export type CustomWorkflow = z.infer<typeof customWorkflowSchema>;
+
+export const webhookConfigSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(120),
+  url: z.string().trim().min(1).max(500),
+  eventType: customWorkflowTriggerEnum,
+  enabled: z.boolean().default(true),
+  lastStatus: z.string().max(120).optional().default(''),
+  lastAttemptAt: z.string().optional().default(''),
+  createdAt: isoTimestampSchema,
+  updatedAt: isoTimestampSchema,
+});
+export type WebhookConfig = z.infer<typeof webhookConfigSchema>;
+
+// Phase 23: Cloud Sync Queue
+export const syncQueueItemSchema = z.object({
+  id: z.string().min(1),
+  entityType: z.string().min(1),
+  entityId: z.string().min(1),
+  operation: z.enum(['upsert', 'delete']),
+  revision: z.number().int().min(1).default(1),
+  status: z.enum(['pending', 'acked', 'conflict', 'failed']).default('pending'),
+  conflictReason: z.string().max(300).optional().default(''),
+  payloadJson: z.string().default('{}'),
+  createdAt: isoTimestampSchema,
+  updatedAt: isoTimestampSchema,
+});
+export type SyncQueueItem = z.infer<typeof syncQueueItemSchema>;
+
+// Phase 24: Security Audit Log
+export const securityAuditLogSchema = z.object({
+  id: z.string().min(1),
+  eventType: z.string().min(1).max(100),
+  severity: z.enum(['info', 'warning', 'critical']).default('info'),
+  actor: z.string().max(100).default('local-owner'),
+  detail: z.string().min(1).max(500),
+  createdAt: isoTimestampSchema,
+});
+export type SecurityAuditLog = z.infer<typeof securityAuditLogSchema>;
+
+// Phase 15: Saved Views
+export const savedViewSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(100),
+  route: z.string().min(1).max(60),
+  filterConfig: z.record(z.string(), z.string()).default({}),
+  createdAt: isoTimestampSchema,
+  updatedAt: isoTimestampSchema,
+});
+export type SavedView = z.infer<typeof savedViewSchema>;

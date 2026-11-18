@@ -1,18 +1,21 @@
-import { GoogleGenAI } from '@google/genai';
 import {
   AIProviderError,
   type AIGenerateRequest,
   type AIGenerateResponse,
   type AIProvider,
 } from './AIProvider';
-
 import { AI_PROVIDER_REGISTRY } from './registry';
 
 export const GEMINI_FREE_MODEL = AI_PROVIDER_REGISTRY.gemini.defaultModelId;
 
+/**
+ * Frontend Gemini adapter that routes requests exclusively to `/api/v1/ai/generate`.
+ * `@google/genai` is executed strictly on the server so API keys and client SDKs
+ * are never bundled into browser code or passed deprecated sampling parameters.
+ */
 export class GeminiProvider implements AIProvider {
   readonly id = 'gemini' as const;
-  readonly label = 'Gemini 4 Hydrogen (BYOK)';
+  readonly label = 'Gemini 4 Hydrogen (Server Gateway)';
   readonly modelId: string;
   private readonly getApiKey: () => string;
 
@@ -27,12 +30,6 @@ export class GeminiProvider implements AIProvider {
 
   async generateText(request: AIGenerateRequest): Promise<AIGenerateResponse> {
     const apiKey = this.getApiKey().trim();
-    if (!apiKey) {
-      throw new AIProviderError(
-        'missing_key',
-        'No Gemini API key is active in memory. Add your key in AI Configuration or use Offline Draft mode.'
-      );
-    }
 
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       throw new AIProviderError(
@@ -46,62 +43,72 @@ export class GeminiProvider implements AIProvider {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const ai = new GoogleGenAI({ apiKey });
-      const fullPrompt = request.context
-        ? `Workspace Context:\n${request.context}\n\nUser Request:\n${request.prompt}`
-        : request.prompt;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (apiKey) {
+        headers['X-Gemini-Key'] = apiKey;
+      }
 
-      const response = await Promise.race([
-        ai.models.generateContent({
+      const response = await fetch('/api/v1/ai/generate', {
+        method: 'POST',
+        headers,
+        signal: controller.signal,
+        body: JSON.stringify({
+          provider: 'gemini',
           model: this.modelId,
-          contents: fullPrompt,
-          config: {
-            systemInstruction: request.systemInstruction,
-            temperature: request.temperature ?? 0.4,
-            maxOutputTokens: request.maxOutputTokens ?? 1200,
-          },
+          prompt: request.prompt,
+          context: request.context,
+          systemInstruction: request.systemInstruction,
+          maxOutputTokens: request.maxOutputTokens ?? 1200,
         }),
-        new Promise<never>((_, reject) => {
-          controller.signal.addEventListener('abort', () => {
-            reject(new AIProviderError('timeout', 'Gemini request timed out. Please retry.'));
-          });
-        }),
-      ]);
+      });
 
-      const text = response?.text?.trim();
+      const payload = (await response.json().catch(() => ({}))) as {
+        text?: string;
+        model?: string;
+        error?: { code?: string; message?: string };
+      };
+
+      if (!response.ok) {
+        const errCode = payload.error?.code;
+        const msg = payload.error?.message || `Server AI gateway returned HTTP ${response.status}.`;
+        if (response.status === 401 || response.status === 403 || errCode === 'unauthorized') {
+          throw new AIProviderError('unauthorized', msg);
+        }
+        if (errCode === 'missing_key' || response.status === 400) {
+          throw new AIProviderError('missing_key', msg);
+        }
+        if (response.status === 429 || errCode === 'rate_limited') {
+          throw new AIProviderError('rate_limited', msg);
+        }
+        throw new AIProviderError('unknown', msg);
+      }
+
+      const text = payload.text?.trim();
       if (!text) {
         throw new AIProviderError(
           'invalid_response',
-          'Gemini returned an empty response. Try rephrasing your prompt.'
+          'Gemini gateway returned an empty response. Try rephrasing your prompt.'
         );
       }
 
       return {
         text,
-        model: this.modelId,
+        model: payload.model || this.modelId,
         providerId: 'gemini',
         isOfflineDraft: false,
       };
     } catch (err) {
       if (err instanceof AIProviderError) throw err;
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new AIProviderError('timeout', 'Gemini gateway request timed out. Please retry.');
+      }
       const msg = err instanceof Error ? err.message : String(err);
-      const lower = msg.toLowerCase();
-      if (lower.includes('401') || lower.includes('403') || lower.includes('api key')) {
-        throw new AIProviderError(
-          'unauthorized',
-          'Gemini rejected the API key. Check your key permissions and quota.'
-        );
+      if (msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network')) {
+        throw new AIProviderError('network', 'Network error communicating with /api/v1/ai/generate.');
       }
-      if (lower.includes('429') || lower.includes('quota') || lower.includes('rate')) {
-        throw new AIProviderError(
-          'rate_limited',
-          'Free-tier rate limit reached for Gemini 4 Hydrogen. Wait a moment before retrying.'
-        );
-      }
-      if (lower.includes('network') || lower.includes('fetch')) {
-        throw new AIProviderError('network', 'Network error communicating with Gemini API.');
-      }
-      throw new AIProviderError('unknown', `Gemini error: ${msg}`);
+      throw new AIProviderError('unknown', `Gemini gateway error: ${msg}`);
     } finally {
       clearTimeout(timer);
     }
@@ -112,10 +119,9 @@ export class GeminiProvider implements AIProvider {
       const res = await this.generateText({
         prompt: 'Reply with OK.',
         maxOutputTokens: 16,
-        temperature: 0,
         timeoutMs: 12_000,
       });
-      return { ok: true, message: `Connected to ${res.model}.` };
+      return { ok: true, message: `Connected to ${res.model} via server gateway.` };
     } catch (err) {
       return {
         ok: false,

@@ -2,5 +2,5 @@
   "name": "SOLODESK AI",
   "description": "Your Work. Your Clients. All in One Place. Local-first freelancer business management workspace.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

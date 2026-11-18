@@ -19,6 +19,11 @@ import {
   validateAndReadKnowledgeFile,
 } from '../rag/ingestion';
 import { retrieveRelevantChunks, type RetrievedChunk } from '../rag/retrieval';
+import {
+  LOCAL_VECTOR_PROVENANCE,
+  RAG_INDEX_VERSION,
+  type EmbeddingProvenance,
+} from '../rag/semanticVector';
 
 export interface SaveKnowledgeNoteInput {
   title: string;
@@ -28,6 +33,7 @@ export interface SaveKnowledgeNoteInput {
   sourceType?: 'note' | 'markdown' | 'text' | 'json' | 'url';
   sourceUrl?: string;
   licenseOrRights?: string;
+  accessScope?: 'workspace' | 'client_portal' | 'internal_only';
   fileName?: string;
   mimeType?: string;
   sizeBytes?: number;
@@ -37,6 +43,13 @@ export interface SaveKnowledgeNoteInput {
 export interface KnowledgeSearchOptions {
   collection?: string;
   tag?: string;
+  /**
+   * Default accessScope is 'workspace', which strictly excludes 'internal_only' documents.
+   * Pass 'internal_only' or includeInternalOnly: true only for explicitly authorized owner queries.
+   */
+  accessScope?: 'workspace' | 'client_portal' | 'internal_only';
+  includeInternalOnly?: boolean;
+  minScoreThreshold?: number;
 }
 
 export interface KnowledgeSearchResult {
@@ -44,6 +57,9 @@ export interface KnowledgeSearchResult {
   matches: RetrievedChunk[];
   citations: KnowledgeCitation[];
   contextText: string;
+  insufficientEvidence: boolean;
+  appliedAccessScope: 'workspace' | 'client_portal' | 'internal_only';
+  provenance: EmbeddingProvenance;
 }
 
 export async function addKnowledgeNote(input: SaveKnowledgeNoteInput): Promise<{
@@ -84,6 +100,8 @@ export async function addKnowledgeNote(input: SaveKnowledgeNoteInput): Promise<{
     contentHash,
     processingStatus: 'indexed',
     licenseOrRights: input.licenseOrRights?.trim() ?? '',
+    accessScope: input.accessScope ?? 'workspace',
+    indexVersion: RAG_INDEX_VERSION,
     fileName: input.fileName ?? '',
     mimeType: input.mimeType ?? 'text/plain',
     sizeBytes: input.sizeBytes ?? new TextEncoder().encode(content).byteLength,
@@ -116,33 +134,46 @@ export async function searchKnowledgeBase(
   topK = 4,
   options: KnowledgeSearchOptions = {}
 ): Promise<KnowledgeSearchResult> {
+  const effectiveScope: 'workspace' | 'client_portal' | 'internal_only' =
+    options.includeInternalOnly
+      ? 'internal_only'
+      : options.accessScope ?? 'workspace';
+
   const [chunks, docs] = await Promise.all([
     repositories.listDocumentChunks(),
-    options.collection || options.tag ? repositories.listKnowledgeDocs() : Promise.resolve([]),
+    repositories.listKnowledgeDocs(),
   ]);
 
-  let allowedDocumentIds: Set<string> | undefined;
-  if (options.collection || options.tag) {
-    const collFilter = options.collection?.trim().toLowerCase();
-    const tagFilter = options.tag?.trim().toLowerCase();
-    allowedDocumentIds = new Set(
-      docs
-        .filter((d) => {
-          if (collFilter && collFilter !== 'all' && (d.collection || 'General').toLowerCase() !== collFilter) {
-            return false;
-          }
-          if (tagFilter && !d.tags.some((t) => t.toLowerCase() === tagFilter)) {
-            return false;
-          }
-          return true;
-        })
-        .map((d) => d.id)
-    );
-  }
+  const collFilter = options.collection?.trim().toLowerCase();
+  const tagFilter = options.tag?.trim().toLowerCase();
+  const allowedDocumentIds = new Set(
+    docs
+      .filter((d) => {
+        if (
+          collFilter &&
+          collFilter !== 'all' &&
+          (d.collection || 'General').toLowerCase() !== collFilter
+        ) {
+          return false;
+        }
+        if (tagFilter && !d.tags.some((t) => t.toLowerCase() === tagFilter)) {
+          return false;
+        }
+        if (effectiveScope === 'client_portal' && d.accessScope !== 'client_portal') {
+          return false;
+        }
+        if (effectiveScope === 'workspace' && d.accessScope === 'internal_only') {
+          return false;
+        }
+        return true;
+      })
+      .map((d) => d.id)
+  );
 
   const matches = retrieveRelevantChunks(query, chunks, topK, {
     allowedDocumentIds,
     maxChunksPerDocument: 2,
+    minScoreThreshold: options.minScoreThreshold ?? 0.5,
   });
   const citations = buildCitations(matches);
   const contextText = formatContextWithCitations(citations, matches);
@@ -151,6 +182,9 @@ export async function searchKnowledgeBase(
     matches,
     citations,
     contextText,
+    insufficientEvidence: matches.length === 0,
+    appliedAccessScope: effectiveScope,
+    provenance: LOCAL_VECTOR_PROVENANCE,
   };
 }
 
@@ -217,6 +251,7 @@ export async function rebuildKnowledgeIndex(): Promise<{
     await repositories.saveKnowledgeDocWithChunks(
       {
         ...doc,
+        indexVersion: RAG_INDEX_VERSION,
         chunkCount: chunks.length,
         processingStatus: 'indexed',
         updatedAt: now,

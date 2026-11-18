@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   CheckCircle2,
   CheckSquare,
   Circle,
   Columns3,
+  Focus,
   List,
   Plus,
   Search,
@@ -25,7 +27,7 @@ import {
 } from '../../components/ui';
 import { repositories } from '../../database/repositories/dexieRepositories';
 import { useWorkspace } from '../../app/providers/WorkspaceProvider';
-import { formatDisplayDate, isDateOverdue } from '../../domain/calculations/dates';
+import { addDaysToDateStr, formatDisplayDate, isDateOverdue, todayDateStr } from '../../domain/calculations/dates';
 import {
   createId,
   type Priority,
@@ -33,6 +35,15 @@ import {
   type Task,
   type TaskStatus,
 } from '../../domain/schemas/entities';
+import {
+  computeAutoPriorityScore,
+  computeCriticalPath,
+  wouldTaskCreateCycle,
+} from '../../services/projectPlanningService';
+
+interface TasksViewProps {
+  onFocusTask?: (taskId: string) => void;
+}
 
 const KANBAN_COLUMNS: Array<{ status: TaskStatus; label: string }> = [
   { status: 'todo', label: 'To Do' },
@@ -41,12 +52,13 @@ const KANBAN_COLUMNS: Array<{ status: TaskStatus; label: string }> = [
   { status: 'done', label: 'Done' },
 ];
 
-export const TasksView: React.FC = () => {
+export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
   const { tasks, projects, clients, settings, refresh } = useWorkspace();
   const { pushToast } = useToast();
 
   const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
   const [statusFilter, setStatusFilter] = useState<'active' | 'done' | 'archived' | 'all'>('active');
+  const [sortByAutoPriority, setSortByAutoPriority] = useState(true);
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
@@ -58,6 +70,10 @@ export const TasksView: React.FC = () => {
   const [priority, setPriority] = useState<Priority>('medium');
   const [status, setStatus] = useState<TaskStatus>('todo');
   const [dueDate, setDueDate] = useState('');
+  const [estimatedHours, setEstimatedHours] = useState('2');
+  const [recurrenceRule, setRecurrenceRule] = useState<Task['recurrenceRule']>('none');
+  const [dependsOnIds, setDependsOnIds] = useState<string[]>([]);
+  const [depError, setDepError] = useState<string | null>(null);
   const [tagsText, setTagsText] = useState('');
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [newSubtask, setNewSubtask] = useState('');
@@ -66,9 +82,11 @@ export const TasksView: React.FC = () => {
   const dateFormat = settings?.dateFormat ?? 'DD MMM YYYY';
   const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
 
+  const criticalPath = useMemo(() => computeCriticalPath(tasks), [tasks]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return tasks.filter((t) => {
+    const list = tasks.filter((t) => {
       if (statusFilter === 'active' && (t.status === 'done' || t.status === 'archived')) return false;
       if (statusFilter === 'done' && t.status !== 'done') return false;
       if (statusFilter === 'archived' && t.status !== 'archived') return false;
@@ -79,7 +97,11 @@ export const TasksView: React.FC = () => {
         (projectMap.get(t.projectId)?.name.toLowerCase().includes(q) ?? false)
       );
     });
-  }, [tasks, statusFilter, search, projectMap]);
+    if (sortByAutoPriority) {
+      return [...list].sort((a, b) => computeAutoPriorityScore(b) - computeAutoPriorityScore(a));
+    }
+    return list;
+  }, [tasks, statusFilter, search, projectMap, sortByAutoPriority]);
 
   const openCreate = () => {
     setEditing(null);
@@ -89,6 +111,10 @@ export const TasksView: React.FC = () => {
     setPriority('medium');
     setStatus('todo');
     setDueDate('');
+    setEstimatedHours('2');
+    setRecurrenceRule('none');
+    setDependsOnIds([]);
+    setDepError(null);
     setTagsText('');
     setSubtasks([]);
     setNewSubtask('');
@@ -103,10 +129,61 @@ export const TasksView: React.FC = () => {
     setPriority(t.priority);
     setStatus(t.status);
     setDueDate(t.dueDate);
+    setEstimatedHours(String(t.estimatedHours ?? 2));
+    setRecurrenceRule(t.recurrenceRule ?? 'none');
+    setDependsOnIds(t.dependsOnIds ?? []);
+    setDepError(null);
     setTagsText(t.tags.join(', '));
     setSubtasks(t.subtasks);
     setNewSubtask('');
     setModalOpen(true);
+  };
+
+  const toggleDependency = (depId: string) => {
+    setDepError(null);
+    if (dependsOnIds.includes(depId)) {
+      setDependsOnIds((prev) => prev.filter((id) => id !== depId));
+      return;
+    }
+    if (editing && wouldTaskCreateCycle(tasks, editing.id, depId)) {
+      setDepError('Circular dependency blocked: adding this link would create a cycle.');
+      return;
+    }
+    setDependsOnIds((prev) => [...prev, depId]);
+  };
+
+  const spawnRecurringNextIfNeeded = async (task: Task, nextStatus: TaskStatus) => {
+    if (
+      nextStatus === 'done' &&
+      task.status !== 'done' &&
+      task.recurrenceRule &&
+      task.recurrenceRule !== 'none'
+    ) {
+      const days =
+        task.recurrenceRule === 'daily' ? 1 : task.recurrenceRule === 'weekly' ? 7 : 30;
+      const baseDate = task.dueDate || todayDateStr();
+      const nextDue = addDaysToDateStr(baseDate, days);
+      await repositories.createTask({
+        title: task.title,
+        description: task.description,
+        projectId: task.projectId,
+        clientId: task.clientId,
+        priority: task.priority,
+        status: 'todo',
+        dueDate: nextDue,
+        tags: task.tags,
+        subtasks: task.subtasks.map((s) => ({ ...s, id: createId('st'), done: false })),
+        dependsOnIds: [],
+        estimatedHours: task.estimatedHours,
+        recurrenceRule: task.recurrenceRule,
+        completedAt: '',
+        isDemo: false,
+      });
+      pushToast({
+        title: `Recurring task scheduled for ${nextDue}`,
+        tone: 'info',
+      });
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -119,6 +196,7 @@ export const TasksView: React.FC = () => {
         .split(',')
         .map((x) => x.trim())
         .filter(Boolean);
+      const estHrs = Math.max(0, Number(estimatedHours) || 0);
 
       if (editing) {
         await repositories.updateTask(editing.id, {
@@ -131,7 +209,11 @@ export const TasksView: React.FC = () => {
           dueDate,
           tags,
           subtasks,
+          dependsOnIds,
+          estimatedHours: estHrs,
+          recurrenceRule,
         });
+        await spawnRecurringNextIfNeeded(editing, status);
         pushToast({ tone: 'success', title: 'Task updated' });
       } else {
         await repositories.createTask({
@@ -144,6 +226,9 @@ export const TasksView: React.FC = () => {
           dueDate,
           tags,
           subtasks,
+          dependsOnIds,
+          estimatedHours: estHrs,
+          recurrenceRule,
           completedAt: '',
           isDemo: false,
         });
@@ -157,14 +242,15 @@ export const TasksView: React.FC = () => {
   };
 
   const quickToggleDone = async (task: Task) => {
-    await repositories.updateTask(task.id, {
-      status: task.status === 'done' ? 'todo' : 'done',
-    });
+    const nextStatus = task.status === 'done' ? 'todo' : 'done';
+    await repositories.updateTask(task.id, { status: nextStatus });
+    await spawnRecurringNextIfNeeded(task, nextStatus);
     await refresh();
   };
 
   const moveStatus = async (task: Task, nextStatus: TaskStatus) => {
     await repositories.updateTask(task.id, { status: nextStatus });
+    await spawnRecurringNextIfNeeded(task, nextStatus);
     await refresh();
   };
 
@@ -226,16 +312,45 @@ export const TasksView: React.FC = () => {
             { id: 'all', label: 'All', count: tasks.length },
           ]}
         />
-        <div className="w-full sm:w-64">
-          <Input
-            placeholder="Search tasks or tags..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            leftIcon={<Search className="w-4 h-4" />}
-            aria-label="Search tasks"
-          />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSortByAutoPriority((v) => !v)}
+            className={`px-3 py-2 rounded-lg text-xs font-medium border cursor-pointer ${
+              sortByAutoPriority
+                ? 'border-[#2563EB] bg-blue-50 dark:bg-blue-950/40 text-[#2563EB] dark:text-[#20C7D9]'
+                : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+            }`}
+          >
+            Auto-Priority Sort: {sortByAutoPriority ? 'ON' : 'OFF'}
+          </button>
+          <div className="w-full sm:w-64">
+            <Input
+              placeholder="Search tasks or tags..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              leftIcon={<Search className="w-4 h-4" />}
+              aria-label="Search tasks"
+            />
+          </div>
         </div>
       </div>
+
+      {tasks.length > 0 && (
+        <Card padding="sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold">Critical Path Estimate:</span>
+              <span className="font-mono tabular-nums">
+                {criticalPath.criticalTaskIds.length} task(s) · {criticalPath.criticalDurationHours}h
+              </span>
+            </div>
+            <div className="text-slate-500">
+              {criticalPath.blockedTasks.length} task(s) waiting on unfinished dependencies
+            </div>
+          </div>
+        </Card>
+      )}
 
       {filtered.length === 0 ? (
         <EmptyState
@@ -294,6 +409,9 @@ export const TasksView: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-2.5 shrink-0 pl-8 sm:pl-0">
+                  {criticalPath.criticalTaskIds.includes(task.id) && (
+                    <Badge tone="info">Critical</Badge>
+                  )}
                   <Badge tone={priorityTone(task.priority)}>{task.priority}</Badge>
                   <span
                     className={`text-xs ${
@@ -303,6 +421,17 @@ export const TasksView: React.FC = () => {
                     {task.dueDate ? formatDisplayDate(task.dueDate, dateFormat) : 'No due date'}
                     {overdue ? ' · Overdue' : ''}
                   </span>
+                  {onFocusTask && task.status !== 'done' && (
+                    <button
+                      type="button"
+                      onClick={() => onFocusTask(task.id)}
+                      aria-label={`Focus on ${task.title}`}
+                      title="Open in Focus Mode"
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-[#2563EB] hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer"
+                    >
+                      <Focus className="w-4 h-4" aria-hidden="true" />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setDeleteTarget(task)}
@@ -423,6 +552,25 @@ export const TasksView: React.FC = () => {
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
             />
+            <Input
+              label="Estimated Hours"
+              type="number"
+              min="0"
+              step="0.5"
+              value={estimatedHours}
+              onChange={(e) => setEstimatedHours(e.target.value)}
+            />
+            <Select
+              label="Recurring Schedule"
+              value={recurrenceRule}
+              onChange={(e) => setRecurrenceRule(e.target.value as Task['recurrenceRule'])}
+              options={[
+                { value: 'none', label: 'One-time' },
+                { value: 'daily', label: 'Daily' },
+                { value: 'weekly', label: 'Weekly' },
+                { value: 'monthly', label: 'Monthly' },
+              ]}
+            />
           </div>
           <Input
             label="Tags"
@@ -436,6 +584,32 @@ export const TasksView: React.FC = () => {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
+
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              Prerequisite Dependencies (Cycle-Protected)
+            </p>
+            {depError && (
+              <div className="p-2 rounded-lg bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-300 text-xs flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{depError}</span>
+              </div>
+            )}
+            <div className="max-h-28 overflow-y-auto space-y-1 border border-slate-200 dark:border-slate-800 rounded-lg p-2">
+              {tasks
+                .filter((t) => t.id !== editing?.id)
+                .map((candidate) => (
+                  <label key={candidate.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={dependsOnIds.includes(candidate.id)}
+                      onChange={() => toggleDependency(candidate.id)}
+                    />
+                    <span className="truncate">{candidate.title}</span>
+                  </label>
+                ))}
+            </div>
+          </div>
 
           <div className="space-y-2">
             <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Subtasks</p>

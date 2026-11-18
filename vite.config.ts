@@ -103,9 +103,6 @@ export default defineConfig({
           if (id.includes('node_modules/jspdf')) {
             return 'pdf-vendor';
           }
-          if (id.includes('node_modules/@google/genai')) {
-            return 'ai-vendor';
-          }
           return undefined;
         },
       },

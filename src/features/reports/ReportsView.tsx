@@ -29,6 +29,10 @@ import {
   calculateEstimatesVsActuals,
   calculateInvoiceAging,
 } from '../../services/businessHealthService';
+import {
+  buildCashflowForecast,
+  runWhatIfFinancialScenario,
+} from '../../services/financialIntelligenceService';
 
 const PIE_COLORS = ['#2563EB', '#20C7D9', '#10B981', '#F59E0B', '#6366F1', '#EC4899'];
 
@@ -39,11 +43,15 @@ export const ReportsView: React.FC = () => {
     clients,
     projects,
     timeEntries,
+    retainers,
     businessProfile,
     settings,
   } = useWorkspace();
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [rateChangePct, setRateChangePct] = useState('10');
+  const [newRetainerAmt, setNewRetainerAmt] = useState('1500');
+  const [expenseDelta, setExpenseDelta] = useState('0');
 
   const currency = settings?.defaultCurrency ?? 'USD';
   const today = todayDateStr();
@@ -124,6 +132,31 @@ export const ReportsView: React.FC = () => {
   const outstandingReceivables = agingReport.totalOpenBalance;
   const overdueAmount = addMoney(aging.d1_30, aging.d31_60, aging.d60_plus);
 
+  const forecastSeries = useMemo(
+    () =>
+      buildCashflowForecast({
+        financeEntries,
+        invoices,
+        retainers,
+        monthsAhead: 3,
+        today,
+      }),
+    [financeEntries, invoices, retainers, today]
+  );
+
+  const monthCount = Math.max(1, monthlyRows.length);
+  const whatIfResult = useMemo(
+    () =>
+      runWhatIfFinancialScenario({
+        monthlyBaselineIncome: totalIncome / monthCount,
+        monthlyBaselineExpenses: totalExpenses / monthCount,
+        rateChangePercent: Number(rateChangePct) || 0,
+        newMonthlyRetainerAmount: Math.max(0, Number(newRetainerAmt) || 0),
+        monthlyExpenseDelta: Number(expenseDelta) || 0,
+      }),
+    [totalIncome, totalExpenses, monthCount, rateChangePct, newRetainerAmt, expenseDelta]
+  );
+
   const exportCsv = () => {
     const csv = buildCsvContent(
       ['Month', 'Income', 'Expenses', 'Estimated Net Profit'],
@@ -165,13 +198,37 @@ export const ReportsView: React.FC = () => {
         }
       />
 
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#172338] p-3 text-xs text-slate-600 dark:text-slate-300 flex items-start gap-2">
-        <Info className="w-4 h-4 text-[#2563EB] shrink-0 mt-0.5" aria-hidden="true" />
-        <p>
-          Reports reflect user-entered records stored in your browser. Outputs are informational
-          estimates and not certified accounting statements.
-        </p>
-      </div>
+      <Card className="bg-slate-50/70 dark:bg-[#101827]/70">
+        <div className="flex items-start gap-2.5 text-xs">
+          <Info className="w-4 h-4 text-[#2563EB] shrink-0 mt-0.5" aria-hidden="true" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 flex-1">
+            <div>
+              <p className="text-slate-500">Data Source</p>
+              <p className="font-medium text-slate-800 dark:text-slate-100 mt-0.5">
+                IndexedDB (Dexie v5 Local Ledger)
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-500">Date Range</p>
+              <p className="font-mono tabular-nums font-medium text-slate-800 dark:text-slate-100 mt-0.5">
+                {fromDate || toDate ? `${fromDate || 'Start'} → ${toDate || 'Present'}` : 'All Recorded Dates'}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-500">Calculation Method</p>
+              <p className="font-medium text-slate-800 dark:text-slate-100 mt-0.5">
+                Big.js decimal half-up ({filteredFinance.length} entries)
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-500">Snapshot & Limitation</p>
+              <p className="text-slate-700 dark:text-slate-300 mt-0.5">
+                Updated {today} · Informational estimate only (not GAAP/tax advice).
+              </p>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       <Card className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <Input
@@ -395,6 +452,78 @@ export const ReportsView: React.FC = () => {
           </div>
         )}
       </Card>
+
+      {/* Cashflow Forecasting & What-If Scenario Simulator */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader
+            title="Cashflow Forecast (Informational Estimate)"
+            description="3-month forward projection combining historical averages, active retainers, and 70% weighted open receivables."
+          />
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={forecastSeries}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <RechartsTooltip />
+                <Bar dataKey="projectedIncome" name="Income / Projected" fill="#2563EB" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="projectedExpenses" name="Expenses / Projected" fill="#F59E0B" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="What-If Financial Scenario Simulator"
+            description="Adjust rates, retainers, and overhead to inspect informational annual run-rate impact."
+          />
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Input
+                label="Rate Change (%)"
+                type="number"
+                value={rateChangePct}
+                onChange={(e) => setRateChangePct(e.target.value)}
+              />
+              <Input
+                label={`Add Retainer (${currency}/mo)`}
+                type="number"
+                value={newRetainerAmt}
+                onChange={(e) => setNewRetainerAmt(e.target.value)}
+              />
+              <Input
+                label={`Expense Delta (${currency}/mo)`}
+                type="number"
+                value={expenseDelta}
+                onChange={(e) => setExpenseDelta(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#101827]">
+                <p className="text-slate-500">Projected Monthly Net</p>
+                <p className="text-base font-bold font-mono tabular-nums mt-1">
+                  {formatMoney(whatIfResult.monthlyRunRateAfterDelta, currency)}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#101827]">
+                <p className="text-slate-500">Projected Annual Income</p>
+                <p className="text-base font-bold font-mono tabular-nums mt-1 text-emerald-600">
+                  {formatMoney(whatIfResult.projectedAnnualIncome, currency)}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#101827]">
+                <p className="text-slate-500">Projected Annual Net</p>
+                <p className="text-base font-bold font-mono tabular-nums mt-1">
+                  {formatMoney(whatIfResult.projectedAnnualNet, currency)}
+                </p>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500">{whatIfResult.disclaimer}</p>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 };

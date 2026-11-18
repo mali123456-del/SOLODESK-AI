@@ -7,9 +7,13 @@ import {
   CheckSquare,
   Clock,
   DollarSign,
+  Focus,
   FolderKanban,
+  LayoutGrid,
+  Pin,
   Plus,
   Receipt,
+  Star,
   Target,
   Users,
 } from 'lucide-react';
@@ -46,14 +50,22 @@ import {
   todayDateStr,
 } from '../../domain/calculations/dates';
 import { addMoney, formatMoney, subtractMoney } from '../../domain/calculations/money';
-import { evaluateMonthlyBusinessHealth } from '../../services/businessHealthService';
+import {
+  evaluateMonthlyBusinessHealth,
+  generateWeeklyDigest,
+} from '../../services/businessHealthService';
+import { buildDailyDigest, computeProductivityStats } from '../../services/productivityService';
 import type { AppRouteId } from '../../types/navigation';
 
 interface DashboardViewProps {
   onNavigate: (route: AppRouteId) => void;
+  onEnterFocusMode?: (target?: { type: 'project' | 'task'; id: string }) => void;
 }
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
+export const DashboardView: React.FC<DashboardViewProps> = ({
+  onNavigate,
+  onEnterFocusMode,
+}) => {
   const {
     businessProfile,
     clients,
@@ -72,7 +84,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const { pushToast } = useToast();
 
   const [range, setRange] = useState<'30d' | '90d' | 'all'>('all');
+  const [digestMode, setDigestMode] = useState<'daily' | 'weekly'>('daily');
   const [seeding, setSeeding] = useState(false);
+  const [widgetsModalOpen, setWidgetsModalOpen] = useState(false);
 
   const today = todayDateStr();
   const currentMonthPrefix = today.slice(0, 7);
@@ -254,6 +268,71 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
     return items.sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 6);
   }, [projects, tasks, outstandingInvoices, today]);
 
+  const dailyDigest = useMemo(
+    () =>
+      buildDailyDigest({
+        clients,
+        projects,
+        tasks,
+        invoices,
+        appointments,
+        businessName: businessProfile?.businessName,
+        today,
+      }),
+    [clients, projects, tasks, invoices, appointments, businessProfile?.businessName, today]
+  );
+
+  const weeklyDigest = useMemo(
+    () =>
+      generateWeeklyDigest({
+        projects,
+        tasks,
+        invoices,
+        financeEntries,
+        timeEntries,
+        today,
+      }),
+    [projects, tasks, invoices, financeEntries, timeEntries, today]
+  );
+
+  const productivityStats = useMemo(
+    () =>
+      computeProductivityStats({
+        tasks,
+        timeEntries,
+        today,
+      }),
+    [tasks, timeEntries, today]
+  );
+
+  const widgetVisible = (id: string) => {
+    const found = settings?.dashboardWidgets?.find((w) => w.id === id);
+    return found ? found.visible : true;
+  };
+
+  const toggleWidget = async (id: string) => {
+    const defaults = [
+      { id: 'digest', visible: true, order: 0 },
+      { id: 'kpis', visible: true, order: 1 },
+      { id: 'stats', visible: true, order: 2 },
+      { id: 'pinned', visible: true, order: 3 },
+      { id: 'goals', visible: true, order: 4 },
+      { id: 'cashflow', visible: true, order: 5 },
+    ];
+    const current = settings?.dashboardWidgets?.length ? settings.dashboardWidgets : defaults;
+    const exists = current.some((w) => w.id === id);
+    const next = exists
+      ? current.map((w) => (w.id === id ? { ...w, visible: !w.visible } : w))
+      : [...current, { id, visible: false, order: current.length }];
+    await repositories.saveSettings({ dashboardWidgets: next });
+    await refresh();
+  };
+
+  const pinnedProjects = useMemo(
+    () => projects.filter((p) => (settings?.pinnedIds ?? []).includes(p.id) || (settings?.favoriteIds ?? []).includes(p.id)),
+    [projects, settings?.pinnedIds, settings?.favoriteIds]
+  );
+
   const isEmptyWorkspace =
     clients.length === 0 &&
     projects.length === 0 &&
@@ -312,6 +391,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                 ]}
               />
             </div>
+            <Button
+              variant="outline"
+              onClick={() => setWidgetsModalOpen(true)}
+              icon={<LayoutGrid className="w-4 h-4" />}
+            >
+              Widgets
+            </Button>
+            {onEnterFocusMode && (
+              <Button
+                variant="outline"
+                onClick={() => onEnterFocusMode()}
+                icon={<Focus className="w-4 h-4" />}
+              >
+                Focus Mode
+              </Button>
+            )}
             <Button onClick={() => onNavigate('invoices')} icon={<Plus className="w-4 h-4" />}>
               New Invoice
             </Button>
@@ -348,6 +443,164 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
               Load Sample Demo Data
             </Button>
           </div>
+        </Card>
+      )}
+
+      {/* Daily & Weekly Digest Component */}
+      {widgetVisible('digest') && (
+        <Card aria-label="Daily Digest">
+          <CardHeader
+            title={
+              digestMode === 'daily'
+                ? `Daily Digest · ${formatDisplayDate(dailyDigest.date, dateFormat)}`
+                : `Weekly Digest · ${formatDisplayDate(weeklyDigest.windowStart, dateFormat)} – ${formatDisplayDate(weeklyDigest.windowEnd, dateFormat)}`
+            }
+            description={
+              digestMode === 'daily'
+                ? `${dailyDigest.totalActionItems} live action item(s) across deadlines, pending invoices, milestones, and calls today.`
+                : `${weeklyDigest.topFocusItems[0]} (${weeklyDigest.dataSource})`
+            }
+            action={
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-800 p-0.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setDigestMode('daily')}
+                    className={`px-2.5 py-1 rounded-md cursor-pointer ${
+                      digestMode === 'daily'
+                        ? 'bg-blue-600 text-white font-medium'
+                        : 'text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    Daily
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDigestMode('weekly')}
+                    className={`px-2.5 py-1 rounded-md cursor-pointer ${
+                      digestMode === 'weekly'
+                        ? 'bg-blue-600 text-white font-medium'
+                        : 'text-slate-600 dark:text-slate-300'
+                    }`}
+                  >
+                    Weekly
+                  </button>
+                </div>
+                {onEnterFocusMode && (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={() =>
+                      onEnterFocusMode(
+                        dailyDigest.highPriorityTasks[0]
+                          ? { type: 'task', id: dailyDigest.highPriorityTasks[0].id }
+                          : undefined
+                      )
+                    }
+                  >
+                    <Focus className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
+                    Focus Top Priority
+                  </Button>
+                )}
+              </div>
+            }
+          />
+          {digestMode === 'daily' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <button
+                type="button"
+                onClick={() => onNavigate('tasks')}
+                className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-[#101827] text-left cursor-pointer"
+              >
+                <p className="text-slate-500">Due Today / Overdue Tasks</p>
+                <p className="text-lg font-bold font-mono tabular-nums mt-1">
+                  {dailyDigest.dueTodayTasks.length} today · {dailyDigest.overdueTasks.length} overdue
+                </p>
+                <p className="text-slate-500 mt-1 truncate">
+                  {dailyDigest.highPriorityTasks.length} high/urgent priority open
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigate('invoices')}
+                className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-[#101827] text-left cursor-pointer"
+              >
+                <p className="text-slate-500">Pending & Overdue Invoices</p>
+                <p className="text-lg font-bold font-mono tabular-nums mt-1">
+                  {formatMoney(dailyDigest.pendingInvoiceTotal, currency)}
+                </p>
+                <p className="text-slate-500 mt-1">
+                  {dailyDigest.pendingInvoices.length} open ({dailyDigest.overdueInvoiceCount} overdue)
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigate('projects')}
+                className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-[#101827] text-left cursor-pointer"
+              >
+                <p className="text-slate-500">Milestones (Next 7 Days)</p>
+                <p className="text-lg font-bold font-mono tabular-nums mt-1">
+                  {dailyDigest.upcomingMilestones.length} milestone(s)
+                </p>
+                <p className="text-slate-500 mt-1 truncate">
+                  {dailyDigest.upcomingMilestones[0]
+                    ? dailyDigest.upcomingMilestones[0].title
+                    : 'No milestones due soon'}
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigate('communication')}
+                className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-[#101827] text-left cursor-pointer"
+              >
+                <p className="text-slate-500">Today&apos;s Calls & Follow-Ups</p>
+                <p className="text-lg font-bold font-mono tabular-nums mt-1">
+                  {dailyDigest.todaysAppointments.length} calls · {dailyDigest.outstandingFollowUps.length} follow-ups
+                </p>
+                <p className="text-slate-500 mt-1 truncate">
+                  {dailyDigest.todaysAppointments[0]
+                    ? `${dailyDigest.todaysAppointments[0].startTime} ${dailyDigest.todaysAppointments[0].title}`
+                    : 'Check outreach follow-up queue'}
+                </p>
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                <p className="text-slate-500">7-Day Income / Net</p>
+                <p className="text-lg font-bold font-mono tabular-nums mt-1 text-emerald-600">
+                  {formatMoney(weeklyDigest.incomeLast7Days, currency)}
+                </p>
+                <p className="text-slate-500 mt-1 font-mono tabular-nums">
+                  Net: {formatMoney(weeklyDigest.netLast7Days, currency)}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                <p className="text-slate-500">7-Day Delivery</p>
+                <p className="text-lg font-bold font-mono tabular-nums mt-1">
+                  {weeklyDigest.completedTasksLast7Days} tasks · {weeklyDigest.billableHoursLast7Days}h
+                </p>
+                <p className="text-slate-500 mt-1">Billable hours logged</p>
+              </div>
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                <p className="text-slate-500">Next 7 Days Queue</p>
+                <p className="text-lg font-bold font-mono tabular-nums mt-1">
+                  {weeklyDigest.openTasksDueNext7Days} due · {weeklyDigest.overdueTaskCount} overdue
+                </p>
+                <p className="text-slate-500 mt-1">Open task obligations</p>
+              </div>
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                <p className="text-slate-500">Open Receivables</p>
+                <p className="text-lg font-bold font-mono tabular-nums mt-1">
+                  {formatMoney(weeklyDigest.openReceivablesTotal, currency)}
+                </p>
+                <p className="text-slate-500 mt-1">{weeklyDigest.overdueInvoiceCount} overdue invoice(s)</p>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 
@@ -647,6 +900,85 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         )}
       </Card>
 
+      {/* Productivity Statistics & Pinned / Recently Viewed */}
+      {(widgetVisible('stats') || widgetVisible('pinned')) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {widgetVisible('stats') && (
+            <Card>
+              <CardHeader
+                title="Productivity Statistics"
+                description="Calculated from completed tasks and time entries."
+              />
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">Done (7d / 30d)</p>
+                  <p className="text-base font-bold font-mono tabular-nums mt-1">
+                    {productivityStats.tasksCompletedLast7Days} / {productivityStats.tasksCompletedLast30Days}
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">Hours (7d / 30d)</p>
+                  <p className="text-base font-bold font-mono tabular-nums mt-1">
+                    {productivityStats.hoursLoggedLast7Days}h / {productivityStats.hoursLoggedLast30Days}h
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">Billable Share</p>
+                  <p className="text-base font-bold font-mono tabular-nums mt-1">
+                    {productivityStats.billableSharePercent}%
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">On-Time Rate</p>
+                  <p className="text-base font-bold font-mono tabular-nums mt-1">
+                    {productivityStats.onTimeCompletionPercent}%
+                  </p>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {widgetVisible('pinned') && (
+            <Card>
+              <CardHeader
+                title="Pinned & Recently Viewed"
+                description="Quick jump to starred projects and recent workspace items."
+              />
+              {pinnedProjects.length === 0 && (settings?.recentItems ?? []).length === 0 ? (
+                <p className="text-xs text-slate-500 py-3">
+                  Pin or favorite any project in Projects to keep it surfaced here.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {pinnedProjects.map((p) => (
+                    <Button
+                      key={p.id}
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onNavigate('projects')}
+                    >
+                      <Pin className="w-3 h-3 mr-1 text-[#2563EB]" />
+                      {p.name}
+                    </Button>
+                  ))}
+                  {(settings?.recentItems ?? []).slice(0, 4).map((r) => (
+                    <Button
+                      key={r.id}
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onNavigate(r.route as AppRouteId)}
+                    >
+                      <Star className="w-3 h-3 mr-1 text-amber-500" />
+                      {r.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+        </div>
+      )}
+
       <Dialog
         open={goalModalOpen}
         onClose={() => setGoalModalOpen(false)}
@@ -696,6 +1028,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
             </Button>
           </div>
         </form>
+      </Dialog>
+
+      <Dialog
+        open={widgetsModalOpen}
+        onClose={() => setWidgetsModalOpen(false)}
+        title="Customize Dashboard Widgets"
+        description="Toggle which dashboard cards appear in your workspace overview."
+        size="sm"
+      >
+        <div className="space-y-2.5 text-sm">
+          {[
+            { id: 'digest', label: 'Daily Digest Card' },
+            { id: 'stats', label: 'Productivity Statistics' },
+            { id: 'pinned', label: 'Pinned & Recently Viewed' },
+          ].map((item) => (
+            <label
+              key={item.id}
+              className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer"
+            >
+              <span>{item.label}</span>
+              <input
+                type="checkbox"
+                checked={widgetVisible(item.id)}
+                onChange={() => void toggleWidget(item.id)}
+              />
+            </label>
+          ))}
+        </div>
       </Dialog>
     </div>
   );

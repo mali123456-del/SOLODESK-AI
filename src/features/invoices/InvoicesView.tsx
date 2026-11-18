@@ -7,6 +7,7 @@ import {
   Plus,
   Printer,
   Receipt,
+  RefreshCw,
   Search,
   Trash2,
 } from 'lucide-react';
@@ -47,6 +48,10 @@ import {
   type LineItem,
 } from '../../domain/schemas/entities';
 import { generateInvoicePdf } from '../../pdf/pdfGenerator';
+import {
+  computeNextRecurrenceDate,
+  convertCurrencyToBase,
+} from '../../services/financialIntelligenceService';
 
 interface InvoicesViewProps {
   onNavigate?: (route: 'payments') => void;
@@ -86,6 +91,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({ onNavigate }) => {
     businessProfile?.paymentInstructions ?? ''
   );
   const [status, setStatus] = useState<InvoiceStatus>('draft');
+  const [recurrenceRule, setRecurrenceRule] = useState<Invoice['recurrenceRule']>('none');
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -142,6 +148,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({ onNavigate }) => {
     setNotes('');
     setPaymentInstructions(businessProfile?.paymentInstructions ?? '');
     setStatus('draft');
+    setRecurrenceRule('none');
     setModalOpen(true);
   };
 
@@ -162,6 +169,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({ onNavigate }) => {
     setNotes(inv.notes);
     setPaymentInstructions(inv.paymentInstructions);
     setStatus(inv.status);
+    setRecurrenceRule(inv.recurrenceRule ?? 'none');
     setModalOpen(true);
   };
 
@@ -175,6 +183,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({ onNavigate }) => {
     setSaving(true);
     setFormError(null);
     try {
+      const nextRecurrenceDate = computeNextRecurrenceDate(issueDate, recurrenceRule);
       const payload = {
         clientId,
         projectId,
@@ -194,6 +203,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({ onNavigate }) => {
         notes,
         paymentInstructions,
         status,
+        recurrenceRule,
+        nextRecurrenceDate,
       };
       if (editing) {
         const updated = await repositories.updateInvoice(editing.id, {
@@ -218,6 +229,37 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({ onNavigate }) => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleGenerateNextRecurring = async (source: Invoice) => {
+    const nextIssue = source.nextRecurrenceDate || todayDateStr();
+    const nextDue = addDaysToDateStr(nextIssue, 14);
+    const created = await repositories.createInvoice({
+      clientId: source.clientId,
+      projectId: source.projectId,
+      quotationId: source.quotationId,
+      issueDate: nextIssue,
+      dueDate: nextDue,
+      currency: source.currency,
+      lineItems: source.lineItems.map((l) => ({ ...l, id: createId('li') })),
+      discountType: source.discountType,
+      discountValue: source.discountValue,
+      taxRate: source.taxRate,
+      taxInclusive: source.taxInclusive,
+      subtotal: source.subtotal,
+      discountAmount: source.discountAmount,
+      taxAmount: source.taxAmount,
+      total: source.total,
+      notes: source.notes,
+      paymentInstructions: source.paymentInstructions,
+      status: 'draft',
+      recurrenceRule: source.recurrenceRule,
+      nextRecurrenceDate: computeNextRecurrenceDate(nextIssue, source.recurrenceRule),
+      isDemo: false,
+    });
+    setSelectedId(created.id);
+    pushToast({ title: `Generated recurring draft ${created.number}`, tone: 'success' });
+    await refresh();
   };
 
   const statusTone = (st: InvoiceStatus) =>
@@ -398,7 +440,32 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({ onNavigate }) => {
               >
                 <Trash2 className="w-3.5 h-3.5 text-red-600" />
               </Button>
+              {selected.recurrenceRule && selected.recurrenceRule !== 'none' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleGenerateNextRecurring(selected)}
+                >
+                  <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                  Next {selected.recurrenceRule} Draft
+                </Button>
+              )}
             </div>
+
+            {selected.currency !== defaultCurrency && (
+              <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#101827] text-xs font-mono">
+                FX Base Equivalent ({defaultCurrency}):{' '}
+                {formatMoney(
+                  convertCurrencyToBase(
+                    selected.total,
+                    selected.currency,
+                    defaultCurrency,
+                    settings?.fxRates ?? {}
+                  ),
+                  defaultCurrency
+                )}
+              </div>
+            )}
 
             <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2 text-xs">
               {selected.lineItems.map((li) => (
@@ -492,6 +559,18 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({ onNavigate }) => {
                 { value: 'paid', label: 'Paid' },
                 { value: 'overdue', label: 'Overdue' },
                 { value: 'cancelled', label: 'Cancelled' },
+              ]}
+            />
+            <Select
+              label="Recurring Schedule"
+              value={recurrenceRule}
+              onChange={(e) => setRecurrenceRule(e.target.value as Invoice['recurrenceRule'])}
+              options={[
+                { value: 'none', label: 'One-time invoice' },
+                { value: 'weekly', label: 'Weekly' },
+                { value: 'monthly', label: 'Monthly' },
+                { value: 'quarterly', label: 'Quarterly' },
+                { value: 'yearly', label: 'Yearly' },
               ]}
             />
           </div>

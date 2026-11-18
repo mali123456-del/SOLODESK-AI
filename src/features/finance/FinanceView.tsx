@@ -3,6 +3,7 @@ import {
   DollarSign,
   Download,
   Info,
+  Paperclip,
   Plus,
   Search,
   Trash2,
@@ -67,7 +68,8 @@ const INCOME_CATEGORIES = [
 ];
 
 export const FinanceView: React.FC<FinanceViewProps> = ({ mode }) => {
-  const { financeEntries, projects, clients, timeEntries, settings, refresh } = useWorkspace();
+  const { financeEntries, projects, clients, timeEntries, retainers, settings, refresh } =
+    useWorkspace();
   const { pushToast } = useToast();
 
   const [search, setSearch] = useState('');
@@ -91,7 +93,18 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ mode }) => {
   const [projectId, setProjectId] = useState('');
   const [description, setDescription] = useState('');
   const [notes, setNotes] = useState('');
+  const [taxProfileName, setTaxProfileName] = useState('');
+  const [receiptFileName, setReceiptFileName] = useState('');
+  const [receiptMimeType, setReceiptMimeType] = useState('');
+  const [receiptDataUrl, setReceiptDataUrl] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Retainer form
+  const [retainerModalOpen, setRetainerModalOpen] = useState(false);
+  const [retClientId, setRetClientId] = useState('');
+  const [retTitle, setRetTitle] = useState('');
+  const [retMonthlyAmount, setRetMonthlyAmount] = useState('1500');
+  const [retIncludedHours, setRetIncludedHours] = useState('20');
 
   const clientMap = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
   const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
@@ -183,7 +196,30 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ mode }) => {
     setProjectId('');
     setDescription('');
     setNotes('');
+    setTaxProfileName('');
+    setReceiptFileName('');
+    setReceiptMimeType('');
+    setReceiptDataUrl('');
     setModalOpen(true);
+  };
+
+  const handleReceiptSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      pushToast({ title: 'Receipt exceeds 1 MB browser limit.', tone: 'warning' });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setReceiptFileName(file.name);
+        setReceiptMimeType(file.type || 'application/octet-stream');
+        setReceiptDataUrl(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -204,6 +240,10 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ mode }) => {
         paymentId: '',
         description: description.trim(),
         notes,
+        taxProfileName,
+        receiptFileName,
+        receiptMimeType,
+        receiptDataUrl,
         isDemo: false,
       });
       await refresh();
@@ -215,6 +255,27 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ mode }) => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveRetainer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!retClientId || !retTitle.trim()) return;
+    await repositories.saveRetainer({
+      clientId: retClientId,
+      projectId: '',
+      title: retTitle.trim(),
+      monthlyAmount: Math.max(0, Number(retMonthlyAmount) || 0),
+      currency: defaultCurrency,
+      includedHours: Math.max(0, Number(retIncludedHours) || 0),
+      hoursUsed: 0,
+      billingDay: 1,
+      status: 'active',
+      notes: '',
+    });
+    setRetTitle('');
+    setRetainerModalOpen(false);
+    pushToast({ title: 'Retainer agreement saved', tone: 'success' });
+    await refresh();
   };
 
   const handleExportCsv = () => {
@@ -241,9 +302,17 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ mode }) => {
       header: 'Description',
       render: (f) => (
         <div>
-          <p className="font-medium text-slate-900 dark:text-white">{f.description}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="font-medium text-slate-900 dark:text-white">{f.description}</p>
+            {f.receiptFileName && (
+              <span title={`Receipt: ${f.receiptFileName}`} className="inline-flex">
+                <Paperclip className="w-3.5 h-3.5 text-[#2563EB]" aria-label={`Receipt: ${f.receiptFileName}`} />
+              </span>
+            )}
+          </div>
           <p className="text-xs text-slate-500">
             {f.category}
+            {f.taxProfileName ? ` · Tax: ${f.taxProfileName}` : ''}
             {f.projectId ? ` · ${projectMap.get(f.projectId)?.name ?? ''}` : ''}
           </p>
         </div>
@@ -469,6 +538,60 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ mode }) => {
         </>
       )}
 
+      {/* Client Retainers Manager */}
+      <Card>
+        <CardHeader
+          title={`Client Retainers (${retainers.length})`}
+          description="Track monthly recurring retainer allocations used by Cashflow Forecasting."
+          action={
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setRetClientId(clients[0]?.id ?? '');
+                setRetainerModalOpen(true);
+              }}
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              New Retainer
+            </Button>
+          }
+        />
+        {retainers.length === 0 ? (
+          <p className="text-xs text-slate-500">No client retainers configured yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {retainers.map((ret) => (
+              <div
+                key={ret.id}
+                className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg border border-slate-200 dark:border-slate-800 text-xs"
+              >
+                <div>
+                  <span className="font-semibold">{ret.title}</span>
+                  <span className="text-slate-500 ml-2">
+                    ({clientMap.get(ret.clientId)?.name ?? 'Client'}) ·{' '}
+                    {formatMoney(ret.monthlyAmount, ret.currency)}/mo · {ret.includedHours}h included
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge tone={ret.status === 'active' ? 'success' : 'neutral'}>{ret.status}</Badge>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={async () => {
+                      await repositories.deleteRetainer(ret.id);
+                      await refresh();
+                    }}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       <Dialog
         open={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -533,6 +656,28 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ mode }) => {
               ]}
             />
           </div>
+          <Input
+            label="Tax Profile Tag (Optional)"
+            placeholder="e.g. Deductible Software / Standard VAT"
+            value={taxProfileName}
+            onChange={(e) => setTaxProfileName(e.target.value)}
+          />
+          {entryType === 'expense' && (
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">
+                Attach Receipt (PNG/JPG/PDF &le; 1 MB)
+              </label>
+              <input
+                type="file"
+                accept=".png,.jpg,.jpeg,.pdf"
+                onChange={(e) => void handleReceiptSelected(e)}
+                className="block w-full text-xs text-slate-600 dark:text-slate-300"
+              />
+              {receiptFileName && (
+                <p className="text-xs text-emerald-600">Attached: {receiptFileName}</p>
+              )}
+            </div>
+          )}
           <Textarea label="Notes" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
             <Button variant="outline" onClick={() => setModalOpen(false)}>
@@ -541,6 +686,49 @@ export const FinanceView: React.FC<FinanceViewProps> = ({ mode }) => {
             <Button type="submit" loading={saving}>
               Save Entry
             </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      <Dialog
+        open={retainerModalOpen}
+        onClose={() => setRetainerModalOpen(false)}
+        title="Add Client Retainer"
+        size="sm"
+      >
+        <form onSubmit={(e) => void handleSaveRetainer(e)} className="space-y-3">
+          <Select
+            label="Client"
+            value={retClientId}
+            onChange={(e) => setRetClientId(e.target.value)}
+            options={clients.map((c) => ({ value: c.id, label: c.name }))}
+          />
+          <Input
+            label="Retainer Title"
+            required
+            placeholder="e.g. Monthly DevOps & UI Retainer"
+            value={retTitle}
+            onChange={(e) => setRetTitle(e.target.value)}
+          />
+          <Input
+            label={`Monthly Amount (${defaultCurrency})`}
+            type="number"
+            min="0"
+            value={retMonthlyAmount}
+            onChange={(e) => setRetMonthlyAmount(e.target.value)}
+          />
+          <Input
+            label="Included Monthly Hours"
+            type="number"
+            min="0"
+            value={retIncludedHours}
+            onChange={(e) => setRetIncludedHours(e.target.value)}
+          />
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setRetainerModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit">Save Retainer</Button>
           </div>
         </form>
       </Dialog>

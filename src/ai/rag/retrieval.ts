@@ -1,15 +1,27 @@
 import type { DocumentChunk } from '../../domain/schemas/entities';
 import { tokenizeKeywords } from './indexing';
+import {
+  buildSemanticVector,
+  cosineSimilarity,
+  getCachedSemanticVector,
+  LOCAL_VECTOR_PROVENANCE,
+} from './semanticVector';
 
 export interface RetrievedChunk {
   chunk: DocumentChunk;
   score: number;
+  lexicalScore?: number;
+  semanticScore?: number;
+  matchMode?: 'hybrid' | 'lexical' | 'semantic';
+  vectorModel?: string;
   matchedTerms: string[];
 }
 
 export interface RetrievalOptions {
   allowedDocumentIds?: Set<string>;
   maxChunksPerDocument?: number;
+  minScoreThreshold?: number;
+  minSemanticOnlyThreshold?: number;
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -26,10 +38,13 @@ function countOccurrences(haystack: string, needle: string): number {
     if (idx === -1) break;
     count += 1;
     pos = idx + needle.length;
-    if (count >= 4) break; // Cap TF contribution at 4 to prevent keyword stuffing bias
+    if (count >= 4) break;
   }
   return count;
 }
+
+const INJECTION_PREAMBLE_RE =
+  /\b(system\s+override|ignore\s+(all\s+)?(previous|prior)\s+instructions|disregard\s+(all\s+)?(previous|prior)\s+instructions|bypass\s+all\s+rules)\b/gi;
 
 export function retrieveRelevantChunks(
   query: string,
@@ -37,7 +52,8 @@ export function retrieveRelevantChunks(
   topK = 4,
   options: RetrievalOptions = {}
 ): RetrievedChunk[] {
-  const trimmed = query.trim().toLowerCase();
+  const sanitizedQuery = query.replace(INJECTION_PREAMBLE_RE, ' ').replace(/\s+/g, ' ').trim();
+  const trimmed = sanitizedQuery.toLowerCase();
   if (!trimmed || chunks.length === 0 || topK <= 0) return [];
 
   const candidateChunks = options.allowedDocumentIds
@@ -51,21 +67,33 @@ export function retrieveRelevantChunks(
     return candidateChunks
       .filter((c) => c.content.toLowerCase().includes(trimmed))
       .slice(0, topK)
-      .map((chunk) => ({ chunk, score: 1, matchedTerms: [trimmed] }));
+      .map((chunk) => ({
+        chunk,
+        score: 1,
+        lexicalScore: 1,
+        semanticScore: 0,
+        matchMode: 'lexical',
+        vectorModel: LOCAL_VECTOR_PROVENANCE.vectorModel,
+        matchedTerms: [trimmed],
+      }));
   }
 
+  const queryVec = buildSemanticVector(trimmed);
+  const minThreshold = options.minScoreThreshold ?? 0.5;
+  const minSemanticOnly = options.minSemanticOnlyThreshold ?? 1.85;
   const scored: RetrievedChunk[] = [];
+
   for (const chunk of candidateChunks) {
     const lowerContent = chunk.content.toLowerCase();
     const lowerTitle = chunk.documentTitle.toLowerCase();
-    let score = 0;
+    let lexicalScore = 0;
     const matchedTerms: string[] = [];
 
     if (trimmed.length >= 4 && lowerContent.includes(trimmed)) {
-      score += 4;
+      lexicalScore += 4;
     }
     if (trimmed.length >= 4 && lowerTitle.includes(trimmed)) {
-      score += 3;
+      lexicalScore += 3;
     }
 
     for (const term of queryTerms) {
@@ -85,26 +113,58 @@ export function retrieveRelevantChunks(
         termScore += 1 + (tf - 1) * 0.35;
       }
       if (termScore > 0) {
-        score += termScore;
+        lexicalScore += termScore;
         matchedTerms.push(term);
       }
     }
 
-    // Coverage bonus when most query keywords appear together in the same chunk
     if (queryTerms.length >= 2 && matchedTerms.length > 0) {
       const coverage = matchedTerms.length / queryTerms.length;
-      score += coverage * 2;
+      lexicalScore += coverage * 2;
     }
+
+    const chunkVec = getCachedSemanticVector(
+      `${chunk.id}:${chunk.createdAt}`,
+      `${chunk.documentTitle} ${chunk.content}`
+    );
+    const cosine = Math.max(0, cosineSimilarity(queryVec, chunkVec));
+    const semanticScore = Number((cosine * 3.5).toFixed(3));
 
     const exactPhraseMatched =
       trimmed.length >= 4 && (lowerContent.includes(trimmed) || lowerTitle.includes(trimmed));
-    const passesNoiseFloor =
-      exactPhraseMatched || queryTerms.length < 5 || matchedTerms.length >= 2;
+    const passesLexicalNoiseFloor =
+      exactPhraseMatched ||
+      (queryTerms.length < 5 ? matchedTerms.length >= 1 : matchedTerms.length >= 2);
+    const hasStemMatch =
+      lexicalScore === 0 &&
+      queryTerms.some((term) => {
+        if (term.length < 6) return false;
+        const stem = term.slice(0, 6);
+        return chunk.keywords.some((kw) => kw.length >= 6 && kw.slice(0, 6) === stem);
+      });
+    const passesStrongSemanticFallback =
+      lexicalScore === 0 && (semanticScore >= minSemanticOnly || (hasStemMatch && semanticScore >= 0.7));
 
-    if (score > 0 && passesNoiseFloor) {
+    const combinedScore = Number((lexicalScore + semanticScore).toFixed(3));
+
+    if (
+      ((lexicalScore > 0 && passesLexicalNoiseFloor) || passesStrongSemanticFallback) &&
+      combinedScore >= minThreshold
+    ) {
+      const matchMode: RetrievedChunk['matchMode'] =
+        lexicalScore > 0 && semanticScore > 0
+          ? 'hybrid'
+          : lexicalScore > 0
+            ? 'lexical'
+            : 'semantic';
+
       scored.push({
         chunk,
-        score: Number(score.toFixed(3)),
+        score: combinedScore,
+        lexicalScore: Number(lexicalScore.toFixed(3)),
+        semanticScore,
+        matchMode,
+        vectorModel: LOCAL_VECTOR_PROVENANCE.vectorModel,
         matchedTerms,
       });
     }
@@ -117,7 +177,6 @@ export function retrieveRelevantChunks(
     return scored.slice(0, topK);
   }
 
-  // Per-document diversity cap + deduplication
   const selected: RetrievedChunk[] = [];
   const seenChunkIds = new Set<string>();
   const perDocCount = new Map<string, number>();

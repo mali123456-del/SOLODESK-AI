@@ -132,10 +132,10 @@ describe('Phase 14 — Offline/Sync Telemetry, Dexie v4, Analytics, Workflows, 1
     });
   });
 
-  it('migrates v1/v3 schemas to Dexie v4, enforces foreign keys on serviceCatalog/appointments/goals, and supports v3 backup restore', async () => {
-    expect(SOLODESK_SCHEMA_VERSION).toBe(4);
+  it('migrates v1/v3 schemas to Dexie v5, enforces foreign keys on serviceCatalog/appointments/goals, and supports v3 backup restore', async () => {
+    expect(SOLODESK_SCHEMA_VERSION).toBe(5);
 
-    // Upgrade test from v3 -> v4
+    // Upgrade test from v3 -> v5
     const dbName = `solodesk_mig_v3_${Math.random().toString(36).slice(2)}`;
     const legacy = new Dexie(dbName);
     legacy.version(3).stores({
@@ -179,7 +179,7 @@ describe('Phase 14 — Offline/Sync Telemetry, Dexie v4, Analytics, Workflows, 1
 
     const upgraded = new SolodeskDatabase(dbName);
     await upgraded.open();
-    expect(upgraded.verno).toBe(4);
+    expect(upgraded.verno).toBe(5);
     expect((await upgraded.clients.get('cli_legacy'))?.name).toBe('V3 Client');
     expect(await upgraded.serviceCatalog.count()).toBe(0);
     expect(await upgraded.appointments.count()).toBe(0);
@@ -256,7 +256,7 @@ describe('Phase 14 — Offline/Sync Telemetry, Dexie v4, Analytics, Workflows, 1
     expect(goal.monthPrefix).toBe('2026-11');
 
     const health = await runDatabaseHealthCheck(isolatedDb);
-    expect(health.schemaVersion).toBe(4);
+    expect(health.schemaVersion).toBe(5);
     expect(health.status).toBe('healthy');
 
     // v4 Backup roundtrip + v3 backward compatible restore
@@ -285,16 +285,16 @@ describe('Phase 14 — Offline/Sync Telemetry, Dexie v4, Analytics, Workflows, 1
       active: true,
       isDemo: false,
     });
-    const v4Payload = await createBackupPayload();
-    expect(v4Payload.schemaVersion).toBe(4);
-    expect(v4Payload.recordCounts.serviceCatalog).toBe(1);
+    const v5Payload = await createBackupPayload();
+    expect(v5Payload.schemaVersion).toBe(5);
+    expect(v5Payload.recordCounts.serviceCatalog).toBe(1);
 
-    // Strip v4 arrays & downgrade schemaVersion to 3 to simulate restoring older v3 backup
+    // Strip v4/v5 arrays & downgrade schemaVersion to 3 to simulate restoring older v3 backup
     const v3Json = JSON.stringify({
-      ...v4Payload,
+      ...v5Payload,
       schemaVersion: 3,
       data: {
-        ...v4Payload.data,
+        ...v5Payload.data,
         serviceCatalog: undefined,
         appointments: undefined,
         workspaceGoals: undefined,
@@ -645,10 +645,10 @@ describe('Phase 14 — Offline/Sync Telemetry, Dexie v4, Analytics, Workflows, 1
     const agingTool = await executeAllowlistedTool('analyze_invoice_aging', {});
     expect(agingTool.ok).toBe(true);
 
-    // 14-case Extended RAG Benchmark
+    // 25-case Extended RAG Benchmark
     const bench = runExtendedRagBenchmark();
-    expect(bench.totalCases).toBe(14);
-    expect(bench.passedCases).toBe(14);
+    expect(bench.totalCases).toBe(25);
+    expect(bench.passedCases).toBe(25);
     expect(bench.passRatePercent).toBe(100);
     expect(bench.recallAtK).toBe(1);
     expect(bench.citationAccuracy).toBe(1);

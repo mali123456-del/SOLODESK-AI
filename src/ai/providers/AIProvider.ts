@@ -27,15 +27,17 @@ export interface AIGenerateRequest {
   timeoutMs?: number;
 }
 
+export type AIProviderId = 'gemini' | 'openai_compatible' | 'ollama' | 'mock';
+
 export interface AIGenerateResponse {
   text: string;
   model: string;
-  providerId: 'gemini' | 'mock';
+  providerId: AIProviderId;
   isOfflineDraft: boolean;
 }
 
 export interface AIProvider {
-  readonly id: 'gemini' | 'mock';
+  readonly id: AIProviderId;
   readonly label: string;
   readonly modelId: string;
   isConfigured(): boolean;

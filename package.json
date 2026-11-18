@@ -4,7 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev": "tsx server.ts",
+    "start": "NODE_ENV=production tsx server.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
@@ -14,16 +15,21 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@google/genai": "^2.32.0",
+    "@opentelemetry/api": "^1.10.0",
     "@tailwindcss/vite": "^4.3.5",
+    "@types/express": "^5.0.6",
     "big.js": "^7.0.1",
     "dexie": "^4.4.7",
+    "express": "^5.3.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^1.73.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "recharts": "^3.10.1",
     "tailwindcss": "^4.3.5",
+    "tsx": "^4.23.15",
     "zod": "^4.6.7"
   },
   "devDependencies": {

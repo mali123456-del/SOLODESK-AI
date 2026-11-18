@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Calendar, Copy, Mail, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, Calendar, Copy, Download, ExternalLink, Mail, Plus, Trash2 } from 'lucide-react';
 import { useWorkspace } from '../../app/providers/WorkspaceProvider';
 import {
   Badge,
@@ -19,6 +19,7 @@ import { repositories } from '../../database/repositories/dexieRepositories';
 import { formatDisplayDate, todayDateStr } from '../../domain/calculations/dates';
 import type { Appointment } from '../../domain/schemas/entities';
 import { buildFollowUpQueue, type FollowUpQueueItem } from '../../services/communicationService';
+import { downloadTextFile } from '../../export/csvUtils';
 
 export const CommunicationHubView: React.FC = () => {
   const {
@@ -64,6 +65,42 @@ export const CommunicationHubView: React.FC = () => {
       }),
     [clients, invoices, proposals, appointments, businessProfile]
   );
+
+  const timeToMinutes = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  const conflictingAppointment = useMemo(() => {
+    const startMin = timeToMinutes(startTime);
+    const endMin = startMin + Math.max(5, Number(durationMinutes) || 30);
+    return appointments.find((apt) => {
+      if (apt.status !== 'scheduled' || apt.date !== date || apt.id === editing?.id) return false;
+      const aStart = timeToMinutes(apt.startTime);
+      const aEnd = aStart + apt.durationMinutes;
+      return startMin < aEnd && endMin > aStart;
+    });
+  }, [appointments, date, startTime, durationMinutes, editing]);
+
+  const exportIcsInvite = (apt: Appointment) => {
+    const cleanDate = apt.date.replace(/-/g, '');
+    const cleanTime = apt.startTime.replace(':', '') + '00';
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//SOLODESK AI//Workspace//EN',
+      'BEGIN:VEVENT',
+      `UID:${apt.id}@solodesk.local`,
+      `DTSTART:${cleanDate}T${cleanTime}`,
+      `SUMMARY:${apt.title}`,
+      `LOCATION:${apt.locationOrLink || 'Online'}`,
+      `DESCRIPTION:${(apt.meetingNotes || '').replace(/\n/g, '\\n')}`,
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+    downloadTextFile(`${apt.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ics`, ics);
+    pushToast({ title: 'Calendar .ics invite downloaded', tone: 'success' });
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -145,13 +182,26 @@ export const CommunicationHubView: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         title="Schedule & Client Follow-Ups"
-        description="Manage client appointments, meeting notes, and a prioritized follow-up communication queue."
+        description="Manage client appointments with conflict detection, .ics calendar invites, booking preview, and email follow-up drafts."
         actions={
           <Button onClick={openCreate} icon={<Plus className="w-4 h-4" />}>
             Schedule Meeting
           </Button>
         }
       />
+
+      {/* Honest Provider Status Banner */}
+      <Card padding="sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">External Email & Calendar Sync:</span>
+            <Badge tone="neutral">Local PWA Mode (Not Connected)</Badge>
+            <span className="text-slate-500">
+              Export standard `.ics` calendar invites or launch `mailto:` drafts directly from your device.
+            </span>
+          </div>
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Appointments & Meeting Notes */}
@@ -201,6 +251,15 @@ export const CommunicationHubView: React.FC = () => {
                         </p>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => exportIcsInvite(apt)}
+                          title="Download .ics calendar invite"
+                          aria-label={`Export ICS for ${apt.title}`}
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </Button>
                         <Button size="sm" variant="outline" onClick={() => openEdit(apt)}>
                           Edit
                         </Button>
@@ -296,6 +355,15 @@ export const CommunicationHubView: React.FC = () => {
         size="lg"
       >
         <form onSubmit={handleSave} className="space-y-4">
+          {conflictingAppointment && (
+            <div className="p-3 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>
+                Scheduling conflict detected: overlaps with &quot;{conflictingAppointment.title}&quot; at{' '}
+                {conflictingAppointment.startTime} ({conflictingAppointment.durationMinutes}m).
+              </span>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
               label="Meeting Title"
@@ -410,6 +478,15 @@ export const CommunicationHubView: React.FC = () => {
               <Button variant="outline" onClick={() => setActiveDraft(null)}>
                 Close
               </Button>
+              {activeDraft.clientEmail && (
+                <a
+                  href={`mailto:${encodeURIComponent(activeDraft.clientEmail)}?subject=${encodeURIComponent(activeDraft.suggestedSubject)}&body=${encodeURIComponent(activeDraft.suggestedBody)}`}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] border border-slate-200 dark:border-slate-700 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Open in Mail App
+                </a>
+              )}
               <Button
                 onClick={() => void copyFollowUpDraft(activeDraft)}
                 icon={<Copy className="w-3.5 h-3.5" />}

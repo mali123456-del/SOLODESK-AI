@@ -13,6 +13,8 @@ export const copilotToolNameSchema = z.enum([
   'suggest_expense_category',
   'summarize_business_report',
   'analyze_invoice_aging',
+  'prioritize_open_tasks',
+  'analyze_csv_dataset',
   'create_task_draft',
   'create_client_draft',
   'create_project_draft',
@@ -62,6 +64,14 @@ export const summarizeBusinessReportArgsSchema = z.object({
 });
 
 export const analyzeInvoiceAgingArgsSchema = z.object({});
+
+export const prioritizeOpenTasksArgsSchema = z.object({
+  limit: z.number().int().min(1).max(20).optional().default(8),
+});
+
+export const analyzeCsvDatasetArgsSchema = z.object({
+  csvText: z.string().trim().min(1).max(100_000),
+});
 
 export const createTaskDraftArgsSchema = z.object({
   title: z.string().trim().min(1).max(200),

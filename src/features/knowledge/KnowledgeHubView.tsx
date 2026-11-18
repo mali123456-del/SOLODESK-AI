@@ -24,6 +24,7 @@ import {
   type KnowledgeSearchResult,
 } from '../../ai/knowledge/knowledgeService';
 import { auditDatasetRegistry } from '../../ai/datasets/registry/datasetRegistry';
+import { RAG_INDEX_VERSION } from '../../ai/rag/semanticVector';
 import { installBuiltInKnowledgePacks } from '../../knowledge/packLoader';
 import {
   runExtendedRagBenchmark,
@@ -59,11 +60,13 @@ export const KnowledgeHubView: React.FC = () => {
 
   const [title, setTitle] = useState('');
   const [collection, setCollection] = useState('General');
+  const [accessScope, setAccessScope] = useState<'workspace' | 'client_portal' | 'internal_only'>('workspace');
   const [tagsText, setTagsText] = useState('');
   const [content, setContent] = useState('');
   const [saving, setSaving] = useState(false);
 
   const [collectionFilter, setCollectionFilter] = useState('all');
+  const [searchScope, setSearchScope] = useState<'all' | 'workspace' | 'client_portal' | 'internal_only'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState<KnowledgeSearchResult | null>(null);
   const [searching, setSearching] = useState(false);
@@ -120,6 +123,7 @@ export const KnowledgeHubView: React.FC = () => {
         content,
         tags,
         collection: collection.trim() || 'General',
+        accessScope,
         sourceType: 'note',
       });
       setTitle('');
@@ -178,6 +182,7 @@ export const KnowledgeHubView: React.FC = () => {
     try {
       const result = await searchKnowledgeBase(searchQuery, 5, {
         collection: collectionFilter !== 'all' ? collectionFilter : undefined,
+        accessScope: searchScope !== 'all' ? searchScope : undefined,
       });
       setSearchResult(result);
     } finally {
@@ -304,8 +309,8 @@ export const KnowledgeHubView: React.FC = () => {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Knowledge Hub"
-        description="Index contracts, pricing notes, and SOPs locally in IndexedDB for offline search and citation-backed AI drafting."
+        title={`Knowledge Hub (RAG v${RAG_INDEX_VERSION})`}
+        description="Index contracts, pricing notes, and SOPs locally in IndexedDB with Hybrid Keyword + 128-dim Semantic Cosine retrieval."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -464,12 +469,26 @@ export const KnowledgeHubView: React.FC = () => {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
               />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <Input
                   label="Collection"
                   placeholder="e.g., Pricing & Terms"
                   value={collection}
                   onChange={(e) => setCollection(e.target.value)}
+                />
+                <Select
+                  label="Permission Scope"
+                  value={accessScope}
+                  onChange={(e) =>
+                    setAccessScope(
+                      e.target.value as 'workspace' | 'client_portal' | 'internal_only'
+                    )
+                  }
+                  options={[
+                    { value: 'workspace', label: 'Workspace (Standard)' },
+                    { value: 'client_portal', label: 'Client Portal Eligible' },
+                    { value: 'internal_only', label: 'Internal Only (Private)' },
+                  ]}
                 />
                 <Input
                   label="Tags (comma separated)"
@@ -504,22 +523,38 @@ export const KnowledgeHubView: React.FC = () => {
 
           <Card>
             <CardHeader
-              title="Offline Semantic & Keyword Search"
-              description="Retrieve matching document chunks and citations without internet access."
+              title="Offline Hybrid Semantic & Keyword Search"
+              description="Combines lexical TF scoring, title matching, and 128-dim semantic cosine similarity with permission filtering."
             />
-            <form onSubmit={handleSearch} className="flex items-center gap-2">
-              <div className="flex-1">
-                <Input
-                  aria-label="Search Knowledge Hub"
-                  placeholder="Search terms, payment policy, deliverables..."
-                  leftIcon={<Search className="w-4 h-4" />}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
+            <form onSubmit={handleSearch} className="space-y-2.5">
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <Input
+                    aria-label="Search Knowledge Hub"
+                    placeholder="Search terms, payment policy, deliverables..."
+                    leftIcon={<Search className="w-4 h-4" />}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                <Button type="submit" variant="primary" loading={searching}>
+                  Search
+                </Button>
               </div>
-              <Button type="submit" variant="primary" loading={searching}>
-                Search
-              </Button>
+              <Select
+                label="Search Permission Scope"
+                value={searchScope}
+                onChange={(e) =>
+                  setSearchScope(
+                    e.target.value as 'all' | 'workspace' | 'client_portal' | 'internal_only'
+                  )
+                }
+                options={[
+                  { value: 'all', label: 'All Accessible Scopes' },
+                  { value: 'workspace', label: 'Workspace Scope (Excludes internal_only)' },
+                  { value: 'client_portal', label: 'Client Portal Scope Only' },
+                ]}
+              />
             </form>
 
             {searchResult && (
@@ -613,6 +648,11 @@ export const KnowledgeHubView: React.FC = () => {
                           {doc.title}
                         </span>
                         <Badge tone="neutral">{doc.sourceType.toUpperCase()}</Badge>
+                        {doc.accessScope && doc.accessScope !== 'workspace' && (
+                          <Badge tone={doc.accessScope === 'internal_only' ? 'warning' : 'success'}>
+                            {doc.accessScope}
+                          </Badge>
+                        )}
                         {doc.collection && doc.collection !== 'General' && (
                           <Badge tone="info">{doc.collection}</Badge>
                         )}
@@ -772,9 +812,15 @@ export const KnowledgeHubView: React.FC = () => {
                 </div>
                 <p className="text-slate-600 dark:text-slate-300">{entry.intendedPurpose}</p>
                 <p className="text-slate-500">
+                  Publisher: {entry.publisher} · License Verified: {entry.licenseVerified ? 'Yes' : 'No'} · PII Scan:{' '}
+                  <span className="font-mono">{entry.piiScanStatus}</span> · Fine-Tuning:{' '}
+                  <span className="font-mono">{entry.fineTuningStatus}</span>
+                </p>
+                <p className="text-slate-500">
                   Source: <span className="font-mono">{entry.sourceUrl}</span> · Commercial:{' '}
-                  {entry.commercialUseStatus} · PII: {entry.containsPersonalData ? 'Present' : 'None'} ·{' '}
-                  Size: {entry.sizeLabel}
+                  {entry.commercialUseStatus} · Allowed Uses:{' '}
+                  {entry.allowedUseCases.length > 0 ? entry.allowedUseCases.join(', ') : 'None (Blocked)'} · Size:{' '}
+                  {entry.sizeLabel}
                 </p>
                 <p className="text-slate-500">{entry.decisionReason}</p>
                 {check && !check.compliantForInclusion && (

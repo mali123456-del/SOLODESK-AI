@@ -1,12 +1,14 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Bot,
   Check,
   Copy,
   KeyRound,
+  Play,
   ShieldAlert,
   Sparkles,
+  Square,
   WifiOff,
   X,
 } from 'lucide-react';
@@ -18,14 +20,23 @@ import {
   type CopilotRunResponse,
 } from '../../ai/agent/agent';
 import type { ProposedAgentAction } from '../../ai/agent/schemas';
+import {
+  AGENT_WORKFORCE_REGISTRY,
+  runWorkforceAgent,
+  type AgentAutonomyClass,
+  type AgentId,
+  type AgentRunResult,
+} from '../../ai/agents/agentRegistry';
 import { evaluateDraftQuality } from '../../ai/evaluation/evaluation';
 import {
   clearSessionGeminiKey,
+  createAIProvider,
   getSessionGeminiKey,
   hasSessionGeminiKey,
   maskApiKey,
   setSessionGeminiKey,
 } from '../../ai/providers/providerFactory';
+import type { AIProviderId } from '../../ai/providers/AIProvider';
 import {
   Badge,
   Button,
@@ -34,6 +45,7 @@ import {
   Input,
   PageHeader,
   Select,
+  Tabs,
   Textarea,
   useToast,
 } from '../../components/ui';
@@ -91,6 +103,7 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ onNavigate }) => {
   const [useKnowledgeRag, setUseKnowledgeRag] = useState(true);
   const [includeWorkspaceContext, setIncludeWorkspaceContext] = useState(true);
   const [consentExternal, setConsentExternal] = useState(false);
+  const [providerPreference, setProviderPreference] = useState<'auto' | AIProviderId>('auto');
 
   const [sessionKeyInput, setSessionKeyInput] = useState('');
   const [keyConfigured, setKeyConfigured] = useState(() => hasSessionGeminiKey());
@@ -98,6 +111,36 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ onNavigate }) => {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<CopilotRunResponse | null>(null);
   const [handledActionIds, setHandledActionIds] = useState<Record<string, 'approved' | 'rejected'>>({});
+
+  // Phase 28: Staged 15-Agent Workforce Console state
+  const [activeTab, setActiveTab] = useState<'studio' | 'workforce'>('studio');
+  const [agentClassFilter, setAgentClassFilter] = useState<'all' | AgentAutonomyClass>('all');
+  const [selectedAgentId, setSelectedAgentId] = useState<AgentId>('workspace_analyst');
+  const [agentGoal, setAgentGoal] = useState(
+    'Review active project priorities, open invoice aging, and top deliverables for this week.'
+  );
+  const [agentRunning, setAgentRunning] = useState(false);
+  const [agentRunResult, setAgentRunResult] = useState<AgentRunResult | null>(null);
+  const [agentRunHistory, setAgentRunHistory] = useState<AgentRunResult[]>([]);
+  const agentAbortRef = useRef<AbortController | null>(null);
+
+  const filteredAgents = useMemo(
+    () =>
+      agentClassFilter === 'all'
+        ? AGENT_WORKFORCE_REGISTRY
+        : AGENT_WORKFORCE_REGISTRY.filter((a) => a.autonomyClass === agentClassFilter),
+    [agentClassFilter]
+  );
+
+  const selectedAgent = useMemo(
+    () => AGENT_WORKFORCE_REGISTRY.find((a) => a.id === selectedAgentId) ?? AGENT_WORKFORCE_REGISTRY[0],
+    [selectedAgentId]
+  );
+
+  const activeProvider = useMemo(
+    () => createAIProvider(providerPreference),
+    [providerPreference, keyConfigured]
+  );
 
   const activeProjects = useMemo(
     () => (clientId ? projects.filter((p) => p.clientId === clientId) : projects),
@@ -148,6 +191,7 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ onNavigate }) => {
         useKnowledgeRag,
         includeWorkspaceContext,
         allowExternalContextTransmission: consentExternal,
+        providerPreference,
         clientId: clientId || undefined,
         projectId: projectId || undefined,
       });
@@ -219,11 +263,46 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ onNavigate }) => {
     }
   };
 
+  const handleRunWorkforceAgent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agentGoal.trim()) return;
+    agentAbortRef.current?.abort();
+    const controller = new AbortController();
+    agentAbortRef.current = controller;
+    setAgentRunning(true);
+    try {
+      const outcome = await runWorkforceAgent({
+        agentId: selectedAgentId,
+        goal: agentGoal,
+        clientId: clientId || undefined,
+        projectId: projectId || undefined,
+        providerPreference,
+        allowExternalContextTransmission: consentExternal,
+        signal: controller.signal,
+      });
+      setAgentRunResult(outcome);
+      setAgentRunHistory((prev) => [outcome, ...prev].slice(0, 8));
+      setHandledActionIds({});
+      if (outcome.status === 'cancelled') {
+        pushToast({ tone: 'info', title: 'Agent run cancelled cleanly' });
+      } else if (outcome.status === 'failed') {
+        pushToast({ tone: 'error', title: 'Agent run failed', description: outcome.errorMessage });
+      }
+    } finally {
+      agentAbortRef.current = null;
+      setAgentRunning(false);
+    }
+  };
+
+  const handleCancelWorkforceAgent = () => {
+    agentAbortRef.current?.abort();
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="AI Copilot"
-        description="Draft proposals, client emails, and summaries. Works offline with deterministic templates or online with your BYOK Gemini 4 Hydrogen key."
+        description="Draft proposals, client emails, and run least-privilege AI Workforce agents offline or with Gemini 4 Hydrogen."
         actions={
           onNavigate && (
             <Button variant="outline" onClick={() => onNavigate('knowledge')}>
@@ -233,18 +312,49 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ onNavigate }) => {
         }
       />
 
+      <Tabs
+        activeId={activeTab}
+        onChange={(id) => setActiveTab(id as 'studio' | 'workforce')}
+        items={[
+          { id: 'studio', label: 'Copilot Studio' },
+          { id: 'workforce', label: `AI Workforce (${AGENT_WORKFORCE_REGISTRY.length} Agents)` },
+        ]}
+      />
+
       <Card>
         <CardHeader
           title="Provider & Security Mode"
           description="SOLODESK AI never stores API keys in browser storage, IndexedDB, or JSON backups."
           action={
-            <Badge tone={keyConfigured ? 'success' : 'neutral'}>
-              {keyConfigured
-                ? `Gemini 4 Hydrogen (${maskApiKey(getSessionGeminiKey())})`
-                : 'Offline Deterministic Mode'}
-            </Badge>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge tone={activeProvider.isConfigured() && activeProvider.id !== 'mock' ? 'success' : 'neutral'}>
+                {activeProvider.id === 'gemini' && keyConfigured
+                  ? `Gemini 4 Hydrogen (${maskApiKey(getSessionGeminiKey())})`
+                  : activeProvider.label}
+              </Badge>
+              {onNavigate && (
+                <Button size="sm" variant="outline" onClick={() => onNavigate('settings-ai')}>
+                  Configure Providers
+                </Button>
+              )}
+            </div>
           }
         />
+
+        <div className="mb-4 max-w-xs">
+          <Select
+            label="AI Adapter Preference"
+            value={providerPreference}
+            onChange={(e) => setProviderPreference(e.target.value as 'auto' | AIProviderId)}
+            options={[
+              { value: 'auto', label: 'Auto (Gemini → OpenAI → Ollama → Offline)' },
+              { value: 'gemini', label: 'Gemini 4 Hydrogen' },
+              { value: 'openai_compatible', label: 'OpenAI-Compatible Endpoint' },
+              { value: 'ollama', label: 'Local Ollama' },
+              { value: 'mock', label: 'Offline Deterministic Templates' },
+            ]}
+          />
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
           <form onSubmit={handleApplySessionKey} className="lg:col-span-7 flex flex-col sm:flex-row gap-2.5 sm:items-end">
@@ -280,6 +390,220 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ onNavigate }) => {
         </div>
       </Card>
 
+      {activeTab === 'workforce' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-5 space-y-4">
+            <Card>
+              <CardHeader
+                title="Staged 15-Agent AI Workforce"
+                description="Least-privilege tool scopes enforced across Read-Only, Draft-Only, and Approval-Required tiers."
+              />
+              <div className="space-y-3">
+                <Select
+                  label="Autonomy Class Filter"
+                  value={agentClassFilter}
+                  onChange={(e) => setAgentClassFilter(e.target.value as 'all' | AgentAutonomyClass)}
+                  options={[
+                    { value: 'all', label: `All Agents (${AGENT_WORKFORCE_REGISTRY.length})` },
+                    { value: 'read_only', label: 'Class 1 · Read-Only (7)' },
+                    { value: 'draft_only', label: 'Class 2 · Draft-Only (6)' },
+                    { value: 'approval_required', label: 'Class 3 · Approval-Required (2)' },
+                  ]}
+                />
+
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {filteredAgents.map((agent) => {
+                    const active = agent.id === selectedAgentId;
+                    return (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        onClick={() => setSelectedAgentId(agent.id)}
+                        className={`w-full text-left p-3 rounded-lg border transition-colors cursor-pointer ${
+                          active
+                            ? 'border-blue-600 bg-blue-50/60 dark:bg-blue-950/30 dark:border-blue-500'
+                            : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-[#101827]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-slate-900 dark:text-white">
+                            {agent.name}
+                          </span>
+                          <Badge
+                            tone={
+                              agent.autonomyClass === 'read_only'
+                                ? 'info'
+                                : agent.autonomyClass === 'draft_only'
+                                  ? 'neutral'
+                                  : 'warning'
+                            }
+                          >
+                            {agent.autonomyClass.replace('_', ' ')}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1">
+                          {agent.roleSummary}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          <div className="lg:col-span-7 space-y-4">
+            <Card>
+              <CardHeader
+                title={selectedAgent.name}
+                description={selectedAgent.roleSummary}
+                action={
+                  <Badge
+                    tone={
+                      selectedAgent.autonomyClass === 'read_only'
+                        ? 'info'
+                        : selectedAgent.autonomyClass === 'draft_only'
+                          ? 'neutral'
+                          : 'warning'
+                    }
+                  >
+                    {selectedAgent.autonomyClass}
+                  </Badge>
+                }
+              />
+
+              <form onSubmit={handleRunWorkforceAgent} className="space-y-4">
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-[#101827]/70 text-xs space-y-1">
+                  <p className="font-semibold text-slate-700 dark:text-slate-200">
+                    Allowlisted Tools ({selectedAgent.allowedTools.length})
+                  </p>
+                  <p className="font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                    {selectedAgent.allowedTools.join(', ')}
+                  </p>
+                  {selectedAgent.canDelegateTo && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Scoped Sub-Agents (intersection enforced): {selectedAgent.canDelegateTo.join(', ')}
+                    </p>
+                  )}
+                </div>
+
+                <Textarea
+                  label="Agent Goal / Prompt"
+                  required
+                  rows={3}
+                  value={agentGoal}
+                  onChange={(e) => setAgentGoal(e.target.value)}
+                />
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    loading={agentRunning}
+                    icon={<Play className="w-4 h-4" />}
+                  >
+                    Run {selectedAgent.name}
+                  </Button>
+                  {agentRunning && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      icon={<Square className="w-3.5 h-3.5" />}
+                      onClick={handleCancelWorkforceAgent}
+                    >
+                      Cancel Run
+                    </Button>
+                  )}
+                </div>
+              </form>
+
+              {agentRunResult && (
+                <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2">
+                      <Badge tone={agentRunResult.status === 'completed' ? 'success' : 'warning'}>
+                        {agentRunResult.status}
+                      </Badge>
+                      <span className="font-mono tabular-nums text-slate-500">
+                        {agentRunResult.durationMs} ms · ~{agentRunResult.estimatedTokens} tokens
+                      </span>
+                    </div>
+                    <span className="font-mono text-[11px] text-slate-500">
+                      Tools: {agentRunResult.toolsInvoked.join(', ') || 'none'}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#101827] text-xs whitespace-pre-wrap leading-relaxed text-slate-800 dark:text-slate-100">
+                    {agentRunResult.outputText}
+                  </div>
+
+                  {agentRunResult.proposedActions.map((action) => {
+                    const decision = handledActionIds[action.id];
+                    return (
+                      <div
+                        key={action.id}
+                        className="p-3 rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold">{action.title}</span>
+                            <Badge tone="warning">Requires Approval</Badge>
+                          </div>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300">{action.summary}</p>
+                        </div>
+                        {decision ? (
+                          <Badge tone={decision === 'approved' ? 'success' : 'neutral'}>
+                            {decision === 'approved' ? 'Executed' : 'Dismissed'}
+                          </Badge>
+                        ) : (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void handleActionDecision(action, false)}
+                            >
+                              Dismiss
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="primary"
+                              onClick={() => void handleActionDecision(action, true)}
+                            >
+                              Approve & Create
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {agentRunHistory.length > 0 && (
+                <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                    Recent Workforce Runs
+                  </p>
+                  <div className="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
+                    {agentRunHistory.map((h) => (
+                      <div key={h.runId} className="py-2 flex items-center justify-between gap-2">
+                        <span className="truncate font-medium text-slate-800 dark:text-slate-200">
+                          {h.agentName} — {h.goal}
+                        </span>
+                        <span className="font-mono tabular-nums text-slate-500 shrink-0">
+                          {h.status} · {h.durationMs}ms
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'studio' && (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-5 space-y-6">
           <Card>
@@ -376,7 +700,8 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ onNavigate }) => {
                   </span>
                 </label>
 
-                {keyConfigured && (useKnowledgeRag || includeWorkspaceContext) && (
+                {(activeProvider.id === 'gemini' || activeProvider.id === 'openai_compatible') &&
+                  (useKnowledgeRag || includeWorkspaceContext) && (
                   <label className="flex items-start gap-2.5 p-2.5 rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/70 dark:bg-blue-950/30 cursor-pointer">
                     <input
                       type="checkbox"
@@ -385,7 +710,7 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ onNavigate }) => {
                       className="mt-0.5 rounded border-blue-400"
                     />
                     <span className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
-                      <strong>External API Consent:</strong> Allow sending the selected workspace summary and matching Knowledge Hub excerpts to Google Gemini API (`gemini-4-hydrogen`).
+                      <strong>External API Consent:</strong> Allow sending the selected workspace summary and matching Knowledge Hub excerpts to {activeProvider.label}.
                     </span>
                   </label>
                 )}
@@ -398,7 +723,9 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ onNavigate }) => {
                 loading={running}
                 icon={<Sparkles className="w-4 h-4" />}
               >
-                {keyConfigured ? 'Generate with Gemini 4 Hydrogen' : 'Generate Offline Draft'}
+                {activeProvider.isConfigured() && activeProvider.id !== 'mock'
+                  ? `Generate with ${activeProvider.label}`
+                  : 'Generate Offline Draft'}
               </Button>
             </form>
           </Card>
@@ -545,6 +872,7 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ onNavigate }) => {
           </Card>
         </div>
       </div>
+      )}
     </div>
   );
 };

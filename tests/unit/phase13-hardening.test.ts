@@ -106,7 +106,7 @@ describe('Phase 13 — Release Hardening: DB Integrity, Security, RAG, Tools & W
 
     const upgraded = new SolodeskDatabase(dbName);
     await upgraded.open();
-    expect(upgraded.verno).toBe(4);
+    expect(upgraded.verno).toBe(5);
 
     const migratedClient = await upgraded.clients.get('cli_v1');
     expect(migratedClient?.category).toBe('General');
@@ -307,7 +307,7 @@ describe('Phase 13 — Release Hardening: DB Integrity, Security, RAG, Tools & W
 
     const healthClean = await runDatabaseHealthCheck(isolatedDb);
     expect(healthClean.status).toBe('healthy');
-    expect(healthClean.schemaVersion).toBe(4);
+    expect(healthClean.schemaVersion).toBe(5);
     expect(healthClean.orphans).toHaveLength(0);
 
     // Inject an orphan task directly via raw table to ensure health check catches it
@@ -322,6 +322,10 @@ describe('Phase 13 — Release Hardening: DB Integrity, Security, RAG, Tools & W
       dueDate: '',
       tags: [],
       subtasks: [],
+      dependsOnIds: [],
+      estimatedHours: 0,
+      recurrenceRule: 'none',
+      autoPriorityScore: 0,
       completedAt: '',
       isDemo: false,
       createdAt: '2026-11-16T00:00:00.000Z',
@@ -424,8 +428,8 @@ describe('Phase 13 — Release Hardening: DB Integrity, Security, RAG, Tools & W
     expect(filteredSearch.citations[0].documentTitle).toBe('Policy A');
 
     const bench = runExtendedRagBenchmark();
-    expect(bench.totalCases).toBe(14);
-    expect(bench.passedCases).toBe(14);
+    expect(bench.totalCases).toBe(25);
+    expect(bench.passedCases).toBe(25);
     expect(bench.recallAtK).toBe(1);
     expect(bench.unsupportedFalsePositiveCount).toBe(0);
     expect(bench.duplicateChunkCount).toBe(0);

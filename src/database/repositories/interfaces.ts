@@ -4,7 +4,9 @@ import type {
   AppSettings,
   BusinessProfile,
   Client,
+  ClientPortalLink,
   Contract,
+  CustomWorkflow,
   DocumentChunk,
   FinanceEntry,
   Invoice,
@@ -14,10 +16,16 @@ import type {
   Project,
   Proposal,
   Quotation,
+  Retainer,
   ReusableTemplate,
+  SavedView,
+  SecurityAuditLog,
   ServiceCatalogItem,
+  SyncQueueItem,
   Task,
   TimeEntry,
+  VaultFile,
+  WebhookConfig,
   WorkflowRun,
   WorkflowType,
   WorkspaceGoal,
@@ -41,13 +49,28 @@ export interface ISolodeskRepositories {
   // Projects
   listProjects(): Promise<Project[]>;
   getProject(id: string): Promise<Project | undefined>;
-  createProject(input: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>): Promise<Project>;
+  createProject(
+    input: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'risks' | 'okrs' | 'isTemplate'> &
+      Partial<Pick<Project, 'risks' | 'okrs' | 'isTemplate'>>
+  ): Promise<Project>;
   updateProject(id: string, patch: Partial<Project>): Promise<Project>;
   deleteProject(id: string): Promise<void>;
 
   // Tasks
   listTasks(): Promise<Task[]>;
-  createTask(input: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<Task>;
+  createTask(
+    input: Omit<
+      Task,
+      | 'id'
+      | 'createdAt'
+      | 'updatedAt'
+      | 'dependsOnIds'
+      | 'estimatedHours'
+      | 'recurrenceRule'
+      | 'autoPriorityScore'
+    > &
+      Partial<Pick<Task, 'dependsOnIds' | 'estimatedHours' | 'recurrenceRule' | 'autoPriorityScore'>>
+  ): Promise<Task>;
   updateTask(id: string, patch: Partial<Task>): Promise<Task>;
   deleteTask(id: string): Promise<void>;
 
@@ -71,7 +94,23 @@ export interface ISolodeskRepositories {
   // Invoices & Payments
   listInvoices(): Promise<Invoice[]>;
   getInvoice(id: string): Promise<Invoice | undefined>;
-  createInvoice(input: Omit<Invoice, 'id' | 'number' | 'amountPaid' | 'balanceDue' | 'createdAt' | 'updatedAt'> & { number?: string }): Promise<Invoice>;
+  createInvoice(
+    input: Omit<
+      Invoice,
+      | 'id'
+      | 'number'
+      | 'amountPaid'
+      | 'balanceDue'
+      | 'createdAt'
+      | 'updatedAt'
+      | 'recurrenceRule'
+      | 'nextRecurrenceDate'
+      | 'exchangeRateToBase'
+      | 'paymentSchedule'
+    > & { number?: string } & Partial<
+        Pick<Invoice, 'recurrenceRule' | 'nextRecurrenceDate' | 'exchangeRateToBase' | 'paymentSchedule'>
+      >
+  ): Promise<Invoice>;
   updateInvoice(id: string, patch: Partial<Invoice>): Promise<Invoice>;
   refreshOverdueInvoices(referenceDate?: string): Promise<number>;
   deleteInvoice(id: string): Promise<void>;
@@ -82,7 +121,25 @@ export interface ISolodeskRepositories {
 
   // Finance (Income & Expenses)
   listFinanceEntries(): Promise<FinanceEntry[]>;
-  createFinanceEntry(input: Omit<FinanceEntry, 'id' | 'createdAt' | 'updatedAt'>): Promise<FinanceEntry>;
+  createFinanceEntry(
+    input: Omit<
+      FinanceEntry,
+      | 'id'
+      | 'createdAt'
+      | 'updatedAt'
+      | 'receiptFileName'
+      | 'receiptMimeType'
+      | 'receiptDataUrl'
+      | 'taxProfileName'
+      | 'exchangeRateToBase'
+    > &
+      Partial<
+        Pick<
+          FinanceEntry,
+          'receiptFileName' | 'receiptMimeType' | 'receiptDataUrl' | 'taxProfileName' | 'exchangeRateToBase'
+        >
+      >
+  ): Promise<FinanceEntry>;
   updateFinanceEntry(id: string, patch: Partial<FinanceEntry>): Promise<FinanceEntry>;
   deleteFinanceEntry(id: string): Promise<void>;
 
@@ -127,7 +184,57 @@ export interface ISolodeskRepositories {
   logActivity(input: Omit<ActivityEvent, 'id' | 'createdAt'>): Promise<ActivityEvent>;
 
   listNotifications(): Promise<NotificationItem[]>;
-  pushNotification(input: Omit<NotificationItem, 'id' | 'createdAt'>): Promise<NotificationItem>;
+  pushNotification(
+    input: Omit<NotificationItem, 'id' | 'createdAt' | 'snoozedUntil'> &
+      Partial<Pick<NotificationItem, 'snoozedUntil'>>
+  ): Promise<NotificationItem>;
   markNotificationRead(id: string): Promise<void>;
+  snoozeNotification(id: string, snoozedUntil: string): Promise<void>;
   markAllNotificationsRead(): Promise<void>;
+
+  // Phase 15: Saved Views
+  listSavedViews(): Promise<SavedView[]>;
+  saveSavedView(input: Omit<SavedView, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<SavedView>;
+  deleteSavedView(id: string): Promise<void>;
+
+  // Phase 16: Client Portal Links
+  listClientPortalLinks(): Promise<ClientPortalLink[]>;
+  getClientPortalLinkByToken(token: string): Promise<ClientPortalLink | undefined>;
+  saveClientPortalLink(
+    input: Omit<ClientPortalLink, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+  ): Promise<ClientPortalLink>;
+  deleteClientPortalLink(id: string): Promise<void>;
+
+  // Phase 18: Retainers
+  listRetainers(): Promise<Retainer[]>;
+  saveRetainer(input: Omit<Retainer, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<Retainer>;
+  deleteRetainer(id: string): Promise<void>;
+
+  // Phase 19: Document Vault
+  listVaultFiles(): Promise<VaultFile[]>;
+  saveVaultFile(input: Omit<VaultFile, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<VaultFile>;
+  deleteVaultFile(id: string): Promise<void>;
+
+  // Phase 21: Custom Workflows & Webhooks
+  listCustomWorkflows(): Promise<CustomWorkflow[]>;
+  saveCustomWorkflow(
+    input: Omit<CustomWorkflow, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+  ): Promise<CustomWorkflow>;
+  deleteCustomWorkflow(id: string): Promise<void>;
+
+  listWebhooks(): Promise<WebhookConfig[]>;
+  saveWebhook(input: Omit<WebhookConfig, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promise<WebhookConfig>;
+  deleteWebhook(id: string): Promise<void>;
+
+  // Phase 23: Cloud Sync Queue
+  listSyncQueue(): Promise<SyncQueueItem[]>;
+  enqueueSyncItem(
+    input: Omit<SyncQueueItem, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+  ): Promise<SyncQueueItem>;
+  updateSyncQueueItem(id: string, patch: Partial<SyncQueueItem>): Promise<SyncQueueItem>;
+  clearAckedSyncItems(): Promise<void>;
+
+  // Phase 24: Security Audit Logs
+  listSecurityAuditLogs(limit?: number): Promise<SecurityAuditLog[]>;
+  logSecurityEvent(input: Omit<SecurityAuditLog, 'id' | 'createdAt'>): Promise<SecurityAuditLog>;
 }

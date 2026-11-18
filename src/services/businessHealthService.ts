@@ -1,5 +1,5 @@
 import Big from 'big.js';
-import { secondsToDecimalHours, todayDateStr } from '../domain/calculations/dates';
+import { addDaysToDateStr, secondsToDecimalHours, todayDateStr } from '../domain/calculations/dates';
 import { addMoney, subtractMoney } from '../domain/calculations/money';
 import type {
   FinanceEntry,
@@ -281,5 +281,120 @@ export function evaluateMonthlyBusinessHealth(params: {
     healthScore,
     healthStatus: healthScore >= 75 ? 'strong' : healthScore >= 50 ? 'watch' : 'needs_attention',
     notes,
+  };
+}
+
+export interface WeeklyDigestReport {
+  windowStart: string;
+  windowEnd: string;
+  nextWeekEnd: string;
+  incomeLast7Days: number;
+  expensesLast7Days: number;
+  netLast7Days: number;
+  billableHoursLast7Days: number;
+  completedTasksLast7Days: number;
+  openTasksDueNext7Days: number;
+  overdueTaskCount: number;
+  overdueInvoiceCount: number;
+  openReceivablesTotal: number;
+  topFocusItems: string[];
+  calculationMethod: string;
+  dataSource: string;
+}
+
+export function generateWeeklyDigest(params: {
+  projects: Project[];
+  tasks: Task[];
+  invoices: Invoice[];
+  financeEntries: FinanceEntry[];
+  timeEntries: TimeEntry[];
+  today?: string;
+}): WeeklyDigestReport {
+  const windowEnd = params.today ?? todayDateStr();
+  const windowStart = addDaysToDateStr(windowEnd, -6);
+  const nextWeekEnd = addDaysToDateStr(windowEnd, 7);
+
+  const weeklyFin = params.financeEntries.filter(
+    (f) => f.date >= windowStart && f.date <= windowEnd
+  );
+  const incomeLast7Days = addMoney(
+    ...weeklyFin.filter((f) => f.type === 'income').map((f) => f.amount)
+  );
+  const expensesLast7Days = addMoney(
+    ...weeklyFin.filter((f) => f.type === 'expense').map((f) => f.amount)
+  );
+  const netLast7Days = subtractMoney(incomeLast7Days, expensesLast7Days);
+
+  const weeklyBillableSeconds = params.timeEntries
+    .filter(
+      (t) =>
+        !t.isRunning &&
+        t.billable &&
+        t.startTime.slice(0, 10) >= windowStart &&
+        t.startTime.slice(0, 10) <= windowEnd
+    )
+    .reduce((sum, t) => sum + t.durationSeconds, 0);
+  const billableHoursLast7Days = Number(secondsToDecimalHours(weeklyBillableSeconds).toFixed(2));
+
+  const completedTasksLast7Days = params.tasks.filter(
+    (t) =>
+      t.status === 'done' &&
+      (t.completedAt || t.updatedAt).slice(0, 10) >= windowStart &&
+      (t.completedAt || t.updatedAt).slice(0, 10) <= windowEnd
+  ).length;
+
+  const openTasks = params.tasks.filter((t) => t.status !== 'done' && t.status !== 'archived');
+  const openTasksDueNext7Days = openTasks.filter(
+    (t) => t.dueDate !== '' && t.dueDate >= windowEnd && t.dueDate <= nextWeekEnd
+  ).length;
+  const overdueTaskCount = openTasks.filter(
+    (t) => t.dueDate !== '' && t.dueDate < windowEnd
+  ).length;
+
+  const openInvoices = params.invoices.filter(
+    (i) => i.status !== 'cancelled' && i.status !== 'paid' && i.balanceDue > 0
+  );
+  const overdueInvoiceCount = openInvoices.filter(
+    (i) => i.status === 'overdue' || (i.dueDate !== '' && i.dueDate < windowEnd)
+  ).length;
+  const openReceivablesTotal = addMoney(...openInvoices.map((i) => i.balanceDue));
+
+  const activeProjects = params.projects.filter(
+    (p) => !p.isTemplate && (p.status === 'active' || p.status === 'planning')
+  );
+
+  const topFocusItems: string[] = [];
+  if (overdueInvoiceCount > 0) {
+    topFocusItems.push(`Follow up on ${overdueInvoiceCount} overdue invoice(s).`);
+  }
+  if (overdueTaskCount > 0) {
+    topFocusItems.push(`Clear or reschedule ${overdueTaskCount} overdue task(s).`);
+  }
+  if (openTasksDueNext7Days > 0) {
+    topFocusItems.push(`Complete ${openTasksDueNext7Days} task(s) due in the next 7 days.`);
+  }
+  if (activeProjects.length > 0 && topFocusItems.length < 3) {
+    topFocusItems.push(`Review progress across ${activeProjects.length} active project(s).`);
+  }
+  if (topFocusItems.length === 0) {
+    topFocusItems.push('Workspace schedule and receivables are currently caught up.');
+  }
+
+  return {
+    windowStart,
+    windowEnd,
+    nextWeekEnd,
+    incomeLast7Days,
+    expensesLast7Days,
+    netLast7Days,
+    billableHoursLast7Days,
+    completedTasksLast7Days,
+    openTasksDueNext7Days,
+    overdueTaskCount,
+    overdueInvoiceCount,
+    openReceivablesTotal,
+    topFocusItems,
+    calculationMethod: 'Deterministic Big.js half-up ledger aggregation (rolling 7-day window)',
+    dataSource: 'IndexedDB (Dexie v5 Local Workspace)',
   };
 }

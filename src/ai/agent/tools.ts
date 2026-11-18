@@ -4,7 +4,9 @@ import { addMoney, subtractMoney } from '../../domain/calculations/money';
 import { calculateInvoiceAging } from '../../services/businessHealthService';
 import { searchKnowledgeBase } from '../knowledge/knowledgeService';
 import { isAllowlistedTool } from './permissions';
+import { computeAutoPriorityScore } from '../../services/projectPlanningService';
 import {
+  analyzeCsvDatasetArgsSchema,
   analyzeInvoiceAgingArgsSchema,
   createClientDraftArgsSchema,
   createProjectDraftArgsSchema,
@@ -14,6 +16,7 @@ import {
   explainProjectProfitabilityArgsSchema,
   getWorkspaceSummaryArgsSchema,
   listOverdueInvoicesArgsSchema,
+  prioritizeOpenTasksArgsSchema,
   searchClientsArgsSchema,
   searchKnowledgeArgsSchema,
   searchProjectsArgsSchema,
@@ -434,6 +437,59 @@ export async function executeAllowlistedTool(
         ok: true,
         summary: `Created draft proposal ${created.number} ("${created.title}").`,
         data: created,
+      };
+    }
+    case 'prioritize_open_tasks': {
+      const { limit } = prioritizeOpenTasksArgsSchema.parse(rawArgs);
+      const allTasks = await repositories.listTasks();
+      const ranked = allTasks
+        .filter((t) => t.status !== 'done' && t.status !== 'archived')
+        .map((t) => ({
+          id: t.id,
+          title: t.title,
+          priority: t.priority,
+          dueDate: t.dueDate,
+          score: computeAutoPriorityScore(t),
+        }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+      return {
+        tool: toolName,
+        ok: true,
+        summary: `Ranked ${ranked.length} open task(s) by deadline proximity and priority weight.`,
+        data: ranked,
+      };
+    }
+
+    case 'analyze_csv_dataset': {
+      const { csvText } = analyzeCsvDatasetArgsSchema.parse(rawArgs);
+      const lines = csvText
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      if (lines.length === 0) {
+        return { tool: toolName, ok: true, summary: 'CSV dataset is empty.', data: { rows: 0 } };
+      }
+      const headers = lines[0].split(',').map((h) => h.trim());
+      const rows = lines.slice(1).map((line) => line.split(',').map((c) => c.trim()));
+      const numericSums: Record<string, number> = {};
+      headers.forEach((h, idx) => {
+        let sum = 0;
+        let hasNumeric = false;
+        for (const r of rows) {
+          const val = Number(r[idx]);
+          if (r[idx] !== '' && Number.isFinite(val)) {
+            sum += val;
+            hasNumeric = true;
+          }
+        }
+        if (hasNumeric) numericSums[h || `col_${idx + 1}`] = Number(sum.toFixed(2));
+      });
+      return {
+        tool: toolName,
+        ok: true,
+        summary: `Parsed ${rows.length} CSV row(s) across ${headers.length} column(s).`,
+        data: { rowCount: rows.length, headers, numericSums },
       };
     }
   }

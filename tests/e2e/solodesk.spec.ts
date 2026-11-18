@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
 test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
@@ -7,19 +8,26 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
   }) => {
     const pageErrors: string[] = [];
     const consoleErrors: string[] = [];
+    const failedUrls: string[] = [];
 
+    page.on('requestfailed', (req) => {
+      failedUrls.push(`${req.url()} (${req.failure()?.errorText ?? 'unknown'})`);
+    });
     page.on('pageerror', (err) => {
       pageErrors.push(err.message);
     });
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
         const text = msg.text();
+        const locUrl = msg.location()?.url ?? '';
         if (
           !text.includes('fonts.googleapis.com') &&
           !text.includes('fonts.gstatic.com') &&
+          !locUrl.includes('fonts.googleapis.com') &&
+          !locUrl.includes('fonts.gstatic.com') &&
           !text.includes('ERR_INTERNET_DISCONNECTED')
         ) {
-          consoleErrors.push(text);
+          consoleErrors.push(`${text}${locUrl ? ` (${locUrl})` : ''}`);
         }
       }
     });
@@ -130,17 +138,45 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await expect(page.getByText('E2E Discovery Sync').first()).toBeVisible();
 
     await page.goto('/#/workflows');
-    await expect(page.getByRole('heading', { name: 'Automation & Workflow Engine', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Automation & Integration Marketplace/i })).toBeVisible();
     await page.getByRole('button', { name: /Run Dry-Run Simulation/i }).click();
     await expect(page.getByText(/Condition Not Met|Condition Passed/i)).toBeVisible();
 
     await page.goto('/#/reports');
     await expect(page.getByRole('heading', { name: 'Financial Reports', exact: true })).toBeVisible();
     await expect(page.getByText('Project Estimates vs Actuals')).toBeVisible();
+    await expect(page.getByText('What-If Financial Scenario Simulator')).toBeVisible();
 
-    // 8. Knowledge Hub: 14 built-in packs, dataset audit, local note, and 14-case RAG check
+    // 7c. Focus Mode + Daily Digest + Gantt + Vault + Client Portal + Security Center + Help/RTL
+    await page.goto('/#/dashboard');
+    await expect(page.getByText('Daily Digest')).toBeVisible();
+    await page.getByRole('button', { name: 'Enter Focus Mode' }).click();
+    await expect(page.getByRole('heading', { name: 'Focus Mode', exact: true })).toBeVisible();
+    await expect(page.getByLabel('Primary Workspace Navigation')).not.toBeVisible();
+    await page.getByRole('button', { name: 'Exit Focus Mode' }).first().click();
+    await expect(page.getByLabel('Primary Workspace Navigation')).toBeVisible();
+
+    await page.goto('/#/projects');
+    await page.getByRole('button', { name: /Gantt Timeline/i }).click();
+    await expect(page.getByRole('heading', { name: 'Project Gantt Timeline' })).toBeVisible();
+
+    await page.goto('/#/vault');
+    await expect(page.getByRole('heading', { name: /Document Vault/i })).toBeVisible();
+
+    await page.goto('/#/client-portal');
+    await expect(page.getByRole('heading', { name: /Client Experience & Scoped Portal/i })).toBeVisible();
+
+    await page.goto('/#/security-center');
+    await expect(page.getByRole('heading', { name: /Security, Privacy & Reliability Center/i })).toBeVisible();
+    await page.getByRole('button', { name: /Run Non-Destructive Backup Recovery Test/i }).click();
+    await expect(page.getByText(/AES-GCM roundtrip integrity/i).first()).toBeVisible();
+
+    await page.goto('/#/help-plans');
+    await expect(page.getByRole('heading', { name: /Help, Product Tour, Localization & Plans/i })).toBeVisible();
+
+    // 8. Knowledge Hub: 14 built-in packs, dataset audit, local note, and 25-case Hybrid RAG v2 check
     await page.goto('/#/knowledge');
-    await expect(page.getByRole('heading', { name: 'Knowledge Hub', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Knowledge Hub/i })).toBeVisible();
     await page.getByRole('button', { name: /Load 14 Freelancer Packs/i }).click();
     await expect(page.getByText(/Installed 14 first-party MIT pack/i)).toBeVisible();
 
@@ -155,13 +191,19 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await expect(page.getByText('E2E Payment SOP').first()).toBeVisible();
 
     await page.getByRole('button', { name: /Run Local RAG Check/i }).click();
-    await expect(page.getByText(/14\/14 \(100%\)/i)).toBeVisible();
+    await expect(page.getByText(/25\/25 \(100%\)/i)).toBeVisible();
 
-    // 9. AI Copilot offline deterministic draft & zero stored secrets
+    // 9. AI Copilot offline deterministic draft, 15-Agent AI Workforce tab & zero stored secrets
     await page.goto('/#/ai-copilot');
     await expect(page.getByRole('heading', { name: 'AI Copilot', exact: true })).toBeVisible();
     await page.getByRole('button', { name: /Generate Offline Draft/i }).click();
     await expect(page.getByText(/Offline \/ Local Draft Mode active/i)).toBeVisible();
+
+    await page.getByRole('tab', { name: /AI Workforce \(15 Agents\)/i }).click();
+    await expect(page.getByText('Staged 15-Agent AI Workforce')).toBeVisible();
+    await page.getByRole('button', { name: /Run Workspace Analyst Agent/i }).click();
+    await expect(page.getByText(/Workspace Analyst Agent \[READ_ONLY\]/i)).toBeVisible();
+
     const storageCounts = await page.evaluate(() => ({
       ls: localStorage.length,
       ss: sessionStorage.length,
@@ -169,33 +211,56 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     expect(storageCounts.ls).toBe(0);
     expect(storageCounts.ss).toBe(0);
 
-    // 10. Settings Privacy, Sync Card & Live Database Health Check (v4)
+    // 10. Settings Privacy, Sync Card & Live Database Health Check (v5)
     await page.goto('/#/settings-privacy');
     await expect(page.getByText('Database Integrity & Diagnostics')).toBeVisible();
     await expect(page.getByText('Healthy', { exact: true })).toBeVisible();
-    await expect(page.getByText('v4', { exact: true })).toBeVisible();
+    await expect(page.getByText('v5', { exact: true })).toBeVisible();
     await expect(page.getByText('Local Database Synchronization & Shortcuts')).toBeVisible();
 
-    // 11. Mobile responsiveness check (375x812) with zero horizontal overflow
+    // 11. Weekly Digest toggle + Mobile responsiveness check (375x812) with zero horizontal overflow
+    await page.goto('/#/dashboard');
+    await page.getByRole('button', { name: 'Weekly', exact: true }).click();
+    await expect(page.getByText('7-Day Income / Net')).toBeVisible();
+    await page.getByRole('button', { name: 'Daily', exact: true }).click();
+
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto('/#/dashboard');
     await expect(page.getByRole('heading', { name: /Welcome/i })).toBeVisible();
-    await expect(page.getByText('My Day — Priority Focus')).toBeVisible();
+    await expect(page.getByText('Daily Digest')).toBeVisible();
     const mobileOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth
     );
     expect(mobileOverflow).toBe(false);
 
-    // 12. Offline mode resilience + Offline indicator test
+    // 12. Automated WCAG 2.0 A/AA Accessibility audit via @axe-core/playwright
+    await page.setViewportSize({ width: 1280, height: 800 });
+    for (const route of ['/#/dashboard', '/#/clients', '/#/ai-copilot']) {
+      await page.goto(route);
+      const axeResults = await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa'])
+        .analyze();
+      const criticalViolations = axeResults.violations.filter(
+        (v) => v.impact === 'critical'
+      );
+      expect(criticalViolations, `Critical axe violations on ${route}`).toEqual([]);
+    }
+
+    // 13. Isolated External Client Portal token session must NEVER expose admin navigation
+    await page.goto('/#/client-portal?token=e2e-isolated-token-check');
+    await expect(page.getByText('SOLODESK AI · Scoped Client Portal')).toBeVisible();
+    await expect(page.getByLabel('Primary Workspace Navigation')).not.toBeVisible();
+
+    // 14. Offline mode resilience + Offline indicator test
+    await page.goto('/#/clients');
     await context.setOffline(true);
     await page.evaluate(() => window.dispatchEvent(new Event('offline')));
     await expect(page.getByLabel('Browser is offline; working on local IndexedDB')).toBeVisible();
-    await page.goto('/#/clients');
     await expect(page.getByRole('heading', { name: 'Clients', exact: true })).toBeVisible();
     await expect(page.getByText('E2E Horizon Labs').first()).toBeVisible();
     await context.setOffline(false);
 
     expect(pageErrors).toEqual([]);
-    expect(consoleErrors).toEqual([]);
+    expect(consoleErrors, `Failed URLs: ${JSON.stringify(failedUrls)}`).toEqual([]);
   });
 });

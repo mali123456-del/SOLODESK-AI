@@ -11,6 +11,7 @@ import {
   type StorageHealth,
 } from '../../database/db';
 import { repositories } from '../../database/repositories/dexieRepositories';
+import { runWorkspaceBackgroundJobs } from '../../services/backgroundJobRunner';
 import {
   clearDemoWorkspaceData,
   ensureBuiltInTemplates,
@@ -22,7 +23,9 @@ import type {
   AppSettings,
   BusinessProfile,
   Client,
+  ClientPortalLink,
   Contract,
+  CustomWorkflow,
   FinanceEntry,
   Invoice,
   KnowledgeDocument,
@@ -31,10 +34,17 @@ import type {
   Project,
   Proposal,
   Quotation,
+  RecentWorkspaceItem,
+  Retainer,
   ReusableTemplate,
+  SavedView,
+  SecurityAuditLog,
   ServiceCatalogItem,
+  SyncQueueItem,
   Task,
   TimeEntry,
+  VaultFile,
+  WebhookConfig,
   WorkflowRun,
   WorkspaceGoal,
 } from '../../domain/schemas/entities';
@@ -67,6 +77,14 @@ export interface WorkspaceState {
   workspaceGoals: WorkspaceGoal[];
   activities: ActivityEvent[];
   notifications: NotificationItem[];
+  vaultFiles: VaultFile[];
+  clientPortalLinks: ClientPortalLink[];
+  retainers: Retainer[];
+  customWorkflows: CustomWorkflow[];
+  webhooks: WebhookConfig[];
+  syncQueue: SyncQueueItem[];
+  securityAuditLogs: SecurityAuditLog[];
+  savedViews: SavedView[];
   storageHealth: StorageHealth;
 }
 
@@ -75,6 +93,9 @@ interface WorkspaceContextValue extends WorkspaceState {
   retrySync: () => Promise<void>;
   loadDemoWorkspace: () => Promise<void>;
   removeDemoWorkspace: () => Promise<void>;
+  togglePinnedId: (id: string) => Promise<void>;
+  toggleFavoriteId: (id: string) => Promise<void>;
+  recordRecentItem: (item: Omit<RecentWorkspaceItem, 'viewedAt'>) => Promise<void>;
 }
 
 const initialStorage: StorageHealth = {
@@ -114,11 +135,22 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   workspaceGoals: [],
   activities: [],
   notifications: [],
+  vaultFiles: [],
+  clientPortalLinks: [],
+  retainers: [],
+  customWorkflows: [],
+  webhooks: [],
+  syncQueue: [],
+  securityAuditLogs: [],
+  savedViews: [],
   storageHealth: initialStorage,
   refresh: async () => {},
   retrySync: async () => {},
   loadDemoWorkspace: async () => {},
   removeDemoWorkspace: async () => {},
+  togglePinnedId: async () => {},
+  toggleFavoriteId: async () => {},
+  recordRecentItem: async () => {},
 });
 
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -153,6 +185,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     workspaceGoals: [],
     activities: [],
     notifications: [],
+    vaultFiles: [],
+    clientPortalLinks: [],
+    retainers: [],
+    customWorkflows: [],
+    webhooks: [],
+    syncQueue: [],
+    securityAuditLogs: [],
+    savedViews: [],
     storageHealth: initialStorage,
   });
 
@@ -173,11 +213,19 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof document === 'undefined' || !state.settings) return;
+    const lang = state.settings.language ?? 'en';
+    const isRtl = Boolean(state.settings.rtl) || lang === 'ar' || lang === 'ur';
+    document.documentElement.lang = lang;
+    document.documentElement.dir = isRtl ? 'rtl' : 'ltr';
+  }, [state.settings]);
+
   const refresh = useCallback(async () => {
     try {
       await trackSyncOperation('Sync local IndexedDB workspace', async () => {
         await ensureBuiltInTemplates();
-        await repositories.refreshOverdueInvoices();
+        await runWorkspaceBackgroundJobs();
 
         const [
           businessProfile,
@@ -200,6 +248,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           workspaceGoals,
           activities,
           notifications,
+          vaultFiles,
+          clientPortalLinks,
+          retainers,
+          customWorkflows,
+          webhooks,
+          syncQueue,
+          securityAuditLogs,
+          savedViews,
           storageHealth,
         ] = await Promise.all([
           repositories.getBusinessProfile(),
@@ -222,6 +278,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           repositories.listWorkspaceGoals(),
           repositories.listActivities(120),
           repositories.listNotifications(),
+          repositories.listVaultFiles(),
+          repositories.listClientPortalLinks(),
+          repositories.listRetainers(),
+          repositories.listCustomWorkflows(),
+          repositories.listWebhooks(),
+          repositories.listSyncQueue(),
+          repositories.listSecurityAuditLogs(200),
+          repositories.listSavedViews(),
           getStorageHealth(),
         ]);
 
@@ -248,6 +312,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           workspaceGoals,
           activities,
           notifications,
+          vaultFiles,
+          clientPortalLinks,
+          retainers,
+          customWorkflows,
+          webhooks,
+          syncQueue,
+          securityAuditLogs,
+          savedViews,
           storageHealth,
         });
       });
@@ -281,6 +353,41 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     await refresh();
   }, [refresh]);
 
+  const togglePinnedId = useCallback(
+    async (id: string) => {
+      const current = await repositories.getSettings();
+      const set = new Set(current.pinnedIds ?? []);
+      if (set.has(id)) set.delete(id);
+      else set.add(id);
+      await repositories.saveSettings({ pinnedIds: Array.from(set) });
+      await refresh();
+    },
+    [refresh]
+  );
+
+  const toggleFavoriteId = useCallback(
+    async (id: string) => {
+      const current = await repositories.getSettings();
+      const set = new Set(current.favoriteIds ?? []);
+      if (set.has(id)) set.delete(id);
+      else set.add(id);
+      await repositories.saveSettings({ favoriteIds: Array.from(set) });
+      await refresh();
+    },
+    [refresh]
+  );
+
+  const recordRecentItem = useCallback(
+    async (item: Omit<RecentWorkspaceItem, 'viewedAt'>) => {
+      const current = await repositories.getSettings();
+      const filtered = (current.recentItems ?? []).filter((r) => r.id !== item.id);
+      const next = [{ ...item, viewedAt: new Date().toISOString() }, ...filtered].slice(0, 10);
+      await repositories.saveSettings({ recentItems: next });
+      await refresh();
+    },
+    [refresh]
+  );
+
   const value = useMemo<WorkspaceContextValue>(
     () => ({
       ...state,
@@ -293,8 +400,22 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       retrySync,
       loadDemoWorkspace,
       removeDemoWorkspace,
+      togglePinnedId,
+      toggleFavoriteId,
+      recordRecentItem,
     }),
-    [state, isOnline, syncTelemetry, refresh, retrySync, loadDemoWorkspace, removeDemoWorkspace]
+    [
+      state,
+      isOnline,
+      syncTelemetry,
+      refresh,
+      retrySync,
+      loadDemoWorkspace,
+      removeDemoWorkspace,
+      togglePinnedId,
+      toggleFavoriteId,
+      recordRecentItem,
+    ]
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

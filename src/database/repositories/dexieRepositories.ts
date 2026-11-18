@@ -16,9 +16,11 @@ import {
   appointmentSchema,
   appSettingsSchema,
   businessProfileSchema,
+  clientPortalLinkSchema,
   clientSchema,
   contractSchema,
   createId,
+  customWorkflowSchema,
   financeEntrySchema,
   invoiceSchema,
   knowledgeDocumentSchema,
@@ -27,10 +29,16 @@ import {
   projectSchema,
   proposalSchema,
   quotationSchema,
+  retainerSchema,
   reusableTemplateSchema,
+  savedViewSchema,
+  securityAuditLogSchema,
   serviceCatalogItemSchema,
+  syncQueueItemSchema,
   taskSchema,
   timeEntrySchema,
+  vaultFileSchema,
+  webhookConfigSchema,
   workflowRunSchema,
   workspaceGoalSchema,
   type ActivityEvent,
@@ -38,7 +46,9 @@ import {
   type AppSettings,
   type BusinessProfile,
   type Client,
+  type ClientPortalLink,
   type Contract,
+  type CustomWorkflow,
   type DocumentChunk,
   type FinanceEntry,
   type Invoice,
@@ -48,10 +58,16 @@ import {
   type Project,
   type Proposal,
   type Quotation,
+  type Retainer,
   type ReusableTemplate,
+  type SavedView,
+  type SecurityAuditLog,
   type ServiceCatalogItem,
+  type SyncQueueItem,
   type Task,
   type TimeEntry,
+  type VaultFile,
+  type WebhookConfig,
   type WorkflowRun,
   type WorkflowType,
   type WorkspaceGoal,
@@ -229,7 +245,10 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
     return this.db.projects.get(id);
   }
 
-  async createProject(input: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>): Promise<Project> {
+  async createProject(
+    input: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'risks' | 'okrs' | 'isTemplate'> &
+      Partial<Pick<Project, 'risks' | 'okrs' | 'isTemplate'>>
+  ): Promise<Project> {
     return this.runWrite('Create project', async () => {
       const client = await this.db.clients.get(input.clientId);
       if (!client) throw new Error('Referenced client does not exist.');
@@ -332,7 +351,19 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
     return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  async createTask(input: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<Task> {
+  async createTask(
+    input: Omit<
+      Task,
+      | 'id'
+      | 'createdAt'
+      | 'updatedAt'
+      | 'dependsOnIds'
+      | 'estimatedHours'
+      | 'recurrenceRule'
+      | 'autoPriorityScore'
+    > &
+      Partial<Pick<Task, 'dependsOnIds' | 'estimatedHours' | 'recurrenceRule' | 'autoPriorityScore'>>
+  ): Promise<Task> {
     return this.runWrite('Create task', async () => {
       if (input.projectId) {
         const prj = await this.db.projects.get(input.projectId);
@@ -769,8 +800,19 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async createInvoice(
     input: Omit<
       Invoice,
-      'id' | 'number' | 'amountPaid' | 'balanceDue' | 'createdAt' | 'updatedAt'
-    > & { number?: string }
+      | 'id'
+      | 'number'
+      | 'amountPaid'
+      | 'balanceDue'
+      | 'createdAt'
+      | 'updatedAt'
+      | 'recurrenceRule'
+      | 'nextRecurrenceDate'
+      | 'exchangeRateToBase'
+      | 'paymentSchedule'
+    > & { number?: string } & Partial<
+        Pick<Invoice, 'recurrenceRule' | 'nextRecurrenceDate' | 'exchangeRateToBase' | 'paymentSchedule'>
+      >
   ): Promise<Invoice> {
     return this.runWrite('Create invoice', async () => {
       const client = await this.db.clients.get(input.clientId);
@@ -1113,7 +1155,23 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async createFinanceEntry(
-    input: Omit<FinanceEntry, 'id' | 'createdAt' | 'updatedAt'>
+    input: Omit<
+      FinanceEntry,
+      | 'id'
+      | 'createdAt'
+      | 'updatedAt'
+      | 'receiptFileName'
+      | 'receiptMimeType'
+      | 'receiptDataUrl'
+      | 'taxProfileName'
+      | 'exchangeRateToBase'
+    > &
+      Partial<
+        Pick<
+          FinanceEntry,
+          'receiptFileName' | 'receiptMimeType' | 'receiptDataUrl' | 'taxProfileName' | 'exchangeRateToBase'
+        >
+      >
   ): Promise<FinanceEntry> {
     return this.runWrite('Create finance entry', async () => {
       const ts = nowIso();
@@ -1565,7 +1623,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async pushNotification(
-    input: Omit<NotificationItem, 'id' | 'createdAt'>
+    input: Omit<NotificationItem, 'id' | 'createdAt' | 'snoozedUntil'> &
+      Partial<Pick<NotificationItem, 'snoozedUntil'>>
   ): Promise<NotificationItem> {
     const item = notificationItemSchema.parse({
       ...input,
@@ -1580,8 +1639,280 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
     await this.db.notifications.update(id, { read: true });
   }
 
+  async snoozeNotification(id: string, snoozedUntil: string): Promise<void> {
+    await this.db.notifications.update(id, { snoozedUntil });
+  }
+
   async markAllNotificationsRead(): Promise<void> {
     await this.db.notifications.toCollection().modify({ read: true });
+  }
+
+  // --- Phase 15: Saved Views ---
+
+  async listSavedViews(): Promise<SavedView[]> {
+    const all = await this.db.savedViews.toArray();
+    return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async saveSavedView(
+    input: Omit<SavedView, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+  ): Promise<SavedView> {
+    return this.runWrite('Save custom view', async () => {
+      const ts = nowIso();
+      const existing = input.id ? await this.db.savedViews.get(input.id) : undefined;
+      const record = savedViewSchema.parse({
+        ...existing,
+        ...input,
+        id: existing?.id ?? input.id ?? createId('viw'),
+        createdAt: existing?.createdAt ?? ts,
+        updatedAt: ts,
+      });
+      await this.db.savedViews.put(record);
+      return record;
+    });
+  }
+
+  async deleteSavedView(id: string): Promise<void> {
+    return this.runWrite('Delete custom view', async () => {
+      await this.db.savedViews.delete(id);
+    });
+  }
+
+  // --- Phase 16: Client Portal Links ---
+
+  async listClientPortalLinks(): Promise<ClientPortalLink[]> {
+    const all = await this.db.clientPortalLinks.toArray();
+    return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async getClientPortalLinkByToken(token: string): Promise<ClientPortalLink | undefined> {
+    return this.db.clientPortalLinks.where('token').equals(token).first();
+  }
+
+  async saveClientPortalLink(
+    input: Omit<ClientPortalLink, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+  ): Promise<ClientPortalLink> {
+    return this.runWrite('Save client portal link', async () => {
+      const cli = await this.db.clients.get(input.clientId);
+      if (!cli) throw new ReferentialIntegrityError('Referenced client does not exist.');
+      const ts = nowIso();
+      const existing = input.id ? await this.db.clientPortalLinks.get(input.id) : undefined;
+      const record = clientPortalLinkSchema.parse({
+        ...existing,
+        ...input,
+        id: existing?.id ?? input.id ?? createId('cpl'),
+        createdAt: existing?.createdAt ?? ts,
+        updatedAt: ts,
+      });
+      await this.db.clientPortalLinks.put(record);
+      await this.logActivity({
+        entityType: 'portal',
+        entityId: record.id,
+        action: existing ? 'updated' : 'created',
+        summary: `${existing ? 'Updated' : 'Created'} client portal link "${record.label}" for ${cli.name}`,
+      });
+      return record;
+    });
+  }
+
+  async deleteClientPortalLink(id: string): Promise<void> {
+    return this.runWrite('Delete client portal link', async () => {
+      await this.db.clientPortalLinks.delete(id);
+    });
+  }
+
+  // --- Phase 18: Retainers ---
+
+  async listRetainers(): Promise<Retainer[]> {
+    const all = await this.db.retainers.toArray();
+    return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async saveRetainer(
+    input: Omit<Retainer, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+  ): Promise<Retainer> {
+    return this.runWrite('Save retainer', async () => {
+      const cli = await this.db.clients.get(input.clientId);
+      if (!cli) throw new ReferentialIntegrityError('Referenced client does not exist.');
+      const ts = nowIso();
+      const existing = input.id ? await this.db.retainers.get(input.id) : undefined;
+      const record = retainerSchema.parse({
+        ...existing,
+        ...input,
+        id: existing?.id ?? input.id ?? createId('ret'),
+        createdAt: existing?.createdAt ?? ts,
+        updatedAt: ts,
+      });
+      await this.db.retainers.put(record);
+      await this.logActivity({
+        entityType: 'retainer',
+        entityId: record.id,
+        action: existing ? 'updated' : 'created',
+        summary: `${existing ? 'Updated' : 'Created'} retainer "${record.title}" (${record.currency} ${record.monthlyAmount}/mo)`,
+      });
+      return record;
+    });
+  }
+
+  async deleteRetainer(id: string): Promise<void> {
+    return this.runWrite('Delete retainer', async () => {
+      await this.db.retainers.delete(id);
+    });
+  }
+
+  // --- Phase 19: Document Vault ---
+
+  async listVaultFiles(): Promise<VaultFile[]> {
+    const all = await this.db.vaultFiles.toArray();
+    return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async saveVaultFile(
+    input: Omit<VaultFile, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+  ): Promise<VaultFile> {
+    return this.runWrite('Save vault document', async () => {
+      const ts = nowIso();
+      const existing = input.id ? await this.db.vaultFiles.get(input.id) : undefined;
+      const record = vaultFileSchema.parse({
+        ...existing,
+        ...input,
+        id: existing?.id ?? input.id ?? createId('vlt'),
+        createdAt: existing?.createdAt ?? ts,
+        updatedAt: ts,
+      });
+      await this.db.vaultFiles.put(record);
+      await this.logActivity({
+        entityType: 'vault',
+        entityId: record.id,
+        action: existing ? 'updated' : 'uploaded',
+        summary: `${existing ? 'Updated' : 'Stored'} vault file "${record.name}" (v${record.version})`,
+      });
+      return record;
+    });
+  }
+
+  async deleteVaultFile(id: string): Promise<void> {
+    return this.runWrite('Delete vault document', async () => {
+      await this.db.vaultFiles.delete(id);
+    });
+  }
+
+  // --- Phase 21: Custom Workflows & Webhooks ---
+
+  async listCustomWorkflows(): Promise<CustomWorkflow[]> {
+    const all = await this.db.customWorkflows.toArray();
+    return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async saveCustomWorkflow(
+    input: Omit<CustomWorkflow, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+  ): Promise<CustomWorkflow> {
+    return this.runWrite('Save custom workflow', async () => {
+      const ts = nowIso();
+      const existing = input.id ? await this.db.customWorkflows.get(input.id) : undefined;
+      const record = customWorkflowSchema.parse({
+        ...existing,
+        ...input,
+        id: existing?.id ?? input.id ?? createId('cwf'),
+        createdAt: existing?.createdAt ?? ts,
+        updatedAt: ts,
+      });
+      await this.db.customWorkflows.put(record);
+      return record;
+    });
+  }
+
+  async deleteCustomWorkflow(id: string): Promise<void> {
+    return this.runWrite('Delete custom workflow', async () => {
+      await this.db.customWorkflows.delete(id);
+    });
+  }
+
+  async listWebhooks(): Promise<WebhookConfig[]> {
+    const all = await this.db.webhooks.toArray();
+    return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async saveWebhook(
+    input: Omit<WebhookConfig, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+  ): Promise<WebhookConfig> {
+    return this.runWrite('Save webhook config', async () => {
+      const ts = nowIso();
+      const existing = input.id ? await this.db.webhooks.get(input.id) : undefined;
+      const record = webhookConfigSchema.parse({
+        ...existing,
+        ...input,
+        id: existing?.id ?? input.id ?? createId('whk'),
+        createdAt: existing?.createdAt ?? ts,
+        updatedAt: ts,
+      });
+      await this.db.webhooks.put(record);
+      return record;
+    });
+  }
+
+  async deleteWebhook(id: string): Promise<void> {
+    return this.runWrite('Delete webhook config', async () => {
+      await this.db.webhooks.delete(id);
+    });
+  }
+
+  // --- Phase 23: Cloud Sync Queue ---
+
+  async listSyncQueue(): Promise<SyncQueueItem[]> {
+    const all = await this.db.syncQueue.toArray();
+    return all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async enqueueSyncItem(
+    input: Omit<SyncQueueItem, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+  ): Promise<SyncQueueItem> {
+    const ts = nowIso();
+    const record = syncQueueItemSchema.parse({
+      ...input,
+      id: input.id ?? createId('syq'),
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    await this.db.syncQueue.put(record);
+    return record;
+  }
+
+  async updateSyncQueueItem(id: string, patch: Partial<SyncQueueItem>): Promise<SyncQueueItem> {
+    const existing = await this.db.syncQueue.get(id);
+    if (!existing) throw new Error(`Sync queue item ${id} not found.`);
+    const updated = syncQueueItemSchema.parse({
+      ...existing,
+      ...patch,
+      id,
+      createdAt: existing.createdAt,
+      updatedAt: nowIso(),
+    });
+    await this.db.syncQueue.put(updated);
+    return updated;
+  }
+
+  async clearAckedSyncItems(): Promise<void> {
+    await this.db.syncQueue.where('status').equals('acked').delete();
+  }
+
+  // --- Phase 24: Security Audit Logs ---
+
+  async listSecurityAuditLogs(limit = 200): Promise<SecurityAuditLog[]> {
+    const all = await this.db.securityAuditLogs.toArray();
+    return all.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+  }
+
+  async logSecurityEvent(
+    input: Omit<SecurityAuditLog, 'id' | 'createdAt'>
+  ): Promise<SecurityAuditLog> {
+    const record = securityAuditLogSchema.parse({
+      ...input,
+      id: createId('sec'),
+      createdAt: nowIso(),
+    });
+    await this.db.securityAuditLogs.add(record);
+    return record;
   }
 }
 

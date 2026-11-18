@@ -17,5 +17,5 @@
     "isolatedModules": true,
     "types": ["node", "vite/client", "vite-plugin-pwa/client", "vitest/globals"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "tests/**/*.tsx", "types.d.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "server.ts", "server/**/*.ts", "tests/**/*.ts", "tests/**/*.tsx", "types.d.ts"]
 }

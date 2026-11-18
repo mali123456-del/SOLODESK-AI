@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -10,14 +10,20 @@ import {
   Calendar,
   CheckSquare,
   Clock,
+  Cloud,
   CreditCard,
   DollarSign,
+  EyeOff,
   FileCheck2,
   FileSpreadsheet,
   FileText,
+  Focus,
   FolderKanban,
+  FolderLock,
   Globe,
+  HelpCircle,
   Info,
+  Keyboard,
   LayoutDashboard,
   Menu,
   Moon,
@@ -26,6 +32,7 @@ import {
   RefreshCw,
   Search,
   Shield,
+  ShieldCheck,
   Sparkles,
   Sun,
   TrendingDown,
@@ -44,9 +51,11 @@ import { useTheme } from '../providers/ThemeProvider';
 
 export const ROUTE_ICONS: Record<AppRouteId, React.ReactNode> = {
   dashboard: <LayoutDashboard className="w-4 h-4" />,
+  'focus-mode': <Focus className="w-4 h-4" />,
   activity: <Activity className="w-4 h-4" />,
   notifications: <Bell className="w-4 h-4" />,
   clients: <Users className="w-4 h-4" />,
+  'client-portal': <UserCheck className="w-4 h-4" />,
   projects: <FolderKanban className="w-4 h-4" />,
   tasks: <CheckSquare className="w-4 h-4" />,
   'time-tracker': <Clock className="w-4 h-4" />,
@@ -56,6 +65,7 @@ export const ROUTE_ICONS: Record<AppRouteId, React.ReactNode> = {
   contracts: <FileCheck2 className="w-4 h-4" />,
   invoices: <Receipt className="w-4 h-4" />,
   payments: <CreditCard className="w-4 h-4" />,
+  vault: <FolderLock className="w-4 h-4" />,
   income: <TrendingUp className="w-4 h-4" />,
   expenses: <TrendingDown className="w-4 h-4" />,
   profitability: <DollarSign className="w-4 h-4" />,
@@ -64,6 +74,7 @@ export const ROUTE_ICONS: Record<AppRouteId, React.ReactNode> = {
   knowledge: <BookOpen className="w-4 h-4" />,
   templates: <Briefcase className="w-4 h-4" />,
   workflows: <Workflow className="w-4 h-4" />,
+  'cloud-sync': <Cloud className="w-4 h-4" />,
   search: <Search className="w-4 h-4" />,
   'import-export': <ArchiveRestore className="w-4 h-4" />,
   'settings-profile': <UserCheck className="w-4 h-4" />,
@@ -72,6 +83,8 @@ export const ROUTE_ICONS: Record<AppRouteId, React.ReactNode> = {
   'settings-ai': <Sparkles className="w-4 h-4" />,
   'settings-backup': <ArchiveRestore className="w-4 h-4" />,
   'settings-privacy': <Shield className="w-4 h-4" />,
+  'security-center': <ShieldCheck className="w-4 h-4" />,
+  'help-plans': <HelpCircle className="w-4 h-4" />,
   about: <Info className="w-4 h-4" />,
   marketing: <Globe className="w-4 h-4" />,
 };
@@ -80,6 +93,9 @@ interface AppShellProps {
   activeRoute: AppRouteId;
   onNavigate: (route: AppRouteId) => void;
   onOpenCommandPalette?: () => void;
+  onOpenShortcuts?: () => void;
+  focusModeActive?: boolean;
+  onToggleFocusMode?: () => void;
   unreadNotifications?: number;
   isOnline?: boolean;
   syncStatus?: LocalSyncStatus;
@@ -95,6 +111,9 @@ export const AppShell: React.FC<AppShellProps> = ({
   activeRoute,
   onNavigate,
   onOpenCommandPalette,
+  onOpenShortcuts,
+  focusModeActive = false,
+  onToggleFocusMode,
   unreadNotifications = 0,
   isOnline = true,
   syncStatus = 'idle',
@@ -108,7 +127,10 @@ export const AppShell: React.FC<AppShellProps> = ({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { resolvedTheme, toggleTheme } = useTheme();
 
-  const currentNav = APP_NAVIGATION.find((n) => n.id === activeRoute);
+  const currentNav = useMemo(
+    () => APP_NAVIGATION.find((n) => n.id === activeRoute),
+    [activeRoute]
+  );
 
   const handleSelect = (id: AppRouteId) => {
     onNavigate(id);
@@ -164,32 +186,34 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   return (
     <div className="min-h-screen flex bg-[#F5F7FB] dark:bg-[#101827] text-slate-900 dark:text-slate-100">
-      {/* Desktop Sidebar */}
-      <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 bg-[#101827] border-r border-slate-800 no-print">
-        <div className="h-16 px-4 flex items-center justify-between border-b border-slate-800/80">
-          <button
-            type="button"
-            onClick={() => handleSelect('dashboard')}
-            className="cursor-pointer rounded-lg py-1"
-          >
-            <SolodeskLogo inverted />
-          </button>
-        </div>
-        {renderNavLinks()}
-        <div className="p-3 border-t border-slate-800/80">
-          <button
-            type="button"
-            onClick={() => handleSelect('marketing')}
-            className="w-full px-3 py-2 rounded-[10px] text-xs font-medium text-slate-300 hover:text-white hover:bg-[#172338] flex items-center justify-between cursor-pointer transition-colors"
-          >
-            <span>Product & Pricing Overview</span>
-            <Globe className="w-3.5 h-3.5 text-[#20C7D9]" aria-hidden="true" />
-          </button>
-        </div>
-      </aside>
+      {/* Desktop Sidebar — Hidden cleanly in Focus Mode */}
+      {!focusModeActive && (
+        <aside className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 bg-[#101827] border-r border-slate-800 no-print">
+          <div className="h-16 px-4 flex items-center justify-between border-b border-slate-800/80">
+            <button
+              type="button"
+              onClick={() => handleSelect('dashboard')}
+              className="cursor-pointer rounded-lg py-1"
+            >
+              <SolodeskLogo inverted />
+            </button>
+          </div>
+          {renderNavLinks()}
+          <div className="p-3 border-t border-slate-800/80">
+            <button
+              type="button"
+              onClick={() => handleSelect('marketing')}
+              className="w-full px-3 py-2 rounded-[10px] text-xs font-medium text-slate-300 hover:text-white hover:bg-[#172338] flex items-center justify-between cursor-pointer transition-colors"
+            >
+              <span>Product & Pricing Overview</span>
+              <Globe className="w-3.5 h-3.5 text-[#20C7D9]" aria-hidden="true" />
+            </button>
+          </div>
+        </aside>
+      )}
 
       {/* Mobile Drawer */}
-      {mobileMenuOpen && (
+      {!focusModeActive && mobileMenuOpen && (
         <div className="fixed inset-0 z-50 lg:hidden flex no-print">
           <div
             className="fixed inset-0 bg-slate-950/60"
@@ -224,28 +248,32 @@ export const AppShell: React.FC<AppShellProps> = ({
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 lg:pl-64">
+      <div className={cn('flex-1 flex flex-col min-w-0', !focusModeActive && 'lg:pl-64')}>
         <header className="sticky top-0 z-30 h-16 bg-white/95 dark:bg-[#172338]/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 flex items-center justify-between gap-4 no-print">
           <div className="flex items-center gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen(true)}
-              aria-label="Open navigation menu"
-              className="lg:hidden p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-            >
-              <Menu className="w-5 h-5" aria-hidden="true" />
-            </button>
+            {!focusModeActive && (
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(true)}
+                aria-label="Open navigation menu"
+                className="lg:hidden p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <Menu className="w-5 h-5" aria-hidden="true" />
+              </button>
+            )}
             <div className="min-w-0 flex items-center gap-2 text-sm">
               <span className="hidden sm:inline text-slate-400 dark:text-slate-500">
-                {currentNav?.group ?? 'SOLODESK AI'}
+                {focusModeActive ? 'Distraction-Free' : (currentNav?.group ?? 'SOLODESK AI')}
               </span>
               <span className="hidden sm:inline text-slate-300 dark:text-slate-600" aria-hidden="true">
                 /
               </span>
               <span className="font-semibold text-slate-900 dark:text-white truncate">
-                {activeRoute === 'marketing'
-                  ? 'Product Overview'
-                  : (currentNav?.label ?? 'Dashboard')}
+                {focusModeActive
+                  ? 'Focus Mode'
+                  : activeRoute === 'marketing'
+                    ? 'Product Overview'
+                    : (currentNav?.label ?? 'Dashboard')}
               </span>
             </div>
           </div>
@@ -301,9 +329,36 @@ export const AppShell: React.FC<AppShellProps> = ({
               </div>
             )}
 
-            {headerRightExtra}
+            {onToggleFocusMode && (
+              <button
+                type="button"
+                onClick={onToggleFocusMode}
+                aria-pressed={focusModeActive}
+                aria-label={focusModeActive ? 'Exit Focus Mode' : 'Enter Focus Mode'}
+                className={cn(
+                  'h-9 px-3 rounded-[10px] border text-xs font-medium flex items-center gap-1.5 cursor-pointer whitespace-nowrap transition-colors',
+                  focusModeActive
+                    ? 'border-[#2563EB] bg-[#2563EB] text-white'
+                    : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#101827] text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                )}
+              >
+                {focusModeActive ? (
+                  <>
+                    <EyeOff className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>Exit Focus</span>
+                  </>
+                ) : (
+                  <>
+                    <Focus className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span className="hidden md:inline">Focus Mode</span>
+                  </>
+                )}
+              </button>
+            )}
 
-            {onOpenCommandPalette && (
+            {!focusModeActive && headerRightExtra}
+
+            {!focusModeActive && onOpenCommandPalette && (
               <button
                 type="button"
                 onClick={onOpenCommandPalette}
@@ -318,17 +373,32 @@ export const AppShell: React.FC<AppShellProps> = ({
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={() => handleSelect('notifications')}
-              aria-label="Open notifications"
-              className="relative p-2 rounded-[10px] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-            >
-              <Bell className="w-4 h-4" aria-hidden="true" />
-              {unreadNotifications > 0 && (
-                <span className="sr-only">{unreadNotifications} unread notifications</span>
-              )}
-            </button>
+            {!focusModeActive && onOpenShortcuts && (
+              <button
+                type="button"
+                onClick={onOpenShortcuts}
+                aria-label="Keyboard shortcuts"
+                title="Keyboard shortcuts (?)"
+                className="hidden sm:inline-flex p-2 rounded-[10px] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <Keyboard className="w-4 h-4" aria-hidden="true" />
+              </button>
+            )}
+
+            {/* Notifications button hidden during Focus Mode to minimize distractions */}
+            {!focusModeActive && (
+              <button
+                type="button"
+                onClick={() => handleSelect('notifications')}
+                aria-label="Open notifications"
+                className="relative p-2 rounded-[10px] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <Bell className="w-4 h-4" aria-hidden="true" />
+                {unreadNotifications > 0 && (
+                  <span className="sr-only">{unreadNotifications} unread notifications</span>
+                )}
+              </button>
+            )}
 
             <button
               type="button"
@@ -349,39 +419,41 @@ export const AppShell: React.FC<AppShellProps> = ({
           {children}
         </main>
 
-        {/* Mobile Bottom Quick Nav */}
-        <nav
-          aria-label="Mobile Quick Navigation"
-          className="lg:hidden fixed bottom-0 inset-x-0 z-30 h-14 bg-white/95 dark:bg-[#172338]/95 backdrop-blur-xs border-t border-slate-200 dark:border-slate-800 grid grid-cols-5 no-print"
-        >
-          {(
-            [
-              { id: 'dashboard', label: 'Home' },
-              { id: 'clients', label: 'Clients' },
-              { id: 'projects', label: 'Projects' },
-              { id: 'invoices', label: 'Invoices' },
-              { id: 'tasks', label: 'Tasks' },
-            ] as Array<{ id: AppRouteId; label: string }>
-          ).map((item) => {
-            const active = activeRoute === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleSelect(item.id)}
-                className={cn(
-                  'flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium cursor-pointer',
-                  active
-                    ? 'text-[#2563EB] dark:text-[#20C7D9]'
-                    : 'text-slate-500 dark:text-slate-400'
-                )}
-              >
-                {ROUTE_ICONS[item.id]}
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
+        {/* Mobile Bottom Quick Nav — Hidden in Focus Mode */}
+        {!focusModeActive && (
+          <nav
+            aria-label="Mobile Quick Navigation"
+            className="lg:hidden fixed bottom-0 inset-x-0 z-30 h-14 bg-white/95 dark:bg-[#172338]/95 backdrop-blur-xs border-t border-slate-200 dark:border-slate-800 grid grid-cols-5 no-print"
+          >
+            {(
+              [
+                { id: 'dashboard', label: 'Home' },
+                { id: 'clients', label: 'Clients' },
+                { id: 'projects', label: 'Projects' },
+                { id: 'invoices', label: 'Invoices' },
+                { id: 'tasks', label: 'Tasks' },
+              ] as Array<{ id: AppRouteId; label: string }>
+            ).map((item) => {
+              const active = activeRoute === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleSelect(item.id)}
+                  className={cn(
+                    'flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium cursor-pointer',
+                    active
+                      ? 'text-[#2563EB] dark:text-[#20C7D9]'
+                      : 'text-slate-500 dark:text-slate-400'
+                  )}
+                >
+                  {ROUTE_ICONS[item.id]}
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        )}
       </div>
     </div>
   );

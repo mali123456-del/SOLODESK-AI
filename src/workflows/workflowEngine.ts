@@ -427,3 +427,49 @@ export async function simulateWorkflowDryRun(
     plannedActions: [],
   };
 }
+
+export async function signWebhookPayload(secret: string, bodyJson: string): Promise<string> {
+  if (!secret || typeof crypto === 'undefined' || !crypto.subtle) return '';
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(bodyJson));
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+export async function registerValidatedWebhook(
+  input: {
+    name: string;
+    url: string;
+    eventType: 'invoice_created' | 'invoice_overdue' | 'payment_received' | 'task_completed' | 'project_created' | 'appointment_approaching' | 'client_onboarded' | 'approval_requested';
+  },
+  repo: DexieSolodeskRepositories = defaultRepos
+) {
+  const { validatePublicHttpUrl } = await import('../security/urlPolicy');
+  const check = validatePublicHttpUrl(input.url);
+  if (!check.valid || !check.normalizedUrl) {
+    await repo.logSecurityEvent({
+      eventType: 'webhook_ssrf_blocked',
+      severity: 'warning',
+      actor: 'local-owner',
+      detail: `Blocked unsafe webhook URL "${input.url}": ${check.reason ?? 'Policy denied'}`,
+    });
+    throw new ValidationError(check.reason || 'Webhook destination violates SSRF policy.');
+  }
+  return repo.saveWebhook({
+    name: input.name.trim(),
+    url: check.normalizedUrl,
+    eventType: input.eventType,
+    enabled: true,
+    lastStatus: 'Not tested yet',
+    lastAttemptAt: '',
+  });
+}
+

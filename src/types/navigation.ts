@@ -1,8 +1,10 @@
 export type AppRouteId =
   | 'dashboard'
+  | 'focus-mode'
   | 'activity'
   | 'notifications'
   | 'clients'
+  | 'client-portal'
   | 'projects'
   | 'tasks'
   | 'time-tracker'
@@ -12,6 +14,7 @@ export type AppRouteId =
   | 'contracts'
   | 'invoices'
   | 'payments'
+  | 'vault'
   | 'income'
   | 'expenses'
   | 'profitability'
@@ -20,6 +23,7 @@ export type AppRouteId =
   | 'knowledge'
   | 'templates'
   | 'workflows'
+  | 'cloud-sync'
   | 'search'
   | 'import-export'
   | 'settings-profile'
@@ -28,6 +32,8 @@ export type AppRouteId =
   | 'settings-ai'
   | 'settings-backup'
   | 'settings-privacy'
+  | 'security-center'
+  | 'help-plans'
   | 'about'
   | 'marketing';
 
@@ -51,7 +57,13 @@ export const APP_NAVIGATION: NavItemConfig[] = [
     id: 'dashboard',
     label: 'Dashboard',
     group: 'Overview',
-    description: 'Live revenue, expenses, active projects, deadlines, and recent work.',
+    description: 'Daily Digest, live revenue, expenses, active projects, deadlines, and recent work.',
+  },
+  {
+    id: 'focus-mode',
+    label: 'Focus Mode',
+    group: 'Overview',
+    description: 'Distraction-free single project or task view with live timer and subtasks.',
   },
   {
     id: 'activity',
@@ -63,7 +75,7 @@ export const APP_NAVIGATION: NavItemConfig[] = [
     id: 'notifications',
     label: 'Notifications',
     group: 'Overview',
-    description: 'Due invoices, overdue tasks, backup reminders, and workspace alerts.',
+    description: 'Due invoices, overdue tasks, snoozed reminders, and workspace alerts.',
   },
   // Workspace
   {
@@ -73,16 +85,22 @@ export const APP_NAVIGATION: NavItemConfig[] = [
     description: 'Client CRM, contact records, notes, tags, and linked projects.',
   },
   {
+    id: 'client-portal',
+    label: 'Client Portal',
+    group: 'Workspace',
+    description: 'Scoped client share links, lead capture forms, onboarding, approvals, and surveys.',
+  },
+  {
     id: 'projects',
     label: 'Projects',
     group: 'Workspace',
-    description: 'Project scope, budgets, milestones, deadlines, and delivery progress.',
+    description: 'Project scope, Gantt timeline, risks, OKRs, templates, and milestones.',
   },
   {
     id: 'tasks',
     label: 'Tasks',
     group: 'Workspace',
-    description: 'List and Kanban task boards, subtasks, priorities, and overdue tracking.',
+    description: 'List and Kanban boards, dependencies, critical path, and recurring tasks.',
   },
   {
     id: 'time-tracker',
@@ -92,9 +110,9 @@ export const APP_NAVIGATION: NavItemConfig[] = [
   },
   {
     id: 'communication',
-    label: 'Schedule & Follow-Ups',
+    label: 'Schedule & Inbox',
     group: 'Workspace',
-    description: 'Client appointments, meeting notes, and prioritized follow-up outreach drafts.',
+    description: 'Unified outreach queue, appointments, booking links, and conflict detection.',
   },
   // Business Documents
   {
@@ -119,7 +137,7 @@ export const APP_NAVIGATION: NavItemConfig[] = [
     id: 'invoices',
     label: 'Invoices',
     group: 'Business Documents',
-    description: 'Invoice studio with unique numbering, taxes, discounts, and PDF/print.',
+    description: 'Invoice studio with recurring schedules, FX currency, installments, and PDF.',
   },
   {
     id: 'payments',
@@ -127,18 +145,24 @@ export const APP_NAVIGATION: NavItemConfig[] = [
     group: 'Business Documents',
     description: 'Record manual and partial payments and track outstanding balances.',
   },
+  {
+    id: 'vault',
+    label: 'Document Vault',
+    group: 'Business Documents',
+    description: 'Validated file vault with folders, magic-byte checks, versions, and approvals.',
+  },
   // Finance
   {
     id: 'income',
     label: 'Income',
     group: 'Finance',
-    description: 'Recorded earnings, linked client income, and CSV export.',
+    description: 'Recorded earnings, retainers, linked client income, and CSV export.',
   },
   {
     id: 'expenses',
     label: 'Expenses',
     group: 'Finance',
-    description: 'Track business expenses by category, project, and date.',
+    description: 'Track business expenses, receipt attachments, and tax profiles.',
   },
   {
     id: 'profitability',
@@ -150,20 +174,20 @@ export const APP_NAVIGATION: NavItemConfig[] = [
     id: 'reports',
     label: 'Financial Reports',
     group: 'Finance',
-    description: 'Date-filtered financial analytics, invoice aging, and estimates vs actuals.',
+    description: 'AR aging, cashflow forecasts, what-if modeling, and estimates vs actuals.',
   },
   // Intelligence
   {
     id: 'ai-copilot',
     label: 'AI Copilot',
     group: 'Intelligence',
-    description: 'Optional Gemini 4 Hydrogen assistant with approval-gated tools.',
+    description: 'Gemini, OpenAI-compatible, or local Ollama assistant with approval-gated tools.',
   },
   {
     id: 'knowledge',
     label: 'Knowledge Hub',
     group: 'Intelligence',
-    description: 'Local-first document library, 14 freelancer packs, URL importer, and RAG evaluation.',
+    description: 'Hybrid keyword + semantic vector RAG library, URL importer, and 25-case eval.',
   },
   {
     id: 'templates',
@@ -174,15 +198,21 @@ export const APP_NAVIGATION: NavItemConfig[] = [
   // Productivity
   {
     id: 'workflows',
-    label: 'Automation',
+    label: 'Automation & Webhooks',
     group: 'Productivity',
-    description: 'Approval-gated workflow triggers, dry-run rule tester, and run audit log.',
+    description: 'Visual trigger-condition-action workflow builder, webhooks, and retry logs.',
+  },
+  {
+    id: 'cloud-sync',
+    label: 'Sync & Multi-Role',
+    group: 'Productivity',
+    description: 'Offline sync outbox queue, conflict resolution, and workspace RBAC matrix.',
   },
   {
     id: 'search',
     label: 'Global Search',
     group: 'Productivity',
-    description: 'Search across clients, projects, tasks, documents, and knowledge.',
+    description: 'Search across clients, projects, tasks, documents, vault, and knowledge.',
   },
   {
     id: 'import-export',
@@ -201,19 +231,19 @@ export const APP_NAVIGATION: NavItemConfig[] = [
     id: 'settings-appearance',
     label: 'Appearance',
     group: 'Settings',
-    description: 'Light/dark theme and layout preferences.',
+    description: 'Light/dark theme, accent colors, and layout preferences.',
   },
   {
     id: 'settings-localization',
-    label: 'Currency & Localization',
+    label: 'Currency, Tax & RTL',
     group: 'Settings',
-    description: 'Default currency (PKR, USD, EUR, GBP, etc.) and date formatting.',
+    description: 'Multi-currency FX rates, tax profiles, language packs, and RTL layout.',
   },
   {
     id: 'settings-ai',
     label: 'AI Configuration',
     group: 'Settings',
-    description: 'Optional in-memory Gemini 4 Hydrogen BYOK configuration & privacy.',
+    description: 'In-memory Gemini, OpenAI-compatible, and local Ollama adapter configuration.',
   },
   {
     id: 'settings-backup',
@@ -223,9 +253,21 @@ export const APP_NAVIGATION: NavItemConfig[] = [
   },
   {
     id: 'settings-privacy',
-    label: 'Privacy & Security',
+    label: 'Privacy & Diagnostics',
     group: 'Settings',
-    description: 'Local storage transparency, persistence status, and data controls.',
+    description: 'Local storage transparency, persistence status, and DB health diagnostics.',
+  },
+  {
+    id: 'security-center',
+    label: 'Security Center',
+    group: 'Settings',
+    description: 'Security audit trail, backup recovery self-test, retention, and RBAC audit.',
+  },
+  {
+    id: 'help-plans',
+    label: 'Help, Tour & Plans',
+    group: 'Settings',
+    description: 'Product tour, user help center, and configurable workspace plan entitlements.',
   },
   {
     id: 'about',

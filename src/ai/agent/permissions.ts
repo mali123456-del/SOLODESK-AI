@@ -74,6 +74,18 @@ export const TOOL_PERMISSION_POLICIES: Record<CopilotToolName, ToolPermissionPol
     requireApproval: false,
     description: 'Group open invoice balances into Current, 1-30d, 31-60d, and 61+ day aging buckets.',
   },
+  prioritize_open_tasks: {
+    name: 'prioritize_open_tasks',
+    access: 'read',
+    requireApproval: false,
+    description: 'Rank open tasks using deterministic urgency and deadline proximity scoring.',
+  },
+  analyze_csv_dataset: {
+    name: 'analyze_csv_dataset',
+    access: 'read',
+    requireApproval: false,
+    description: 'Compute deterministic row count, column profile, and numeric totals for CSV text.',
+  },
   create_task_draft: {
     name: 'create_task_draft',
     access: 'write',

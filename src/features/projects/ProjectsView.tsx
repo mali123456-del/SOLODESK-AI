@@ -2,8 +2,12 @@ import React, { useMemo, useState } from 'react';
 import {
   CheckCircle2,
   Circle,
+  Copy,
   Edit3,
+  Focus,
   FolderKanban,
+  GanttChart,
+  Pin,
   Plus,
   Search,
   Trash2,
@@ -33,8 +37,18 @@ import {
   type Milestone,
   type Priority,
   type Project,
+  type ProjectOkr,
+  type ProjectRisk,
   type ProjectStatus,
 } from '../../domain/schemas/entities';
+import {
+  buildProjectGanttBars,
+  evaluateProjectHealth,
+} from '../../services/projectPlanningService';
+
+interface ProjectsViewProps {
+  onFocusProject?: (projectId: string) => void;
+}
 
 interface ProjectFormState {
   clientId: string;
@@ -52,11 +66,21 @@ interface ProjectFormState {
   notes: string;
 }
 
-export const ProjectsView: React.FC = () => {
-  const { clients, projects, tasks, invoices, financeEntries, timeEntries, settings, refresh } =
-    useWorkspace();
+export const ProjectsView: React.FC<ProjectsViewProps> = ({ onFocusProject }) => {
+  const {
+    clients,
+    projects,
+    tasks,
+    invoices,
+    financeEntries,
+    timeEntries,
+    settings,
+    refresh,
+    togglePinnedId,
+  } = useWorkspace();
   const { pushToast } = useToast();
 
+  const [viewMode, setViewMode] = useState<'table' | 'gantt' | 'templates'>('table');
   const [statusFilter, setStatusFilter] = useState<'all' | ProjectStatus>('all');
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -65,6 +89,10 @@ export const ProjectsView: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState('');
   const [newMilestoneDue, setNewMilestoneDue] = useState('');
+  const [newRiskTitle, setNewRiskTitle] = useState('');
+  const [newRiskSeverity, setNewRiskSeverity] = useState<ProjectRisk['severity']>('medium');
+  const [newOkrObjective, setNewOkrObjective] = useState('');
+  const [newOkrKr, setNewOkrKr] = useState('');
 
   const defaultCurrency = settings?.defaultCurrency ?? 'USD';
   const dateFormat = settings?.dateFormat ?? 'DD MMM YYYY';
@@ -92,17 +120,30 @@ export const ProjectsView: React.FC = () => {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return projects.filter((p) => {
+      if (viewMode === 'templates') {
+        if (!p.isTemplate) return false;
+      } else if (p.isTemplate) {
+        return false;
+      }
       if (statusFilter !== 'all' && p.status !== statusFilter) return false;
       if (!q) return true;
       const clientName = clientMap.get(p.clientId)?.name.toLowerCase() ?? '';
       return p.name.toLowerCase().includes(q) || clientName.includes(q);
     });
-  }, [projects, statusFilter, search, clientMap]);
+  }, [projects, viewMode, statusFilter, search, clientMap]);
+
+  const ganttBars = useMemo(() => buildProjectGanttBars(projects), [projects]);
 
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === selectedId) ?? null,
     [projects, selectedId]
   );
+
+  const selectedHealth = useMemo(() => {
+    if (!selectedProject) return null;
+    const projTasks = tasks.filter((t) => t.projectId === selectedProject.id);
+    return evaluateProjectHealth(selectedProject, projTasks);
+  }, [selectedProject, tasks]);
 
   const openCreate = () => {
     setEditing(null);
@@ -225,6 +266,102 @@ export const ProjectsView: React.FC = () => {
     await refresh();
   };
 
+  const addRisk = async (project: Project) => {
+    if (!newRiskTitle.trim()) return;
+    const next: ProjectRisk[] = [
+      ...(project.risks ?? []),
+      {
+        id: createId('rsk'),
+        title: newRiskTitle.trim(),
+        severity: newRiskSeverity,
+        mitigation: '',
+        status: 'open',
+      },
+    ];
+    await repositories.updateProject(project.id, { risks: next });
+    setNewRiskTitle('');
+    await refresh();
+  };
+
+  const toggleRiskStatus = async (project: Project, riskId: string) => {
+    const next = (project.risks ?? []).map((r) =>
+      r.id === riskId
+        ? { ...r, status: r.status === 'open' ? ('mitigated' as const) : ('open' as const) }
+        : r
+    );
+    await repositories.updateProject(project.id, { risks: next });
+    await refresh();
+  };
+
+  const addOkr = async (project: Project) => {
+    if (!newOkrObjective.trim() || !newOkrKr.trim()) return;
+    const next: ProjectOkr[] = [
+      ...(project.okrs ?? []),
+      {
+        id: createId('okr'),
+        objective: newOkrObjective.trim(),
+        keyResult: newOkrKr.trim(),
+        progressPercent: project.progress,
+      },
+    ];
+    await repositories.updateProject(project.id, { okrs: next });
+    setNewOkrObjective('');
+    setNewOkrKr('');
+    await refresh();
+  };
+
+  const saveAsTemplate = async (project: Project) => {
+    await repositories.createProject({
+      clientId: project.clientId,
+      name: `${project.name} (Template)`,
+      description: project.description,
+      status: 'planning',
+      priority: project.priority,
+      startDate: '',
+      dueDate: '',
+      budget: project.budget,
+      agreedValue: project.agreedValue,
+      currency: project.currency,
+      hourlyRate: project.hourlyRate,
+      progress: 0,
+      milestones: project.milestones.map((m) => ({ ...m, id: createId('ms'), completed: false })),
+      risks: project.risks ?? [],
+      okrs: project.okrs ?? [],
+      isTemplate: true,
+      notes: project.notes,
+      isDemo: false,
+    });
+    pushToast({ title: 'Saved reusable project template', tone: 'success' });
+    await refresh();
+  };
+
+  const instantiateFromTemplate = async (tpl: Project) => {
+    const created = await repositories.createProject({
+      clientId: tpl.clientId,
+      name: tpl.name.replace(/\s*\(Template\)$/, ''),
+      description: tpl.description,
+      status: 'active',
+      priority: tpl.priority,
+      startDate: todayDateStr(),
+      dueDate: '',
+      budget: tpl.budget,
+      agreedValue: tpl.agreedValue,
+      currency: tpl.currency,
+      hourlyRate: tpl.hourlyRate,
+      progress: 0,
+      milestones: tpl.milestones.map((m) => ({ ...m, id: createId('ms'), completed: false })),
+      risks: tpl.risks ?? [],
+      okrs: tpl.okrs ?? [],
+      isTemplate: false,
+      notes: tpl.notes,
+      isDemo: false,
+    });
+    setViewMode('table');
+    setSelectedId(created.id);
+    pushToast({ title: `Created project "${created.name}" from template`, tone: 'success' });
+    await refresh();
+  };
+
   const columns: ColumnDef<Project>[] = [
     {
       key: 'name',
@@ -313,11 +450,30 @@ export const ProjectsView: React.FC = () => {
     <div className="space-y-6">
       <PageHeader
         title="Projects"
-        description="Track client engagements, milestones, budgets, deadlines, and real delivery progress."
+        description="Track client engagements, Gantt timelines, risks, OKRs, project templates, and delivery health."
         actions={
-          <Button onClick={openCreate} icon={<Plus className="w-4 h-4" />}>
-            New Project
-          </Button>
+          <>
+            <div className="inline-flex rounded-[10px] border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#172338] p-0.5">
+              {(['table', 'gantt', 'templates'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setViewMode(mode)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer ${
+                    viewMode === mode
+                      ? 'bg-[#2563EB] text-white'
+                      : 'text-slate-600 dark:text-slate-300'
+                  }`}
+                >
+                  {mode === 'gantt' && <GanttChart className="w-3.5 h-3.5" aria-hidden="true" />}
+                  {mode === 'table' ? 'List' : mode === 'gantt' ? 'Gantt Timeline' : 'Templates'}
+                </button>
+              ))}
+            </div>
+            <Button onClick={openCreate} icon={<Plus className="w-4 h-4" />}>
+              New Project
+            </Button>
+          </>
         }
       />
 
@@ -326,10 +482,22 @@ export const ProjectsView: React.FC = () => {
           activeId={statusFilter}
           onChange={(id) => setStatusFilter(id as 'all' | ProjectStatus)}
           items={[
-            { id: 'all', label: 'All', count: projects.length },
-            { id: 'active', label: 'Active', count: projects.filter((p) => p.status === 'active').length },
-            { id: 'planning', label: 'Planning', count: projects.filter((p) => p.status === 'planning').length },
-            { id: 'completed', label: 'Completed', count: projects.filter((p) => p.status === 'completed').length },
+            { id: 'all', label: 'All', count: projects.filter((p) => !p.isTemplate).length },
+            {
+              id: 'active',
+              label: 'Active',
+              count: projects.filter((p) => !p.isTemplate && p.status === 'active').length,
+            },
+            {
+              id: 'planning',
+              label: 'Planning',
+              count: projects.filter((p) => !p.isTemplate && p.status === 'planning').length,
+            },
+            {
+              id: 'completed',
+              label: 'Completed',
+              count: projects.filter((p) => !p.isTemplate && p.status === 'completed').length,
+            },
           ]}
         />
         <div className="w-full sm:w-64">
@@ -343,6 +511,70 @@ export const ProjectsView: React.FC = () => {
         </div>
       </div>
 
+      {viewMode === 'gantt' ? (
+        <Card>
+          <div className="mb-4">
+            <h2 className="text-base font-semibold">Project Gantt Timeline</h2>
+            <p className="text-xs text-slate-500">
+              Visual schedule bar comparison across active and planned projects. Click a bar to inspect details.
+            </p>
+          </div>
+          {ganttBars.length === 0 ? (
+            <EmptyState
+              icon={<GanttChart className="w-5 h-5" />}
+              title="No active projects to plot"
+              description="Create a project with start and due dates to visualize timeline bars."
+            />
+          ) : (
+            <div className="space-y-3">
+              {(() => {
+                const minTs = Math.min(...ganttBars.map((b) => new Date(b.startDate).getTime()));
+                const maxTs = Math.max(...ganttBars.map((b) => new Date(b.endDate).getTime()));
+                const span = Math.max(86_400_000, maxTs - minTs);
+                return ganttBars.map((bar) => {
+                  const leftPct = Math.max(
+                    0,
+                    Math.min(92, ((new Date(bar.startDate).getTime() - minTs) / span) * 100)
+                  );
+                  const widthPct = Math.max(
+                    8,
+                    Math.min(100 - leftPct, ((new Date(bar.endDate).getTime() - new Date(bar.startDate).getTime()) / span) * 100)
+                  );
+                  return (
+                    <button
+                      key={bar.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedId(bar.id);
+                        setViewMode('table');
+                      }}
+                      className="w-full text-left p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-[#101827] cursor-pointer space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold">{bar.label}</span>
+                        <span className="font-mono text-slate-500">
+                          {formatDisplayDate(bar.startDate, dateFormat)} → {formatDisplayDate(bar.endDate, dateFormat)} ({bar.progress}%)
+                        </span>
+                      </div>
+                      <div className="h-3 w-full rounded-full bg-slate-100 dark:bg-slate-800 relative overflow-hidden">
+                        <div
+                          className="absolute top-0 bottom-0 rounded-full bg-[#2563EB]/25 border border-[#2563EB]"
+                          style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                        >
+                          <div
+                            className="h-full rounded-full bg-[#2563EB]"
+                            style={{ width: `${bar.progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    </button>
+                  );
+                });
+              })()}
+            </div>
+          )}
+        </Card>
+      ) : (
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
         <div className={selectedProject ? 'xl:col-span-2' : 'xl:col-span-3'}>
           <DataTable
@@ -354,14 +586,16 @@ export const ProjectsView: React.FC = () => {
             emptyState={
               <EmptyState
                 icon={<FolderKanban className="w-5 h-5" />}
-                title="No projects yet"
+                title={viewMode === 'templates' ? 'No project templates saved' : 'No projects yet'}
                 description={
-                  clients.length === 0
-                    ? 'Add a client first, then create your first project to track milestones, tasks, and time.'
-                    : 'Create a project to organize tasks, milestones, and invoices.'
+                  viewMode === 'templates'
+                    ? 'Open any project and click "Template" to save it as a reusable blueprint.'
+                    : clients.length === 0
+                      ? 'Add a client first, then create your first project to track milestones, tasks, and time.'
+                      : 'Create a project to organize tasks, milestones, and invoices.'
                 }
                 action={
-                  clients.length > 0 ? (
+                  clients.length > 0 && viewMode !== 'templates' ? (
                     <Button onClick={openCreate} icon={<Plus className="w-4 h-4" />}>
                       Create Project
                     </Button>
@@ -376,15 +610,54 @@ export const ProjectsView: React.FC = () => {
           <Card className="space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white truncate">
-                  {selectedProject.name}
-                </h2>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white truncate">
+                    {selectedProject.name}
+                  </h2>
+                  {selectedHealth && (
+                    <Badge
+                      tone={
+                        selectedHealth.status === 'healthy'
+                          ? 'success'
+                          : selectedHealth.status === 'at_risk'
+                            ? 'warning'
+                            : 'danger'
+                      }
+                    >
+                      {selectedHealth.label}
+                    </Badge>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   {clientMap.get(selectedProject.clientId)?.name ?? 'Client'} · Priority:{' '}
                   {selectedProject.priority}
                 </p>
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void togglePinnedId(selectedProject.id)}
+                  title="Pin project to Dashboard"
+                >
+                  <Pin
+                    className={`w-3.5 h-3.5 ${
+                      (settings?.pinnedIds ?? []).includes(selectedProject.id)
+                        ? 'text-[#2563EB]'
+                        : 'text-slate-400'
+                    }`}
+                  />
+                </Button>
+                {onFocusProject && !selectedProject.isTemplate && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onFocusProject(selectedProject.id)}
+                    title="Open in Focus Mode"
+                  >
+                    <Focus className="w-3.5 h-3.5" />
+                  </Button>
+                )}
                 <Button size="sm" variant="outline" onClick={() => openEdit(selectedProject)} icon={<Edit3 className="w-3.5 h-3.5" />}>
                   Edit
                 </Button>
@@ -397,6 +670,20 @@ export const ProjectsView: React.FC = () => {
                   <Trash2 className="w-3.5 h-3.5 text-red-600" />
                 </Button>
               </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {selectedProject.isTemplate ? (
+                <Button size="sm" onClick={() => void instantiateFromTemplate(selectedProject)}>
+                  <Copy className="w-3.5 h-3.5 mr-1" />
+                  Use Template
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => void saveAsTemplate(selectedProject)}>
+                  <Copy className="w-3.5 h-3.5 mr-1" />
+                  Save as Template
+                </Button>
+              )}
             </div>
 
             {selectedProject.description && (
@@ -506,9 +793,85 @@ export const ProjectsView: React.FC = () => {
                 </Button>
               </div>
             </div>
+
+            {/* Risk Register */}
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2">
+              <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Risk Register ({(selectedProject.risks ?? []).length})
+              </p>
+              {(selectedProject.risks ?? []).map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => void toggleRiskStatus(selectedProject, r.id)}
+                  className="w-full flex items-center justify-between gap-2 text-xs px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer text-left"
+                >
+                  <span className={r.status === 'mitigated' ? 'line-through text-slate-400' : ''}>
+                    {r.title}
+                  </span>
+                  <Badge tone={r.status === 'mitigated' ? 'success' : r.severity === 'high' ? 'danger' : 'warning'}>
+                    {r.severity} · {r.status}
+                  </Badge>
+                </button>
+              ))}
+              <div className="flex gap-1.5">
+                <Input
+                  placeholder="Log project risk..."
+                  value={newRiskTitle}
+                  onChange={(e) => setNewRiskTitle(e.target.value)}
+                />
+                <Select
+                  value={newRiskSeverity}
+                  onChange={(e) => setNewRiskSeverity(e.target.value as ProjectRisk['severity'])}
+                  options={[
+                    { value: 'low', label: 'Low' },
+                    { value: 'medium', label: 'Med' },
+                    { value: 'high', label: 'High' },
+                  ]}
+                  className="w-24"
+                />
+                <Button size="sm" variant="outline" onClick={() => void addRisk(selectedProject)}>
+                  Add
+                </Button>
+              </div>
+            </div>
+
+            {/* Project OKRs */}
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2">
+              <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                Objectives & Key Results ({(selectedProject.okrs ?? []).length})
+              </p>
+              {(selectedProject.okrs ?? []).map((okr) => (
+                <div
+                  key={okr.id}
+                  className="p-2 rounded-lg bg-slate-50 dark:bg-[#101827] text-xs"
+                >
+                  <p className="font-semibold">{okr.objective}</p>
+                  <p className="text-slate-500 mt-0.5">KR: {okr.keyResult}</p>
+                </div>
+              ))}
+              <div className="space-y-1.5">
+                <Input
+                  placeholder="Objective..."
+                  value={newOkrObjective}
+                  onChange={(e) => setNewOkrObjective(e.target.value)}
+                />
+                <div className="flex gap-1.5">
+                  <Input
+                    placeholder="Measurable key result..."
+                    value={newOkrKr}
+                    onChange={(e) => setNewOkrKr(e.target.value)}
+                  />
+                  <Button size="sm" variant="outline" onClick={() => void addOkr(selectedProject)}>
+                    Add
+                  </Button>
+                </div>
+              </div>
+            </div>
           </Card>
         )}
       </div>
+      )}
 
       <Dialog
         open={modalOpen}

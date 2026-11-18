@@ -48,6 +48,14 @@ export async function runDatabaseHealthCheck(
     workspaceGoals,
     activities,
     notifications,
+    vaultFiles,
+    clientPortalLinks,
+    retainers,
+    customWorkflows,
+    webhooks,
+    syncQueue,
+    securityAuditLogs,
+    savedViews,
   ] = await Promise.all([
     getStorageHealth(),
     database.clients.toArray(),
@@ -69,6 +77,14 @@ export async function runDatabaseHealthCheck(
     database.workspaceGoals.toArray(),
     database.activities.toArray(),
     database.notifications.toArray(),
+    database.vaultFiles.toArray(),
+    database.clientPortalLinks.toArray(),
+    database.retainers.toArray(),
+    database.customWorkflows.toArray(),
+    database.webhooks.toArray(),
+    database.syncQueue.toArray(),
+    database.securityAuditLogs.toArray(),
+    database.savedViews.toArray(),
   ]);
 
   const clientIds = new Set(clients.map((c) => c.id));
@@ -157,6 +173,14 @@ export async function runDatabaseHealthCheck(
     workspaceGoals: workspaceGoals.length,
     activities: activities.length,
     notifications: notifications.length,
+    vaultFiles: vaultFiles.length,
+    clientPortalLinks: clientPortalLinks.length,
+    retainers: retainers.length,
+    customWorkflows: customWorkflows.length,
+    webhooks: webhooks.length,
+    syncQueue: syncQueue.length,
+    securityAuditLogs: securityAuditLogs.length,
+    savedViews: savedViews.length,
   };
 
   const totalRecords = Object.values(tableCounts).reduce((acc, n) => acc + n, 0);

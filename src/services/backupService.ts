@@ -5,8 +5,10 @@ import {
   appointmentSchema,
   appSettingsSchema,
   businessProfileSchema,
+  clientPortalLinkSchema,
   clientSchema,
   contractSchema,
+  customWorkflowSchema,
   documentChunkSchema,
   financeEntrySchema,
   invoiceSchema,
@@ -16,15 +18,21 @@ import {
   projectSchema,
   proposalSchema,
   quotationSchema,
+  retainerSchema,
   reusableTemplateSchema,
+  savedViewSchema,
+  securityAuditLogSchema,
   serviceCatalogItemSchema,
+  syncQueueItemSchema,
   taskSchema,
   timeEntrySchema,
+  vaultFileSchema,
+  webhookConfigSchema,
   workflowRunSchema,
   workspaceGoalSchema,
 } from '../domain/schemas/entities';
 
-export const CURRENT_BACKUP_SCHEMA_VERSION = 4;
+export const CURRENT_BACKUP_SCHEMA_VERSION = 5;
 export const DEFAULT_PBKDF2_ITERATIONS = 210_000;
 
 export const backupDataSchema = z.object({
@@ -49,6 +57,14 @@ export const backupDataSchema = z.object({
   workspaceGoals: z.array(workspaceGoalSchema).default([]),
   activities: z.array(activityEventSchema).default([]),
   notifications: z.array(notificationItemSchema).default([]),
+  vaultFiles: z.array(vaultFileSchema).optional().default([]),
+  clientPortalLinks: z.array(clientPortalLinkSchema).optional().default([]),
+  retainers: z.array(retainerSchema).optional().default([]),
+  customWorkflows: z.array(customWorkflowSchema).optional().default([]),
+  webhooks: z.array(webhookConfigSchema).optional().default([]),
+  syncQueue: z.array(syncQueueItemSchema).optional().default([]),
+  securityAuditLogs: z.array(securityAuditLogSchema).optional().default([]),
+  savedViews: z.array(savedViewSchema).optional().default([]),
 });
 
 export const backupPayloadSchema = z.object({
@@ -191,6 +207,14 @@ export async function createBackupPayload(): Promise<BackupPayload> {
     workspaceGoals,
     activities,
     notifications,
+    vaultFiles,
+    clientPortalLinks,
+    retainers,
+    customWorkflows,
+    webhooks,
+    syncQueue,
+    securityAuditLogs,
+    savedViews,
   ] = await Promise.all([
     db.businessProfile.toArray(),
     db.appSettings.toArray(),
@@ -213,6 +237,14 @@ export async function createBackupPayload(): Promise<BackupPayload> {
     db.workspaceGoals.toArray(),
     db.activities.toArray(),
     db.notifications.toArray(),
+    db.vaultFiles.toArray(),
+    db.clientPortalLinks.toArray(),
+    db.retainers.toArray(),
+    db.customWorkflows.toArray(),
+    db.webhooks.toArray(),
+    db.syncQueue.toArray(),
+    db.securityAuditLogs.toArray(),
+    db.savedViews.toArray(),
   ]);
 
   const data = {
@@ -237,6 +269,14 @@ export async function createBackupPayload(): Promise<BackupPayload> {
     workspaceGoals,
     activities,
     notifications,
+    vaultFiles,
+    clientPortalLinks,
+    retainers,
+    customWorkflows,
+    webhooks,
+    syncQueue,
+    securityAuditLogs,
+    savedViews,
   };
 
   const recordCounts: Record<string, number> = {
@@ -256,6 +296,14 @@ export async function createBackupPayload(): Promise<BackupPayload> {
     serviceCatalog: serviceCatalog.length,
     appointments: appointments.length,
     workspaceGoals: workspaceGoals.length,
+    vaultFiles: vaultFiles.length,
+    clientPortalLinks: clientPortalLinks.length,
+    retainers: retainers.length,
+    customWorkflows: customWorkflows.length,
+    webhooks: webhooks.length,
+    syncQueue: syncQueue.length,
+    securityAuditLogs: securityAuditLogs.length,
+    savedViews: savedViews.length,
   };
 
   return backupPayloadSchema.parse({
@@ -412,6 +460,14 @@ export async function restoreBackupPayload(
       db.workspaceGoals,
       db.activities,
       db.notifications,
+      db.vaultFiles,
+      db.clientPortalLinks,
+      db.retainers,
+      db.customWorkflows,
+      db.webhooks,
+      db.syncQueue,
+      db.securityAuditLogs,
+      db.savedViews,
     ],
     async () => {
       if (mode === 'replace') {
@@ -437,6 +493,14 @@ export async function restoreBackupPayload(
           db.workspaceGoals.clear(),
           db.activities.clear(),
           db.notifications.clear(),
+          db.vaultFiles.clear(),
+          db.clientPortalLinks.clear(),
+          db.retainers.clear(),
+          db.customWorkflows.clear(),
+          db.webhooks.clear(),
+          db.syncQueue.clear(),
+          db.securityAuditLogs.clear(),
+          db.savedViews.clear(),
         ]);
       }
 
@@ -488,6 +552,14 @@ export async function restoreBackupPayload(
       if (d.workspaceGoals.length) await db.workspaceGoals.bulkPut(d.workspaceGoals);
       if (d.activities.length) await db.activities.bulkPut(d.activities);
       if (d.notifications.length) await db.notifications.bulkPut(d.notifications);
+      if (d.vaultFiles.length) await db.vaultFiles.bulkPut(d.vaultFiles);
+      if (d.clientPortalLinks.length) await db.clientPortalLinks.bulkPut(d.clientPortalLinks);
+      if (d.retainers.length) await db.retainers.bulkPut(d.retainers);
+      if (d.customWorkflows.length) await db.customWorkflows.bulkPut(d.customWorkflows);
+      if (d.webhooks.length) await db.webhooks.bulkPut(d.webhooks);
+      if (d.syncQueue.length) await db.syncQueue.bulkPut(d.syncQueue);
+      if (d.securityAuditLogs.length) await db.securityAuditLogs.bulkPut(d.securityAuditLogs);
+      if (d.savedViews.length) await db.savedViews.bulkPut(d.savedViews);
     }
   );
 

@@ -10,6 +10,8 @@ import type { ProposedAgentAction } from './schemas';
 import { COPILOT_SYSTEM_INSTRUCTION } from './systemInstructions';
 import { executeAllowlistedTool } from './tools';
 
+import type { AIProviderId } from '../providers/AIProvider';
+
 export type CopilotPresetTask =
   | 'custom'
   | 'proposal_draft'
@@ -22,9 +24,10 @@ export interface CopilotRunOptions {
   prompt: string;
   preset?: CopilotPresetTask;
   useKnowledgeRag?: boolean;
+  allowInternalKnowledge?: boolean;
   includeWorkspaceContext?: boolean;
   allowExternalContextTransmission?: boolean;
-  providerPreference?: 'auto' | 'gemini' | 'mock';
+  providerPreference?: 'auto' | AIProviderId;
   clientId?: string;
   projectId?: string;
 }
@@ -32,7 +35,7 @@ export interface CopilotRunOptions {
 export interface CopilotRunResponse {
   text: string;
   model: string;
-  providerId: 'gemini' | 'mock';
+  providerId: AIProviderId;
   isOfflineDraft: boolean;
   citations: KnowledgeCitation[];
   contextSummarySent: string;
@@ -85,7 +88,9 @@ export async function runCopilotPrompt(options: CopilotRunOptions): Promise<Copi
   }
 
   if (options.useKnowledgeRag !== false) {
-    const ragResult = await searchKnowledgeBase(userPrompt, 4);
+    const ragResult = await searchKnowledgeBase(userPrompt, 4, {
+      accessScope: options.allowInternalKnowledge ? 'internal_only' : 'workspace',
+    });
     citations = ragResult.citations;
     if (ragResult.contextText) {
       contextSections.push(
@@ -127,12 +132,12 @@ export async function runCopilotPrompt(options: CopilotRunOptions): Promise<Copi
   const provider = createAIProvider(options.providerPreference ?? 'auto');
 
   if (
-    provider.id === 'gemini' &&
+    (provider.id === 'gemini' || provider.id === 'openai_compatible') &&
     contextSummarySent &&
     !options.allowExternalContextTransmission
   ) {
     throw new Error(
-      'External context consent required: confirm before sending local workspace or Knowledge Hub snippets to Gemini API.'
+      `External context consent required: confirm before sending local workspace or Knowledge Hub snippets to ${provider.label}.`
     );
   }
 
