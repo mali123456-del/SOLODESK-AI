@@ -34,6 +34,7 @@ import {
   Shield,
   ShieldCheck,
   Sparkles,
+  Square,
   Sun,
   TrendingDown,
   TrendingUp,
@@ -44,6 +45,8 @@ import {
   X,
 } from 'lucide-react';
 import type { LocalSyncStatus } from '../../core/syncEvents';
+import type { TimeEntry } from '../../domain/schemas/entities';
+import { formatDurationHMS } from '../../domain/calculations/dates';
 import { SolodeskLogo } from '../../assets/SolodeskLogo';
 import { cn } from '../../lib/cn';
 import { APP_NAVIGATION, NAV_GROUPS, type AppRouteId } from '../../types/navigation';
@@ -83,6 +86,7 @@ export const ROUTE_ICONS: Record<AppRouteId, React.ReactNode> = {
   'settings-ai': <Sparkles className="w-4 h-4" />,
   'settings-backup': <ArchiveRestore className="w-4 h-4" />,
   'settings-privacy': <Shield className="w-4 h-4" />,
+  'settings-cloud-sync': <Cloud className="w-4 h-4" />,
   'security-center': <ShieldCheck className="w-4 h-4" />,
   'help-plans': <HelpCircle className="w-4 h-4" />,
   about: <Info className="w-4 h-4" />,
@@ -103,6 +107,9 @@ interface AppShellProps {
   syncError?: string | null;
   lastSyncedAt?: string | null;
   onRetrySync?: () => void;
+  runningTimer?: TimeEntry | null;
+  timerElapsedSeconds?: number;
+  onStopGlobalTimer?: () => void;
   headerRightExtra?: React.ReactNode;
   children: React.ReactNode;
 }
@@ -121,6 +128,9 @@ export const AppShell: React.FC<AppShellProps> = ({
   syncError = null,
   lastSyncedAt = null,
   onRetrySync,
+  runningTimer = null,
+  timerElapsedSeconds = 0,
+  onStopGlobalTimer,
   headerRightExtra,
   children,
 }) => {
@@ -279,6 +289,39 @@ export const AppShell: React.FC<AppShellProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {runningTimer && (
+              <div
+                data-testid="global-timer-indicator"
+                className="inline-flex items-center gap-1.5 h-9 pl-2.5 pr-1.5 rounded-[10px] border border-blue-200 dark:border-blue-800/80 bg-blue-50 dark:bg-blue-950/60 text-blue-900 dark:text-blue-100 text-xs font-medium whitespace-nowrap shrink-0"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleSelect('time-tracker')}
+                  aria-label={`Active timer: ${runningTimer.description}`}
+                  className="inline-flex items-center gap-1.5 cursor-pointer hover:underline max-w-[160px]"
+                >
+                  <Clock className="w-3.5 h-3.5 text-[#2563EB] dark:text-[#20C7D9] shrink-0" aria-hidden="true" />
+                  <span className="font-mono tabular-nums font-semibold">
+                    {formatDurationHMS(timerElapsedSeconds)}
+                  </span>
+                  <span className="hidden xl:inline truncate text-slate-600 dark:text-slate-300">
+                    · {runningTimer.description}
+                  </span>
+                </button>
+                {onStopGlobalTimer && (
+                  <button
+                    type="button"
+                    onClick={onStopGlobalTimer}
+                    aria-label="Stop global timer"
+                    title="Stop active timer"
+                    className="p-1 rounded-md text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 cursor-pointer"
+                  >
+                    <Square className="w-3 h-3 fill-current" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            )}
+
             {!isOnline && (
               <span
                 role="status"

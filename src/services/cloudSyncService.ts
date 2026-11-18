@@ -224,6 +224,27 @@ export async function pushSyncQueueToServer(options: {
   }
 }
 
+export interface SyncCheckpoint {
+  workspaceId: string;
+  lastCursor: string;
+  lastSyncedAt: string | null;
+  pendingCount: number;
+  paused: boolean;
+}
+
+/**
+ * Computes bounded exponential backoff delay (ms) for background sync retries.
+ */
+export function computeSyncBackoffDelayMs(
+  attempt: number,
+  baseMs = 1500,
+  maxMs = 60_000
+): number {
+  const safeAttempt = Math.max(0, Math.floor(attempt));
+  const exp = Math.min(maxMs, baseMs * Math.pow(2, safeAttempt));
+  return Math.max(baseMs, Math.round(exp));
+}
+
 export function summarizeSyncQueue(items: SyncQueueItem[]) {
   return {
     total: items.length,

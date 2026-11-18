@@ -293,3 +293,151 @@ export function deleteUserAccount(db: DatabaseSync, userId: string): void {
     throw err;
   }
 }
+
+export function requestPasswordReset(
+  db: DatabaseSync,
+  emailInput: string
+): { issued: boolean; resetToken?: string; expiresAt?: string } {
+  const email = emailInput.trim().toLowerCase();
+  const user = db
+    .prepare('SELECT id FROM users WHERE email = ? AND deleted_at IS NULL')
+    .get(email) as { id: string } | undefined;
+
+  if (!user) {
+    return { issued: false };
+  }
+
+  const rawToken = `sdr_${crypto.randomBytes(24).toString('hex')}`;
+  const tokenHash = hashSessionToken(rawToken);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+
+  db.prepare(
+    `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(`prt_${crypto.randomUUID()}`, user.id, tokenHash, expiresAt, now.toISOString());
+
+  return { issued: true, resetToken: rawToken, expiresAt };
+}
+
+export function confirmPasswordReset(
+  db: DatabaseSync,
+  rawToken: string,
+  newPassword: string
+): boolean {
+  if (!rawToken.startsWith('sdr_') || newPassword.length < 8) return false;
+  const tokenHash = hashSessionToken(rawToken);
+  const now = new Date().toISOString();
+
+  const row = db
+    .prepare(
+      `SELECT id, user_id, expires_at, used_at
+       FROM password_reset_tokens
+       WHERE token_hash = ?`
+    )
+    .get(tokenHash) as
+    | { id: string; user_id: string; expires_at: string; used_at: string | null }
+    | undefined;
+
+  if (!row || row.used_at || row.expires_at <= now) return false;
+
+  const nextHash = hashPassword(newPassword);
+  db.exec('BEGIN;');
+  try {
+    db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(
+      nextHash,
+      now,
+      row.user_id
+    );
+    db.prepare('UPDATE password_reset_tokens SET used_at = ? WHERE id = ?').run(now, row.id);
+    // Revoke all active sessions on password reset
+    db.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL').run(
+      now,
+      row.user_id
+    );
+    db.exec('COMMIT;');
+  } catch (err) {
+    db.exec('ROLLBACK;');
+    throw err;
+  }
+  return true;
+}
+
+export function createWorkspaceInvitation(
+  db: DatabaseSync,
+  input: {
+    workspaceId: string;
+    invitedByUserId: string;
+    email: string;
+    role: Exclude<WorkspaceMemberRole, 'owner'>;
+  }
+): { id: string; inviteToken: string; expiresAt: string; email: string; role: string } {
+  const email = input.email.trim().toLowerCase();
+  const id = `inv_${crypto.randomUUID()}`;
+  const rawToken = `sdi_${crypto.randomBytes(24).toString('hex')}`;
+  const tokenHash = hashSessionToken(rawToken);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 72 * 60 * 60 * 1000).toISOString();
+
+  db.prepare(
+    `INSERT INTO workspace_invitations (id, workspace_id, email, role, token_hash, invited_by_user_id, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    input.workspaceId,
+    email,
+    input.role,
+    tokenHash,
+    input.invitedByUserId,
+    expiresAt,
+    now.toISOString()
+  );
+
+  return { id, inviteToken: rawToken, expiresAt, email, role: input.role };
+}
+
+export function acceptWorkspaceInvitation(
+  db: DatabaseSync,
+  input: { inviteToken: string; userId: string; userEmail: string }
+): { ok: boolean; workspaceId?: string; role?: string } {
+  if (!input.inviteToken.startsWith('sdi_')) return { ok: false };
+  const tokenHash = hashSessionToken(input.inviteToken);
+  const now = new Date().toISOString();
+
+  const row = db
+    .prepare(
+      `SELECT id, workspace_id, email, role, expires_at, accepted_at
+       FROM workspace_invitations
+       WHERE token_hash = ?`
+    )
+    .get(tokenHash) as
+    | {
+        id: string;
+        workspace_id: string;
+        email: string;
+        role: string;
+        expires_at: string;
+        accepted_at: string | null;
+      }
+    | undefined;
+
+  if (!row || row.accepted_at || row.expires_at <= now) return { ok: false };
+  if (row.email.toLowerCase() !== input.userEmail.trim().toLowerCase()) return { ok: false };
+
+  db.exec('BEGIN;');
+  try {
+    db.prepare(
+      `INSERT INTO workspace_members (id, workspace_id, user_id, role, status, created_at)
+       VALUES (?, ?, ?, ?, 'active', ?)
+       ON CONFLICT(workspace_id, user_id) DO UPDATE SET role = excluded.role, status = 'active'`
+    ).run(`wm_${crypto.randomUUID()}`, row.workspace_id, input.userId, row.role, now);
+
+    db.prepare('UPDATE workspace_invitations SET accepted_at = ? WHERE id = ?').run(now, row.id);
+    db.exec('COMMIT;');
+  } catch (err) {
+    db.exec('ROLLBACK;');
+    throw err;
+  }
+
+  return { ok: true, workspaceId: row.workspace_id, role: row.role };
+}

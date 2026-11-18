@@ -38,15 +38,22 @@ export const CardHeader: React.FC<{
   action?: React.ReactNode;
   className?: string;
 }> = ({ title, description, action, className }) => (
-  <div className={cn('flex items-start justify-between gap-4 mb-4', className)}>
-    <div className="min-w-0">
-      <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 truncate">
+  <div
+    className={cn(
+      'flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4 mb-4',
+      className
+    )}
+  >
+    <div className="min-w-0 flex-1">
+      <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 break-words">
         {title}
       </h2>
       {description && (
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{description}</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5 break-words">
+          {description}
+        </p>
       )}
     </div>
-    {action && <div className="shrink-0">{action}</div>}
+    {action && <div className="shrink-0 max-w-full">{action}</div>}
   </div>
 );

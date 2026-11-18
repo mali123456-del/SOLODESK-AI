@@ -96,16 +96,35 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible();
     await expect(page.getByText('Architecture Audit').first()).toBeVisible();
 
-    // 6. Time Tracker persistent live timer across reload
+    // 6. Time Tracker persistent live global timer across view navigation and reload
     await page.goto('/#/time-tracker');
     await expect(page.getByRole('heading', { name: 'Time Tracker', exact: true })).toBeVisible();
     await page.getByLabel(/What are you working on/i).fill('E2E Sprint Timer');
     await page.getByRole('button', { name: /Start Timer/i }).click();
     await expect(page.getByText('E2E Sprint Timer').first()).toBeVisible();
+    await expect(page.getByTestId('global-timer-indicator')).toBeVisible();
+
+    // Navigate to Dashboard and verify global timer persists continuously in AppShell header
+    await page.goto('/#/dashboard');
+    await expect(page.getByTestId('global-timer-indicator')).toBeVisible();
+
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Time Tracker', exact: true })).toBeVisible();
-    await expect(page.getByText('E2E Sprint Timer').first()).toBeVisible();
-    await page.getByRole('button', { name: /Stop Timer/i }).click();
+    await expect(page.getByTestId('global-timer-indicator')).toBeVisible();
+    await page.getByRole('button', { name: 'Stop global timer' }).click();
+    await expect(page.getByTestId('global-timer-indicator')).not.toBeVisible();
+
+    // 6b. Settings > Cloud Sync Auto-sync toggle persists across reload
+    await page.goto('/#/settings-cloud-sync');
+    await expect(page.getByText('Cloud Sync & Background Behavior')).toBeVisible();
+    const autoSyncSwitch = page.getByRole('switch', { name: 'Auto-sync' });
+    await expect(autoSyncSwitch).toBeChecked();
+    await autoSyncSwitch.click();
+    await expect(autoSyncSwitch).not.toBeChecked();
+    await page.reload();
+    await expect(page.getByRole('switch', { name: 'Auto-sync' })).not.toBeChecked();
+    // Restore Auto-sync back to enabled
+    await page.getByRole('switch', { name: 'Auto-sync' }).click();
+    await expect(page.getByRole('switch', { name: 'Auto-sync' })).toBeChecked();
 
     // 7. Service Catalog -> Templates & Invoice Quick-Insert
     await page.goto('/#/templates');
@@ -224,14 +243,16 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await expect(page.getByText('7-Day Income / Net')).toBeVisible();
     await page.getByRole('button', { name: 'Daily', exact: true }).click();
 
-    await page.setViewportSize({ width: 375, height: 812 });
-    await page.goto('/#/dashboard');
-    await expect(page.getByRole('heading', { name: /Welcome/i })).toBeVisible();
-    await expect(page.getByText('Daily Digest')).toBeVisible();
-    const mobileOverflow = await page.evaluate(
-      () => document.documentElement.scrollWidth > window.innerWidth
-    );
-    expect(mobileOverflow).toBe(false);
+    for (const width of [320, 375, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 812 });
+      await page.goto('/#/dashboard');
+      await expect(page.getByRole('heading', { name: /Welcome/i })).toBeVisible();
+      await expect(page.getByText('Daily Digest')).toBeVisible();
+      const hasOverflow = await page.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth
+      );
+      expect(hasOverflow, `Horizontal overflow at ${width}px`).toBe(false);
+    }
 
     // 12. Automated WCAG 2.0 A/AA Accessibility audit via @axe-core/playwright
     await page.setViewportSize({ width: 1280, height: 800 });

@@ -7,6 +7,62 @@ export function signHmacSha256(secret: string, bodyJson: string): string {
   return crypto.createHmac('sha256', secret).update(bodyJson).digest('hex');
 }
 
+export function verifyWebhookSignatureAndTimestamp(input: {
+  secret: string;
+  timestampIso: string;
+  signatureHeader: string;
+  bodyJson: string;
+  maxSkewMs?: number;
+}): { valid: boolean; reason?: string } {
+  const maxSkewMs = input.maxSkewMs ?? 5 * 60 * 1000;
+  const ts = Date.parse(input.timestampIso);
+  if (Number.isNaN(ts)) {
+    return { valid: false, reason: 'Invalid webhook timestamp.' };
+  }
+  if (Math.abs(Date.now() - ts) > maxSkewMs) {
+    return { valid: false, reason: 'Webhook timestamp outside replay tolerance window.' };
+  }
+  const expected = `sha256=${signHmacSha256(input.secret, `${input.timestampIso}.${input.bodyJson}`)}`;
+  const sigBuf = Buffer.from(input.signatureHeader);
+  const expBuf = Buffer.from(expected);
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+    return { valid: false, reason: 'HMAC signature mismatch.' };
+  }
+  return { valid: true };
+}
+
+export function rotateWebhookSecret(
+  db: DatabaseSync,
+  input: { workspaceId: string; webhookId: string; actorUserId: string; newSecret?: string }
+): { rotated: boolean; nextSecretPreview?: string } {
+  const existing = db
+    .prepare('SELECT id FROM webhooks WHERE id = ? AND workspace_id = ?')
+    .get(input.webhookId, input.workspaceId) as { id: string } | undefined;
+  if (!existing) return { rotated: false };
+
+  const rawSecret = input.newSecret?.trim() || `sdwh_${crypto.randomBytes(24).toString('hex')}`;
+  const secretHash = crypto.createHash('sha256').update(rawSecret).digest('hex');
+  const now = new Date().toISOString();
+
+  db.prepare('UPDATE webhooks SET secret_hash = ? WHERE id = ? AND workspace_id = ?').run(
+    secretHash,
+    input.webhookId,
+    input.workspaceId
+  );
+  db.prepare(
+    `INSERT INTO audit_logs (id, workspace_id, actor_user_id, event_type, severity, detail, created_at)
+     VALUES (?, ?, ?, 'webhook_secret_rotated', 'info', ?, ?)`
+  ).run(
+    `aud_${crypto.randomUUID()}`,
+    input.workspaceId,
+    input.actorUserId,
+    `Rotated signing secret for webhook ${input.webhookId}`,
+    now
+  );
+
+  return { rotated: true, nextSecretPreview: `${rawSecret.slice(0, 8)}...` };
+}
+
 export function registerServerWebhook(
   db: DatabaseSync,
   input: {

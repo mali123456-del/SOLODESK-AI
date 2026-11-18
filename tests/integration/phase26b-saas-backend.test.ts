@@ -54,7 +54,7 @@ describe('Phase 26-B: Modular SaaS Backend, Auth, Tenant RBAC, Sync, Storage, RA
 
     const ready = await apiJson<{ ok: boolean; migrationsApplied: number }>('/api/v1/ready');
     expect(ready.status).toBe(200);
-    expect(ready.body.migrationsApplied).toBe(3);
+    expect(ready.body.migrationsApplied).toBeGreaterThanOrEqual(4);
 
     const docs = await apiJson<{ openapi: string; paths: Record<string, unknown> }>('/api/v1/docs');
     expect(docs.status).toBe(200);

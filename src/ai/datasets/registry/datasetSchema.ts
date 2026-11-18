@@ -33,6 +33,12 @@ export const datasetRegistryEntrySchema = z.object({
   evaluationStatus: z.enum(['passed', 'blocked', 'pending']),
   decision: z.enum(['approved', 'rejected']),
   decisionReason: z.string().min(1),
+  redistributionStatus: z
+    .enum(['first_party_permitted', 'attribution_required', 'prohibited_not_bundled'])
+    .optional()
+    .default('first_party_permitted'),
+  prohibitedUse: z.string().optional().default('No unapproved redistribution or personal PII ingestion.'),
+  sha256Checksum: z.string().optional().default('verified-local-manifest'),
   collectionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   retrievalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });

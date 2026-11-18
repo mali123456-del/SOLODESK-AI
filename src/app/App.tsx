@@ -154,6 +154,9 @@ const WorkspaceRouter: React.FC = () => {
     syncError,
     lastSyncedAt,
     retrySync,
+    runningTimer,
+    timerElapsedSeconds,
+    stopGlobalTimer,
     settings,
     notifications,
     recordRecentItem,
@@ -358,6 +361,7 @@ const WorkspaceRouter: React.FC = () => {
       case 'settings-localization':
       case 'settings-ai':
       case 'settings-privacy':
+      case 'settings-cloud-sync':
       case 'about':
         return <SettingsView section={route} onNavigate={navigate} />;
       case 'marketing':
@@ -407,6 +411,9 @@ const WorkspaceRouter: React.FC = () => {
       syncError={syncError}
       lastSyncedAt={lastSyncedAt}
       onRetrySync={() => void retrySync()}
+      runningTimer={runningTimer}
+      timerElapsedSeconds={timerElapsedSeconds}
+      onStopGlobalTimer={() => void stopGlobalTimer()}
       headerRightExtra={<PWAInstallButton />}
     >
       <Suspense fallback={<ViewLoadingFallback />}>{renderRouteContent()}</Suspense>

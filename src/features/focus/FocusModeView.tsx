@@ -36,7 +36,17 @@ export const FocusModeView: React.FC<FocusModeViewProps> = ({
   onExitFocusMode,
   onNavigate,
 }) => {
-  const { projects, tasks, clients, timeEntries, settings, refresh } = useWorkspace();
+  const {
+    projects,
+    tasks,
+    clients,
+    settings,
+    runningTimer,
+    timerElapsedSeconds: elapsedSeconds,
+    startGlobalTimer,
+    stopGlobalTimer,
+    refresh,
+  } = useWorkspace();
   const { pushToast } = useToast();
 
   const openTasks = useMemo(
@@ -61,7 +71,6 @@ export const FocusModeView: React.FC<FocusModeViewProps> = ({
   const [selectedProjectId, setSelectedProjectId] = useState<string>(
     initialTarget?.type === 'project' ? initialTarget.id : (activeProjects[0]?.id ?? '')
   );
-  const [nowTick, setNowTick] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -83,17 +92,6 @@ export const FocusModeView: React.FC<FocusModeViewProps> = ({
     }
   }, [focusKind, selectedTaskId, selectedProjectId, openTasks, activeProjects]);
 
-  const runningTimer = useMemo(
-    () => timeEntries.find((entry) => entry.isRunning),
-    [timeEntries]
-  );
-
-  useEffect(() => {
-    if (!runningTimer) return;
-    const id = window.setInterval(() => setNowTick(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [runningTimer]);
-
   const focusedTask = useMemo(
     () => tasks.find((t) => t.id === selectedTaskId) ?? openTasks[0] ?? null,
     [tasks, selectedTaskId, openTasks]
@@ -114,11 +112,6 @@ export const FocusModeView: React.FC<FocusModeViewProps> = ({
     if (!cid) return 'Internal / Unassigned';
     return clients.find((c) => c.id === cid)?.name ?? 'Client';
   }, [clients, focusedProject, focusedTask]);
-
-  const elapsedSeconds = useMemo(() => {
-    if (!runningTimer) return 0;
-    return Math.max(0, Math.floor((nowTick - new Date(runningTimer.startTime).getTime()) / 1000));
-  }, [runningTimer, nowTick]);
 
   const projectTasks = useMemo(
     () =>
@@ -176,7 +169,7 @@ export const FocusModeView: React.FC<FocusModeViewProps> = ({
           : focusedProject
             ? `${focusedProject.name} — Deep Work`
             : 'Focus Session';
-      await repositories.startTimer({
+      await startGlobalTimer({
         projectId: focusedProject?.id ?? '',
         taskId: focusKind === 'task' ? (focusedTask?.id ?? '') : '',
         description: label,
@@ -184,7 +177,6 @@ export const FocusModeView: React.FC<FocusModeViewProps> = ({
         billable: true,
       });
       pushToast({ title: 'Focus timer started', tone: 'info' });
-      await refresh();
     } finally {
       setBusy(false);
     }
@@ -194,9 +186,8 @@ export const FocusModeView: React.FC<FocusModeViewProps> = ({
     if (!runningTimer) return;
     setBusy(true);
     try {
-      await repositories.stopTimer(runningTimer.id);
+      await stopGlobalTimer(runningTimer.id);
       pushToast({ title: 'Time entry saved to workspace', tone: 'success' });
-      await refresh();
     } finally {
       setBusy(false);
     }

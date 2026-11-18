@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { createId } from '../../domain/schemas/entities';
 import { repositories } from '../../database/repositories/dexieRepositories';
 import { wrapUntrustedContextSnippet } from '../../security/sanitize';
@@ -32,6 +33,14 @@ export type AgentId =
   | 'workflow_action_proposer'
   | 'solodesk_orchestrator';
 
+export const agentRunInputSchema = z.object({
+  agentId: z.string().min(1),
+  goal: z.string().trim().min(1, 'Please provide a clear task or goal for the agent.').max(4000),
+  clientId: z.string().optional(),
+  projectId: z.string().optional(),
+  allowExternalContextTransmission: z.boolean().optional(),
+});
+
 export interface AgentDefinition {
   id: AgentId;
   name: string;
@@ -41,6 +50,9 @@ export interface AgentDefinition {
   allowedTools: CopilotToolName[];
   canDelegateTo?: AgentId[];
   canEmitProposedActions: boolean;
+  timeoutMs?: number;
+  tokenBudget?: number;
+  inputSchema?: typeof agentRunInputSchema;
 }
 
 export interface AgentRunResult {
@@ -268,7 +280,14 @@ export function getAgentDefinition(agentId: AgentId): AgentDefinition {
   if (!found) {
     throw new Error(`Unknown agent "${agentId}".`);
   }
-  return found;
+  return {
+    ...found,
+    timeoutMs:
+      found.timeoutMs ?? (found.autonomyClass === 'approval_required' ? 25_000 : 15_000),
+    tokenBudget:
+      found.tokenBudget ?? (found.autonomyClass === 'approval_required' ? 8192 : 4096),
+    inputSchema: found.inputSchema ?? agentRunInputSchema,
+  };
 }
 
 /**
@@ -354,20 +373,32 @@ export async function runWorkforceAgent(input: {
   const startedAt = new Date(startedMs).toISOString();
   const runId = createId('agrun');
   const agent = getAgentDefinition(input.agentId);
-  const cleanGoal = input.goal.trim();
-
-  if (!cleanGoal) {
-    throw new Error('Please provide a clear task or goal for the agent.');
+  const parsedInput = (agent.inputSchema ?? agentRunInputSchema).safeParse({
+    agentId: input.agentId,
+    goal: input.goal,
+    clientId: input.clientId,
+    projectId: input.projectId,
+    allowExternalContextTransmission: input.allowExternalContextTransmission,
+  });
+  if (!parsedInput.success) {
+    throw new Error(parsedInput.error.issues[0]?.message ?? 'Invalid agent input.');
   }
+  const cleanGoal = parsedInput.data.goal;
 
   const toolsInvoked: CopilotToolName[] = [];
   const delegatedAgents: AgentId[] = [];
   const contextParts: string[] = [];
   let citations: KnowledgeCitation[] = [];
 
+  const maxTimeoutMs = agent.timeoutMs ?? 15_000;
+  const maxTokenBudget = agent.tokenBudget ?? 4096;
+
   const checkCancelled = () => {
     if (input.signal?.aborted) {
       throw new DOMException('Agent execution was cancelled by user.', 'AbortError');
+    }
+    if (Date.now() - startedMs > maxTimeoutMs) {
+      throw new DOMException(`Agent execution exceeded timeout of ${maxTimeoutMs}ms.`, 'TimeoutError');
     }
   };
 
@@ -506,9 +537,12 @@ export async function runWorkforceAgent(input: {
 
     const finishedMs = Date.now();
     const durationMs = Math.max(1, finishedMs - startedMs);
-    const estimatedTokens = Math.max(
-      1,
-      Math.ceil((cleanGoal.length + contextSummary.length + response.text.length) / 4)
+    const estimatedTokens = Math.min(
+      maxTokenBudget,
+      Math.max(
+        1,
+        Math.ceil((cleanGoal.length + contextSummary.length + response.text.length) / 4)
+      )
     );
 
     const runResult: AgentRunResult = {

@@ -28,7 +28,16 @@ import {
 } from '../../services/cloudSyncService';
 
 export const CloudSyncView: React.FC = () => {
-  const { syncQueue, clients, projects, invoices, refresh } = useWorkspace();
+  const {
+    syncQueue,
+    clients,
+    projects,
+    invoices,
+    autoSyncEnabled,
+    setAutoSyncEnabled,
+    isOnline,
+    refresh,
+  } = useWorkspace();
   const { pushToast } = useToast();
 
   const [endpointUrl, setEndpointUrl] = useState('');
@@ -399,6 +408,23 @@ export const CloudSyncView: React.FC = () => {
             }
           />
           <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
+              <span>
+                <strong>Auto-sync</strong> · {isOnline ? 'Online' : 'Offline (Queued Locally)'}
+              </span>
+              <label className="inline-flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label="Auto-sync"
+                  aria-checked={autoSyncEnabled}
+                  checked={autoSyncEnabled}
+                  onChange={(e) => void setAutoSyncEnabled(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                />
+                <span>{autoSyncEnabled ? 'Enabled' : 'Disabled'}</span>
+              </label>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Input
                 label="Optional Self-Hosted Sync Endpoint"

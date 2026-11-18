@@ -3,9 +3,13 @@ import express, { type Request, type Response } from 'express';
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 import {
+  acceptWorkspaceInvitation,
+  confirmPasswordReset,
+  createWorkspaceInvitation,
   deleteUserAccount,
   loginUser,
   registerUser,
+  requestPasswordReset,
   revokeSession,
 } from '../../auth/authService';
 import { generateWithServerGemini, GatewayError } from '../../ai/geminiGateway';
@@ -14,6 +18,7 @@ import {
   dispatchServerWebhookTest,
   enqueueServerJob,
   registerServerWebhook,
+  rotateWebhookSecret,
   runDueServerJobs,
 } from '../../jobs/jobRunner';
 import {
@@ -340,6 +345,42 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     res.json({ ok: true, deleted: true });
   });
 
+  router.post('/auth/password-reset/request', (req: Request, res: Response) => {
+    const schema = z.object({ email: z.string().email().max(160) });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      sendApiError(res, 400, 'VALIDATION_ERROR', 'Valid email is required.', req);
+      return;
+    }
+    const result = requestPasswordReset(db, parsed.data.email);
+    res.json({
+      ok: true,
+      emailDeliveryStatus: 'NOT_CONFIGURED_LOCAL_ONLY',
+      ...(result.issued && process.env.NODE_ENV === 'test'
+        ? { testResetToken: result.resetToken, expiresAt: result.expiresAt }
+        : {}),
+    });
+  });
+
+  router.post('/auth/password-reset/confirm', (req: Request, res: Response) => {
+    const schema = z.object({
+      token: z.string().min(8).max(200),
+      newPassword: z.string().min(8).max(128),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      sendApiError(res, 400, 'VALIDATION_ERROR', 'Valid token and password (min 8 chars) required.', req);
+      return;
+    }
+    const ok = confirmPasswordReset(db, parsed.data.token, parsed.data.newPassword);
+    if (!ok) {
+      sendApiError(res, 400, 'INVALID_OR_EXPIRED_TOKEN', 'Reset token is invalid or expired.', req);
+      return;
+    }
+    clearSessionCookie(res);
+    res.json({ ok: true, sessionsRevoked: true });
+  });
+
   // --- Workspaces & RBAC Members ---
 
   router.get('/workspaces', requireAuth, (req: AuthenticatedRequest, res: Response) => {
@@ -453,6 +494,62 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     }
   );
 
+  router.post(
+    '/workspaces/:workspaceId/invitations',
+    requireAuth,
+    requireWorkspaceRole(db, ADMIN_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const schema = z.object({
+        email: z.string().email().max(160),
+        role: z.enum(['admin', 'manager', 'collaborator', 'client_viewer']),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        sendApiError(res, 400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Invalid invitation', req);
+        return;
+      }
+      const invite = createWorkspaceInvitation(db, {
+        workspaceId: String(req.params.workspaceId),
+        invitedByUserId: req.authUser!.id,
+        email: parsed.data.email,
+        role: parsed.data.role,
+      });
+      res.status(201).json({
+        ok: true,
+        invitation: {
+          id: invite.id,
+          email: invite.email,
+          role: invite.role,
+          expiresAt: invite.expiresAt,
+          ...(process.env.NODE_ENV === 'test' ? { testInviteToken: invite.inviteToken } : {}),
+        },
+      });
+    }
+  );
+
+  router.post(
+    '/workspaces/invitations/accept',
+    requireAuth,
+    (req: AuthenticatedRequest, res: Response) => {
+      const schema = z.object({ inviteToken: z.string().min(8).max(200) });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        sendApiError(res, 400, 'VALIDATION_ERROR', 'Valid inviteToken is required.', req);
+        return;
+      }
+      const outcome = acceptWorkspaceInvitation(db, {
+        inviteToken: parsed.data.inviteToken,
+        userId: req.authUser!.id,
+        userEmail: req.authUser!.email,
+      });
+      if (!outcome.ok) {
+        sendApiError(res, 400, 'INVITE_INVALID_OR_EXPIRED', 'Invitation is invalid, expired, or email does not match.', req);
+        return;
+      }
+      res.json({ ok: true, workspaceId: outcome.workspaceId, role: outcome.role });
+    }
+  );
+
   // --- Cloud Sync Endpoints (Tenant-Isolated & Revision-Checked) ---
 
   router.post(
@@ -519,6 +616,12 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
           'UPDATE subscriptions SET sync_ops_month = sync_ops_month + ?, updated_at = ? WHERE workspace_id = ?'
         ).run(ackedIds.length, now, workspaceId);
 
+        db.prepare(
+          `INSERT INTO sync_checkpoints (workspace_id, last_cursor, last_synced_at, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(workspace_id) DO UPDATE SET last_cursor = excluded.last_cursor, last_synced_at = excluded.last_synced_at, updated_at = excluded.updated_at`
+        ).run(workspaceId, now, now, now);
+
         db.exec('COMMIT;');
       } catch (err) {
         db.exec('ROLLBACK;');
@@ -563,6 +666,21 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         records,
         tombstones,
       });
+    }
+  );
+
+  router.get(
+    '/sync/checkpoint',
+    requireAuth,
+    requireWorkspaceRole(db, ALL_MEMBER_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = String(req.query.workspaceId || '');
+      const cp = db
+        .prepare(
+          'SELECT workspace_id AS workspaceId, last_cursor AS lastCursor, last_synced_at AS lastSyncedAt, updated_at AS updatedAt FROM sync_checkpoints WHERE workspace_id = ?'
+        )
+        .get(workspaceId);
+      res.json({ ok: true, checkpoint: cp ?? null });
     }
   );
 
@@ -849,6 +967,27 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
           req
         );
       }
+    }
+  );
+
+  router.post(
+    '/webhooks/:webhookId/rotate-secret',
+    requireAuth,
+    requireWorkspaceRole(db, ADMIN_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = String(req.body?.workspaceId || '');
+      const newSecret = typeof req.body?.secret === 'string' ? req.body.secret : undefined;
+      const result = rotateWebhookSecret(db, {
+        workspaceId,
+        webhookId: String(req.params.webhookId),
+        actorUserId: req.authUser!.id,
+        newSecret,
+      });
+      if (!result.rotated) {
+        sendApiError(res, 404, 'WEBHOOK_NOT_FOUND', 'Webhook not found.', req);
+        return;
+      }
+      res.json({ ok: true, rotated: true, nextSecretPreview: result.nextSecretPreview });
     }
   );
 

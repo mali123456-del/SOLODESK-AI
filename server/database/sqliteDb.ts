@@ -230,6 +230,51 @@ const MIGRATIONS: MigrationRecord[] = [
       );
     `,
   },
+  {
+    version: 4,
+    name: '004_checkpoints_invites_resets_payment_webhooks',
+    sql: `
+      CREATE TABLE IF NOT EXISTS sync_checkpoints (
+        workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+        last_cursor TEXT NOT NULL DEFAULT '',
+        last_synced_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS workspace_invitations (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('admin', 'manager', 'collaborator', 'client_viewer')),
+        token_hash TEXT NOT NULL UNIQUE,
+        invited_by_user_id TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        accepted_at TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at TEXT NOT NULL,
+        used_at TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS payment_webhook_events (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        provider_event_id TEXT NOT NULL UNIQUE,
+        amount_cents INTEGER NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'USD',
+        verified INTEGER NOT NULL DEFAULT 0,
+        payload_json TEXT NOT NULL,
+        received_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 export function openSqliteDatabase(dbPath = './data/solodesk-saas.sqlite'): DatabaseSync {

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Activity,
   CheckCircle2,
+  Cloud,
   Database,
   Globe,
   KeyRound,
@@ -55,6 +56,7 @@ interface SettingsViewProps {
     | 'settings-localization'
     | 'settings-ai'
     | 'settings-privacy'
+    | 'settings-cloud-sync'
     | 'about';
   onNavigate: (route: AppRouteId) => void;
 }
@@ -69,7 +71,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate 
     pendingSyncCount,
     lastSyncedAt,
     syncError,
+    autoSyncEnabled,
+    syncPaused,
+    syncQueue,
     retrySync,
+    setAutoSyncEnabled,
+    setSyncPaused,
     refresh,
     loadDemoWorkspace,
     removeDemoWorkspace,
@@ -382,6 +389,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate 
     { id: 'settings-localization', label: 'Currency & Dates' },
     { id: 'settings-ai', label: 'AI (Gemini 4 Hydrogen)' },
     { id: 'settings-privacy', label: 'Privacy & Storage' },
+    { id: 'settings-cloud-sync', label: 'Cloud Sync' },
     { id: 'about', label: 'About' },
   ];
 
@@ -1066,6 +1074,104 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate 
               >
                 Delete All Local Data
               </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {section === 'settings-cloud-sync' && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader
+              title="Cloud Sync & Background Behavior"
+              description="Control how SOLODESK AI synchronizes local IndexedDB changes and queues offline edits."
+              action={
+                <Button variant="outline" onClick={() => onNavigate('cloud-sync')} icon={<Cloud className="w-4 h-4" />}>
+                  Open Sync Queue & Multi-Role
+                </Button>
+              }
+            />
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                      Auto-sync
+                    </p>
+                    <Badge tone={autoSyncEnabled ? 'success' : 'neutral'}>
+                      {autoSyncEnabled ? 'Enabled' : 'Disabled'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300">
+                    When enabled, background synchronization automatically triggers when online for queued changes.
+                    While working offline or disabled, edits remain safely stored in local IndexedDB.
+                  </p>
+                </div>
+                <label className="inline-flex items-center gap-2.5 cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    aria-label="Auto-sync"
+                    aria-checked={autoSyncEnabled}
+                    checked={autoSyncEnabled}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      void setAutoSyncEnabled(next).then(() =>
+                        pushToast({
+                          tone: 'info',
+                          title: next ? 'Auto-sync enabled' : 'Auto-sync paused for offline-first manual control',
+                          description: next
+                            ? 'Pending outbox changes will auto-sync when connected.'
+                            : 'Background sync disabled; changes queue locally until manual sync.',
+                        })
+                      );
+                    }}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-xs font-medium text-slate-800 dark:text-slate-200">
+                    {autoSyncEnabled ? 'On' : 'Off'}
+                  </span>
+                </label>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                    Pause Outbox Transmission
+                  </p>
+                  <p className="text-xs text-slate-600 dark:text-slate-300">
+                    Temporarily hold outbound remote pushes while continuing local IndexedDB writes.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant={syncPaused ? 'primary' : 'outline'}
+                  onClick={() => void setSyncPaused(!syncPaused)}
+                >
+                  {syncPaused ? 'Resume Sync Queue' : 'Pause Sync Queue'}
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">Connectivity</p>
+                  <p className="font-semibold mt-0.5 text-slate-900 dark:text-white">
+                    {isOnline ? 'Online' : 'Offline (Queued Locally)'}
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">Queued Outbox Items</p>
+                  <p className="font-mono tabular-nums font-semibold mt-0.5 text-slate-900 dark:text-white">
+                    {syncQueue.filter((i) => i.status === 'pending' || i.status === 'failed').length} pending
+                  </p>
+                </div>
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <p className="text-slate-500">Last Local Sync</p>
+                  <p className="font-mono tabular-nums font-semibold mt-0.5 text-slate-900 dark:text-white">
+                    {lastSyncedAt ? new Date(lastSyncedAt).toLocaleTimeString() : 'Not yet synced'}
+                  </p>
+                </div>
+              </div>
             </div>
           </Card>
         </div>

@@ -1,0 +1,1468 @@
+# SOLODESK AI — PHASE 36–60
+# ULTIMATE MASTER COMMAND — CONTINUATION
+## STRICT IMPLEMENTATION SPECIFICATION
+
+==================================================
+PART 0-B — GIT, DATA AND IMPLEMENTATION SAFETY
+==================================================
+
+Continue the previous non-negotiable rules:
+
+- Do not commit, push, merge or deploy without explicit approval.
+- Do not overwrite .env files.
+- Never print secrets in logs or reports.
+- Never expose DATABASE_URL, database passwords, service-role keys or provider secrets in frontend bundles.
+- Never assume a migration succeeded because its SQL file exists.
+- Never assume cloud sync works because API endpoints exist.
+- Never claim an integration is live without a real integration test.
+- Never replace actual functionality with mock data to satisfy a test.
+- Mocks are permitted only in isolated tests and clearly identified demos.
+- No fake AI agents, fake embeddings, fake payments, fake cloud storage or fake integrations.
+- Keep dependency additions justified, lightweight and compatible with the existing package manager.
+- Do not install several libraries performing the same function.
+- Preserve all existing user records and offline capabilities.
+- Maintain backward compatibility wherever practical.
+- Every new module must include loading, empty, error, success and permission-denied states.
+
+If implementation exceeds available context:
+1. Complete the current safe task.
+2. Save a checkpoint.
+3. Update the implementation matrix.
+4. Record exact files changed and tests run.
+5. Resume from the first incomplete task.
+6. Never report incomplete work as complete.
+
+==================================================
+PART 1 — RESEARCH AND TECHNICAL DECISION GATE
+==================================================
+
+Before implementation, conduct a repository-aware technical research pass.
+
+Use official documentation first:
+
+CORE FRAMEWORKS
+- React: https://react.dev/
+- TypeScript: https://www.typescriptlang.org/docs/
+- Vite: https://vite.dev/guide/
+- Tailwind CSS: https://tailwindcss.com/docs
+- Express: https://expressjs.com/
+- Node.js: https://nodejs.org/docs/latest/api/
+
+DATABASE AND CLOUD
+- Supabase: https://supabase.com/docs
+- Supabase PostgreSQL: https://supabase.com/docs/guides/database
+- Supabase Auth: https://supabase.com/docs/guides/auth
+- Supabase RLS: https://supabase.com/docs/guides/database/postgres/row-level-security
+- Supabase migrations: https://supabase.com/docs/guides/deployment/database-migrations
+- Supabase Storage: https://supabase.com/docs/guides/storage
+- Supabase pgvector: https://supabase.com/docs/guides/ai/vector-columns
+- Dexie: https://dexie.org/docs/
+- PostgreSQL: https://www.postgresql.org/docs/
+
+FRONTEND AND DESIGN
+- Lucide: https://lucide.dev/
+- shadcn/ui: https://ui.shadcn.com/
+- Radix UI: https://www.radix-ui.com/
+- TanStack Query: https://tanstack.com/query/latest
+- React Hook Form: https://react-hook-form.com/
+- Zod: https://zod.dev/
+- Recharts: https://recharts.org/
+- Motion: https://motion.dev/
+
+TESTING AND QUALITY
+- Vitest: https://vitest.dev/
+- Playwright: https://playwright.dev/
+- Testing Library: https://testing-library.com/docs/react-testing-library/intro/
+- axe-core: https://github.com/dequelabs/axe-core
+- OWASP ASVS: https://owasp.org/www-project-application-security-verification-standard/
+- OWASP Cheat Sheet Series: https://cheatsheetseries.owasp.org/
+- WCAG: https://www.w3.org/TR/WCAG22/
+
+AI AND DATA
+- Google Gen AI SDK: https://googleapis.github.io/js-genai/
+- Hugging Face Datasets: https://huggingface.co/docs/datasets/
+- Hugging Face Dataset Cards: https://huggingface.co/docs/hub/datasets-cards
+- MTEB: https://github.com/embeddings-benchmark/mteb
+- BEIR: https://github.com/beir-cellar/beir
+- OpenAlex: https://docs.openalex.org/
+- Common Crawl: https://commoncrawl.org/
+
+INTEGRATIONS
+- Google APIs: https://developers.google.com/
+- Microsoft Graph: https://learn.microsoft.com/graph/
+- GitHub API: https://docs.github.com/en/rest
+- Stripe: https://docs.stripe.com/
+- PayFast Pakistan: https://gopayfast.com/
+- Safepay: https://safepay.pk/
+- JazzCash: https://www.jazzcash.com.pk/
+
+Research requirements:
+
+1. Check current documentation and API compatibility.
+2. Check library maintenance, release status and security advisories.
+3. Verify licensing and commercial-use restrictions.
+4. Check whether each integration supports the user's target country.
+5. Check free-tier limits, API quotas and rate limits.
+6. Compare alternatives before choosing dependencies.
+7. Record why each selected library or service is needed.
+8. Do not add dependencies merely because they are popular.
+
+Create:
+- docs/PHASE_36_60_RESEARCH.md
+- docs/PHASE_36_60_TECH_STACK_DECISIONS.md
+- docs/PHASE_36_60_DEPENDENCY_AUDIT.md
+- docs/PHASE_36_60_DATASET_CATALOG.md
+- docs/PHASE_36_60_INTEGRATION_CATALOG.md
+
+==================================================
+PART 2 — PHASE 36–40
+DATABASE, BACKEND AND CLOUD FOUNDATION
+==================================================
+
+PHASE 36 — COMPLETE DATA ARCHITECTURE RECONCILIATION
+
+Inspect and document:
+
+A. Dexie v5:
+- All 28 existing stores.
+- Primary keys.
+- Secondary indexes.
+- Relationships.
+- Unique constraints.
+- Data ownership.
+- Offline write behavior.
+- Existing migrations.
+
+B. SQLite:
+- Every existing table.
+- Columns and types.
+- Foreign keys.
+- Indexes.
+- Constraints.
+- Existing migration versions.
+- Transactions.
+- Authentication and session tables.
+- Audit logs.
+- Workflow and background job tables.
+
+C. PostgreSQL:
+- Existing migration SQL.
+- Existing tables.
+- Extensions.
+- RLS policies.
+- Indexes.
+- Foreign keys.
+- Triggers.
+- Functions.
+- Constraints.
+- Existing Supabase Auth dependencies.
+
+Build a canonical data model.
+
+For every business entity document:
+- Entity name.
+- Primary key.
+- Workspace ID.
+- Owner ID.
+- Created and updated timestamps.
+- Soft-delete/tombstone behavior.
+- Offline synchronization strategy.
+- Authorization scope.
+- Data retention requirements.
+
+Do not blindly copy Dexie stores into PostgreSQL.
+
+Separate:
+- Local-only cache.
+- Server-authoritative records.
+- Synchronization metadata.
+- User-private records.
+- Workspace-shared records.
+- Public reference data.
+
+Acceptance:
+- Every existing store accounted for.
+- Every SQLite table accounted for.
+- Every PostgreSQL table documented.
+- No unexplained missing entity.
+- No accidental destructive migration.
+
+PHASE 37 — POSTGRESQL SCHEMA AND MIGRATION ENGINE
+
+Create a complete PostgreSQL schema using version-controlled SQL migrations.
+
+Required business domains:
+
+1. users and profiles
+2. organizations
+3. workspaces
+4. workspace memberships
+5. invitations
+6. sessions and authentication metadata
+7. clients and contacts
+8. projects and tasks
+9. milestones and dependencies
+10. time entries
+11. invoices
+12. invoice items
+13. payments and refunds
+14. expenses
+15. budgets and financial accounts
+16. retainers
+17. tax profiles
+18. documents and file metadata
+19. document versions
+20. portal access tokens
+21. workflows
+22. workflow executions
+23. webhook endpoints and delivery attempts
+24. notifications
+25. audit events
+26. AI conversations
+27. AI execution records
+28. AI agent definitions and permissions
+29. knowledge documents
+30. knowledge chunks
+31. dataset registry
+32. dataset license records
+33. embedding metadata
+34. subscriptions
+35. entitlements
+36. usage records
+37. sync checkpoints
+38. sync operation records
+39. background jobs
+40. application settings.
+
+These are logical domain requirements, not an instruction to create 40 unnecessary tables.
+
+Normalize where useful. Avoid over-normalization and excessive joins.
+
+Implement:
+- UUID primary keys where appropriate.
+- Explicit foreign keys.
+- Correct unique constraints.
+- Workspace indexes.
+- Timestamp indexes.
+- Pagination indexes.
+- Safe numeric types for finance.
+- JSONB only where justified.
+- Appropriate cascade/restrict behavior.
+- Database transactions.
+- Migration version tracking.
+- Backup and recovery documentation.
+
+Install pgvector only after verifying the extension is available and the actual embedding design is finalized.
+
+Do not create a 128-dimensional vector column merely because the previous migration used 128 dimensions. Determine the real embedding model and output dimensions first.
+
+PHASE 38 — AUTHENTICATION AND TENANT ISOLATION
+
+Choose one canonical identity architecture.
+
+Evaluate:
+- Supabase Auth.
+- Existing custom Express authentication.
+- Secure identity federation between them.
+
+Avoid two independent password/session systems.
+
+Preferred design:
+- Supabase Auth as canonical cloud identity, if compatible with the existing product.
+- Express validates trusted access tokens server-side.
+- Workspace membership is checked server-side.
+- RLS protects direct database access.
+- Local offline identity/cache does not grant cloud authorization.
+
+Implement:
+- Signup.
+- Email verification.
+- Login.
+- Logout.
+- Password reset.
+- Session refresh.
+- Session revocation.
+- Workspace invitation.
+- Role management.
+- Optional MFA.
+- Account deletion workflow.
+- Account export.
+- Login throttling.
+- Audit logging.
+
+Roles:
+- Owner
+- Admin
+- Manager
+- Member
+- Client
+- Viewer
+
+Create explicit permission matrices.
+
+Test:
+- Cross-workspace data access.
+- Cross-user data access.
+- Unauthorized role escalation.
+- Expired sessions.
+- Revoked sessions.
+- Forged workspace IDs.
+- Direct API access.
+- Supabase direct client access.
+- RLS bypass attempts.
+
+Never rely on frontend hiding a button as authorization.
+
+PHASE 39 — COMPLETE RLS AND STORAGE SECURITY
+
+Implement RLS for every workspace-owned table.
+
+Requirements:
+- Membership verification.
+- Role-specific permissions.
+- Owner-only operations.
+- Client portal restrictions.
+- Private document access.
+- Tenant-safe joins.
+- Safe insert/update/delete policies.
+- Policy recursion prevention.
+- Safe database functions.
+- Explicit search_path for privileged functions.
+- No public access to confidential workspace data.
+
+Implement Storage buckets:
+- avatars
+- workspace-files
+- client-documents
+- invoice-attachments
+- exports
+- private-backups
+
+Use private buckets and short-lived signed URLs.
+
+Validate:
+- File size.
+- MIME type.
+- Magic bytes.
+- File extension.
+- Storage path ownership.
+- Workspace membership.
+- Download permissions.
+- File version access.
+
+Never expose service-role credentials.
+
+PHASE 40 — REAL CLOUD SYNC ENGINE
+
+Preserve Dexie as the local-first application database.
+
+Implement:
+- Transactional local outbox.
+- Server-side sync API.
+- Idempotency keys.
+- Operation IDs.
+- Retry with bounded exponential backoff.
+- Server acknowledgements.
+- Incremental pull cursors.
+- Checkpoints.
+- Tombstones.
+- Conflict detection.
+- Conflict resolution.
+- Duplicate prevention.
+- Retry diagnostics.
+- Offline queue.
+- Sync pause/resume.
+- Manual sync.
+- Background sync where supported.
+
+Conflict strategies:
+- Last-write-wins only for explicitly suitable fields.
+- Field-level merge where safe.
+- User-assisted resolution for consequential conflicts.
+- Never silently overwrite financial records.
+
+Never mark a local operation as synced until server acknowledgement is received.
+
+Test:
+- Two users.
+- Two workspaces.
+- Two devices.
+- Offline edits.
+- Simultaneous edits.
+- Duplicate requests.
+- Interrupted uploads.
+- Network reconnection.
+- Expired authentication.
+- Conflict recovery.
+
+==================================================
+PART 3 — PHASE 41–45
+COMPLETE BUSINESS OPERATING MODULES
+==================================================
+
+PHASE 41 — CRM AND CLIENT INTELLIGENCE
+
+Build complete CRM workspace:
+
+Panels:
+- CRM Overview.
+- Leads.
+- Contacts.
+- Companies.
+- Client Profiles.
+- Client Timeline.
+- Communication History.
+- Follow-up Queue.
+- Lead Pipeline.
+- Sales Opportunities.
+- Client Documents.
+- Client Portal Access.
+- Client Health.
+- Lost Opportunities.
+- CRM Reports.
+
+Features:
+- Custom fields.
+- Tags.
+- Filters.
+- Saved views.
+- CSV import/export.
+- Duplicate detection.
+- Activity history.
+- Lead scoring with explainable rules.
+- Follow-up reminders.
+- Client notes with access restrictions.
+- Relationship history.
+
+AI features must only suggest actions or prepare drafts unless approval is granted.
+
+PHASE 42 — PROJECT AND TASK MANAGEMENT
+
+Panels:
+- Project Dashboard.
+- Project Board.
+- Kanban.
+- List View.
+- Calendar.
+- Gantt Timeline.
+- Milestones.
+- Dependencies.
+- Critical Path.
+- Workload.
+- Resource Planning.
+- Recurring Tasks.
+- Project Templates.
+- Risks and Issues.
+- Goals and OKRs.
+- Project Reports.
+
+Features:
+- Drag and drop.
+- Task assignments.
+- Priority.
+- Due dates.
+- Time estimates.
+- Dependencies.
+- Subtasks.
+- Attachments.
+- Activity history.
+- Project budgets.
+- Completion analytics.
+- Project health.
+
+Ensure dependency graph cycle detection and safe critical-path calculations.
+
+PHASE 43 — FINANCE AND ACCOUNTING WORKSPACE
+
+Panels:
+- Financial Overview.
+- Invoices.
+- Estimates.
+- Expenses.
+- Payments.
+- Refunds.
+- Recurring Invoices.
+- Retainers.
+- Cashflow.
+- Budgets.
+- Profit and Loss.
+- Tax Profiles.
+- Multi-Currency.
+- Financial Reports.
+- Payment Reconciliation.
+
+Features:
+- Sequential invoice numbering.
+- Draft/finalized invoice states.
+- Line items.
+- Discounts.
+- Tax calculations.
+- Partial payments.
+- Outstanding balances.
+- Refunds.
+- Credit notes.
+- Expense categorization.
+- Forecast scenarios.
+- FX conversion with source and timestamp.
+- Currency rounding rules.
+- CSV/PDF export.
+
+Use big.js or an equally suitable decimal-safe approach.
+
+Never use JavaScript floating-point arithmetic for authoritative money calculations.
+
+Do not claim to provide regulated accounting, tax or banking services without appropriate validation.
+
+PHASE 44 — DOCUMENT AND KNOWLEDGE WORKSPACE
+
+Panels:
+- Document Vault.
+- Templates.
+- Document Editor.
+- Version History.
+- File Browser.
+- Search.
+- Knowledge Library.
+- Notes.
+- Client Documents.
+- Workspace Documents.
+- Export Center.
+
+Features:
+- Secure uploads.
+- File versioning.
+- SHA-256 checksums.
+- Metadata extraction.
+- Full-text indexing.
+- Permission-aware search.
+- Document preview.
+- Safe PDF export.
+- CSV and JSON export.
+- Data portability.
+
+PHASE 45 — TIME, PRODUCTIVITY AND OPERATIONS
+
+Panels:
+- Time Tracker.
+- Timesheets.
+- Focus Mode.
+- Daily Digest.
+- Weekly Digest.
+- Calendar.
+- Personal Tasks.
+- Workload.
+- Goals.
+- Habits.
+- Notifications.
+- Activity Timeline.
+- Productivity Reports.
+
+Features:
+- Timer persistence.
+- Accurate timezone handling.
+- Manual time entry.
+- Billable/non-billable classification.
+- Calendar export.
+- Reminders.
+- Quiet hours.
+- Custom dashboard widgets.
+- Keyboard shortcuts.
+- Accessible navigation.
+
+==================================================
+PART 4 — PHASE 46–50
+AI WORKFORCE, RAG AND AUTOMATION
+==================================================
+
+PHASE 46 — AI PROVIDER GATEWAY
+
+Create a modular provider architecture.
+
+Support providers only after verifying their current APIs:
+- Google Gemini.
+- OpenAI-compatible providers.
+- Ollama.
+- Other compatible providers through adapters.
+
+Implement:
+- Provider registry.
+- Model registry.
+- Provider health.
+- Model capability metadata.
+- Secure server-side credentials.
+- BYOK session handling.
+- Streaming.
+- Timeouts.
+- Retry policies.
+- Fallback rules.
+- Rate limits.
+- Token tracking.
+- Usage/cost accounting.
+- Cancellation.
+- Error classification.
+
+Keep deterministic offline assistance available.
+
+Never label deterministic templates as live generative AI.
+
+PHASE 47 — 15-AGENT WORKFORCE EXPANSION
+
+Preserve the existing 15 agents.
+
+Inspect their actual responsibilities before adding or renaming agents.
+
+Potential specializations:
+- Business Analyst.
+- Project Manager.
+- CRM Specialist.
+- Finance Analyst.
+- Research Assistant.
+- Document Analyst.
+- Workflow Designer.
+- Data Analyst.
+- Knowledge Curator.
+- Client Success Assistant.
+- Marketing Planner.
+- Operations Analyst.
+- Reporting Assistant.
+- Productivity Assistant.
+- Security Reviewer.
+
+Do not duplicate existing agents merely to reach a larger number.
+
+Each agent must have:
+- Unique ID.
+- Description.
+- Input schema.
+- Output schema.
+- Tool allowlist.
+- Permission level.
+- Delegation rules.
+- Execution timeout.
+- Cancellation.
+- Token budget.
+- Audit trail.
+- Evaluation tests.
+
+Maintain:
+read_only
+draft_only
+approval_required
+
+Orchestrator must never escalate child-agent permissions.
+
+All consequential actions must use human approval.
+
+PHASE 48 — REAL HYBRID RAG AND KNOWLEDGE ENGINE
+
+Implement:
+- Document ingestion.
+- Text extraction.
+- Chunking.
+- Metadata.
+- Embeddings.
+- Vector search.
+- Lexical search.
+- Hybrid ranking.
+- Permission-aware retrieval.
+- Citation tracking.
+- Source links.
+- Confidence indicators.
+- No-evidence response.
+- Re-indexing.
+- Deletion propagation.
+- Evaluation dashboard.
+
+Use pgvector only when cloud embedding storage is configured.
+
+Keep a local-compatible retrieval mode.
+
+Research and compare embedding models using:
+https://huggingface.co/models
+https://github.com/embeddings-benchmark/mteb
+https://github.com/beir-cellar/beir
+
+Never claim semantic retrieval when the system is only performing lexical matching.
+
+Never generate embeddings of arbitrary dimensions to satisfy a database column.
+
+PHASE 49 — DATASET GOVERNANCE AND KNOWLEDGE PACKS
+
+Create a controlled dataset registry.
+
+Evaluate sources:
+https://huggingface.co/datasets
+https://huggingface.co/docs/hub/datasets-cards
+https://docs.openalex.org/
+https://commoncrawl.org/
+https://github.com/beir-cellar/beir
+
+Each dataset must include:
+- Name.
+- Publisher.
+- Original source.
+- Version.
+- License.
+- Attribution requirements.
+- Commercial-use permission.
+- Redistribution permission.
+- PII scan status.
+- Language.
+- Intended use.
+- Prohibited use.
+- Download date.
+- SHA-256 checksum.
+- Fine-tuning permission.
+- Review status.
+
+Do not bulk-download datasets without review.
+
+Do not use restricted, personal, confidential or unlicensed corpora.
+
+Do not fine-tune any model without a separately approved training process and explicit dataset permission.
+
+Prefer:
+- Original synthetic CRM records.
+- Synthetic invoice examples.
+- Synthetic task/project datasets.
+- Original business workflow templates.
+- Publicly licensed documentation.
+- Explicitly permissive language resources.
+
+PHASE 50 — WORKFLOW AUTOMATION AND BUSINESS INTELLIGENCE
+
+Workflow panels:
+- Workflow Builder.
+- Trigger Registry.
+- Conditions.
+- Actions.
+- Execution History.
+- Retry Queue.
+- Webhook Manager.
+- Scheduled Jobs.
+- Approval Queue.
+- Automation Analytics.
+
+Triggers:
+- New lead.
+- Client update.
+- Task created.
+- Task overdue.
+- Project milestone.
+- Invoice created.
+- Payment received.
+- Document uploaded.
+- Schedule reached.
+- Manual trigger.
+
+BI panels:
+- Business Overview.
+- Revenue Analytics.
+- Expense Analytics.
+- Project Performance.
+- Client Performance.
+- Cashflow Forecast.
+- Workload Analytics.
+- AI Insights.
+- Weekly Business Report.
+- Custom Reports.
+
+Every BI figure must be calculated from real accessible records.
+
+Display:
+- Data source.
+- Date range.
+- Calculation method.
+- Last updated.
+- Currency.
+- Filters.
+- Known limitations.
+
+No fabricated metrics or unsupported AI conclusions.
+
+==================================================
+PART 5 — PHASE 51–55
+INTEGRATIONS AND COLLABORATION
+==================================================
+
+PHASE 51 — CALENDAR AND EMAIL INTEGRATIONS
+
+Research official APIs:
+https://developers.google.com/calendar/api
+https://developers.google.com/gmail/api
+https://learn.microsoft.com/graph/
+
+Implement modular adapters for:
+- Google Calendar.
+- Microsoft Calendar.
+- Gmail.
+- Outlook.
+
+Features:
+- OAuth consent.
+- Least-privilege scopes.
+- Secure token storage.
+- Token revocation.
+- Sync status.
+- Retry.
+- Duplicate prevention.
+- Disconnect.
+- Import/export.
+
+Keep ICS export and mailto drafting available without OAuth.
+
+Do not claim two-way synchronization until it is verified.
+
+PHASE 52 — PAYMENTS AND COMMERCIAL CONNECTORS
+
+Research:
+https://gopayfast.com/
+https://safepay.pk/
+https://www.jazzcash.com.pk/
+https://docs.stripe.com/
+
+Evaluate:
+- Pakistan merchant eligibility.
+- Business documentation.
+- Settlement currency.
+- Fees.
+- Refunds.
+- Recurring billing.
+- Webhooks.
+- Subscription support.
+- API availability.
+
+Implement an adapter interface.
+
+Payment states:
+- Not configured.
+- Pending verification.
+- Sandbox.
+- Live verified.
+- Disabled.
+- Failed.
+
+Never simulate a successful payment in production.
+
+Verify webhook signatures, amount, currency, merchant reference and idempotency server-side.
+
+PHASE 53 — WEBHOOKS AND THIRD-PARTY AUTOMATION
+
+Build:
+- Webhook registry.
+- Secret rotation.
+- Signed requests.
+- Retry queue.
+- Delivery history.
+- Event filtering.
+- Rate limiting.
+- Replay protection.
+- Failure alerts.
+
+Optional integrations:
+- GitHub.
+- Slack-compatible messaging.
+- Discord webhooks.
+- Zapier-compatible webhooks.
+- Make-compatible webhooks.
+
+Research official APIs before implementation.
+
+Do not promise integrations that only have static UI panels.
+
+PHASE 54 — CLIENT PORTAL AND COLLABORATION
+
+Panels:
+- Client Dashboard.
+- Shared Projects.
+- Deliverables.
+- Approved Documents.
+- Invoice View.
+- Comments.
+- Milestone Tracking.
+- Client Requests.
+- Access Management.
+
+Features:
+- Token expiry.
+- Revocation.
+- Minimal permissions.
+- Separate client role.
+- Audit logs.
+- Internal-note exclusion.
+- Private rates exclusion.
+- Workspace secret exclusion.
+
+Test portal isolation against every protected endpoint.
+
+PHASE 55 — IMPORT, EXPORT AND INTEROPERABILITY
+
+Implement:
+- CSV import/export.
+- JSON backup/export.
+- PDF export.
+- ICS calendar export.
+- Data migration assistant.
+- Duplicate detection.
+- Field mapping.
+- Validation preview.
+- Import rollback.
+- Export audit log.
+
+Allow users to export their data in a usable format.
+
+Never delete original records during import.
+
+==================================================
+PART 6 — PHASE 56–60
+DESIGN, SECURITY, PERFORMANCE AND RELEASE
+==================================================
+
+PHASE 56 — COMPLETE UI/UX AND DESIGN SYSTEM
+
+Keep existing brand identity unless research identifies a genuine usability issue.
+
+Create:
+- Design tokens.
+- Color system.
+- Typography scale.
+- Spacing scale.
+- Elevation.
+- Border radius.
+- Responsive breakpoints.
+- Component variants.
+- Form standards.
+- Empty states.
+- Loading states.
+- Error states.
+- Accessible dialogs.
+- Navigation patterns.
+
+Icons:
+Use Lucide React.
+
+Official icon library:
+https://lucide.dev/icons/
+
+Use consistent icon semantics:
+
+Dashboard: LayoutDashboard
+CRM: Users
+Leads: UserPlus
+Projects: FolderKanban
+Tasks: ListTodo
+Calendar: CalendarDays
+Finance: Wallet
+Invoices: Receipt
+Expenses: ReceiptText
+Analytics: ChartNoAxesCombined
+Documents: Files
+Knowledge: BookOpen
+AI Copilot: Bot
+Agents: Network
+Automation: Workflow
+Integrations: Plug
+Cloud Sync: Cloud
+Security: ShieldCheck
+Settings: Settings
+Notifications: Bell
+Search: Search
+Help: CircleHelp
+
+Verify exact exported icon names against installed lucide-react version.
+
+Do not use random emojis as production navigation icons.
+
+Implement:
+- Desktop sidebar.
+- Mobile navigation.
+- Tablet layout.
+- Command palette.
+- Global search.
+- Keyboard navigation.
+- Theme settings.
+- RTL.
+- Accessible focus indicators.
+- Reduced motion.
+- Localization.
+
+PHASE 57 — ACCESSIBILITY AND RESPONSIVE QUALITY
+
+Target WCAG 2.2 AA.
+
+Test:
+- Keyboard-only navigation.
+- Screen-reader labels.
+- Form labels.
+- Focus management.
+- Color contrast.
+- Dialog accessibility.
+- Error announcements.
+- Table navigation.
+- Touch targets.
+- Responsive layouts.
+
+Viewport testing:
+- 320px.
+- 375px.
+- 768px.
+- 1024px.
+- 1280px.
+- 1440px.
+
+Never treat a passing axe scan as proof of complete WCAG compliance.
+
+PHASE 58 — SECURITY AND PRIVACY HARDENING
+
+Use OWASP ASVS as a security verification reference.
+
+Review:
+- Authentication.
+- Authorization.
+- Tenant isolation.
+- RLS.
+- IDOR.
+- XSS.
+- CSRF.
+- SSRF.
+- SQL injection.
+- File upload validation.
+- Webhook signature validation.
+- Session management.
+- Rate limiting.
+- Secret exposure.
+- Dependency vulnerabilities.
+- Data export.
+- Account deletion.
+- Backup security.
+- Audit logs.
+- AI prompt injection.
+- Agent delegation.
+- Client portal isolation.
+
+Use threat modeling.
+
+Classify findings:
+- Critical.
+- High.
+- Medium.
+- Low.
+- Informational.
+
+Fix confirmed critical/high issues before commercial release.
+
+Do not run destructive penetration tests against production data.
+
+PHASE 59 — PERFORMANCE AND RELIABILITY
+
+Optimize based on measured bottlenecks.
+
+Evaluate:
+- Lazy loading.
+- Route-level splitting.
+- Bundle analysis.
+- Image optimization.
+- Database indexes.
+- Query performance.
+- Pagination.
+- Virtualized long lists.
+- Search indexing.
+- Worker usage.
+- Cache policies.
+- PWA precaching.
+- Offline storage quotas.
+- Sync queue efficiency.
+
+Avoid heavy libraries that do not provide meaningful value.
+
+Test on low-resource hardware and mobile devices.
+
+Preserve usable performance on modest 8GB RAM systems.
+
+PHASE 60 — FINAL PRODUCTION READINESS AND RELEASE GATE
+
+Run complete checks:
+
+1. TypeScript.
+2. Lint.
+3. Unit tests.
+4. Integration tests.
+5. Database migration tests.
+6. RLS tests.
+7. Authentication tests.
+8. Cross-tenant isolation tests.
+9. Sync tests.
+10. Offline tests.
+11. AI agent authorization tests.
+12. RAG evaluation.
+13. Dataset compliance tests.
+14. Financial calculation tests.
+15. Payment webhook tests.
+16. API contract tests.
+17. Playwright desktop E2E.
+18. Playwright mobile E2E.
+19. Accessibility scans.
+20. Production build.
+21. PWA build.
+22. Dependency/security audit.
+
+Create a final release checklist.
+
+Possible release statuses:
+- LOCAL VERIFIED.
+- CLOUD VERIFIED.
+- SECURITY REVIEWED.
+- PAYMENT SANDBOX VERIFIED.
+- PAYMENT LIVE VERIFIED.
+- PRODUCTION DEPLOYED.
+
+Do not use a status unless the evidence supports it.
+
+==================================================
+PART 7 — REQUIRED FEATURE PANEL REGISTRY
+==================================================
+
+Create or update a single source-of-truth feature registry.
+
+Every panel must declare:
+
+- Unique panel ID.
+- Display name.
+- Icon.
+- Route.
+- Module.
+- Description.
+- Required permission.
+- Required plan entitlement.
+- Backend dependency.
+- Local/offline capability.
+- Cloud requirement.
+- Loading state.
+- Empty state.
+- Error state.
+- Test coverage.
+- Implementation status.
+
+Organize navigation into:
+
+1. Home
+2. Business
+3. CRM
+4. Projects
+5. Tasks
+6. Calendar
+7. Time
+8. Finance
+9. Documents
+10. Knowledge
+11. AI Copilot
+12. AI Workforce
+13. Automations
+14. Analytics
+15. Client Portal
+16. Integrations
+17. Cloud Sync
+18. Security
+19. Settings
+20. Help and Support
+
+Do not show planned panels as fully implemented.
+
+Use clear status labels:
+- Implemented and tested.
+- Implemented, not integration-tested.
+- Partially implemented.
+- Planned.
+- Blocked by external requirement.
+- Disabled.
+
+==================================================
+PART 8 — LIBRARY SELECTION RULES
+==================================================
+
+Audit the existing dependencies before adding new ones.
+
+Existing stack to preserve unless evidence justifies change:
+
+- React.
+- TypeScript.
+- Vite.
+- Tailwind CSS.
+- Dexie.
+- Express.
+- Zod.
+- big.js.
+- Lucide React.
+- Recharts.
+- Vitest.
+- Playwright.
+- axe-core.
+- Google Gen AI SDK.
+
+Potential additions, only when needed:
+
+- TanStack Query: remote server state.
+- React Hook Form: complex forms.
+- Radix UI or shadcn/ui: accessible primitives.
+- TanStack Table: advanced data tables.
+- dnd-kit: drag-and-drop boards.
+- date-fns: date utilities.
+- DOMPurify: HTML sanitization where HTML rendering exists.
+- Pino: structured server logging.
+- OpenTelemetry: observability.
+- pg: PostgreSQL driver if direct server-side PostgreSQL access is required.
+
+Official links:
+https://tanstack.com/query/latest
+https://react-hook-form.com/
+https://www.radix-ui.com/
+https://ui.shadcn.com/
+https://tanstack.com/table/latest
+https://dndkit.com/
+https://date-fns.org/
+https://github.com/cure53/DOMPurify
+https://getpino.io/
+https://opentelemetry.io/docs/
+https://node-postgres.com/
+
+Before adding any dependency:
+1. Verify compatibility.
+2. Verify maintenance.
+3. Verify license.
+4. Verify bundle impact.
+5. Verify security.
+6. Explain the need.
+7. Prefer existing dependencies if they already solve the problem.
+
+Do not add all suggested packages automatically.
+
+==================================================
+PART 9 — BACKEND DIRECTORY AND MODULE REQUIREMENTS
+==================================================
+
+Inspect existing structure first.
+
+Extend the existing structure rather than blindly creating duplicate directories.
+
+A logical modular backend should cover:
+
+server/
+  api/
+  auth/
+  authorization/
+  database/
+    migrations/
+    repositories/
+    providers/
+  workspaces/
+  users/
+  clients/
+  projects/
+  tasks/
+  finance/
+  documents/
+  storage/
+  sync/
+  ai/
+    providers/
+    agents/
+    orchestration/
+    evaluation/
+  knowledge/
+  datasets/
+  workflows/
+  webhooks/
+  integrations/
+  notifications/
+  billing/
+  jobs/
+  audit/
+  security/
+  observability/
+  validation/
+  tests/
+
+These are architectural responsibilities, not mandatory empty folders.
+
+Every implemented service must have actual logic, input validation, error handling and tests.
+
+Use repository/service/controller separation where it improves maintainability.
+
+Avoid oversized files and circular dependencies.
+
+==================================================
+PART 10 — TESTING AND ACCEPTANCE RULES
+==================================================
+
+For every phase:
+
+- Add tests with the feature.
+- Run targeted tests.
+- Run regression tests.
+- Inspect failures.
+- Fix root causes.
+- Re-run affected tests.
+- Document results.
+
+Required database test scenarios:
+
+A. Existing data remains intact.
+B. Migration can run on an empty database.
+C. Migration can safely handle an already migrated database.
+D. Migration failure rolls back safely.
+E. Workspace A cannot access Workspace B.
+F. User A cannot access User B's private records.
+G. Client cannot access internal notes.
+H. Offline changes survive browser restart.
+I. Duplicate sync requests do not duplicate records.
+J. Conflict resolution does not silently lose financial data.
+K. Revoked access immediately prevents protected operations.
+L. Deleted cloud records propagate correctly through tombstones.
+
+AI test scenarios:
+
+A. Read-only agents cannot write.
+B. Draft-only agents cannot send.
+C. Approval-required agents cannot bypass approval.
+D. Orchestrator cannot expand child permissions.
+E. Prompt injection cannot change permission scope.
+F. Restricted knowledge is not retrieved.
+G. Unsupported answers are marked uncertain.
+H. Citations point to retrieved source records.
+I. Cancellation works.
+J. Usage and cost limits work.
+
+Finance tests:
+
+- Decimal arithmetic.
+- Rounding.
+- Tax.
+- Discounts.
+- Refunds.
+- Partial payments.
+- Duplicate payments.
+- Currency conversions.
+- Negative values.
+- Very large values.
+- Timezone boundaries.
+
+==================================================
+PART 11 — DOCUMENTATION DELIVERABLES
+==================================================
+
+Create or update:
+
+docs/PHASE_36_60_RESEARCH.md
+docs/PHASE_36_60_TECH_STACK_DECISIONS.md
+docs/PHASE_36_60_DEPENDENCY_AUDIT.md
+docs/PHASE_36_60_DATASET_CATALOG.md
+docs/PHASE_36_60_INTEGRATION_CATALOG.md
+docs/PHASE_36_DATABASE_RECONCILIATION.md
+docs/PHASE_37_POSTGRESQL_SCHEMA.md
+docs/PHASE_38_AUTH_ARCHITECTURE.md
+docs/PHASE_39_RLS_SECURITY.md
+docs/PHASE_40_SYNC_ENGINE.md
+docs/PHASE_41_CRM.md
+docs/PHASE_42_PROJECTS.md
+docs/PHASE_43_FINANCE.md
+docs/PHASE_44_DOCUMENTS.md
+docs/PHASE_45_PRODUCTIVITY.md
+docs/PHASE_46_AI_PROVIDER_GATEWAY.md
+docs/PHASE_47_AGENT_WORKFORCE.md
+docs/PHASE_48_RAG_EVALUATION.md
+docs/PHASE_49_DATASET_GOVERNANCE.md
+docs/PHASE_50_AUTOMATION_BI.md
+docs/PHASE_51_CALENDAR_EMAIL.md
+docs/PHASE_52_PAYMENT_INTEGRATIONS.md
+docs/PHASE_53_WEBHOOKS.md
+docs/PHASE_54_CLIENT_PORTAL.md
+docs/PHASE_55_IMPORT_EXPORT.md
+docs/PHASE_56_DESIGN_SYSTEM.md
+docs/PHASE_57_ACCESSIBILITY.md
+docs/PHASE_58_SECURITY_AUDIT.md
+docs/PHASE_59_PERFORMANCE.md
+docs/PHASE_60_RELEASE_READINESS.md
+docs/PHASE_36_60_IMPLEMENTATION_MATRIX.md
+docs/PHASE_36_60_FINAL_REPORT.md
+docs/PHASE_36_60_KNOWN_LIMITATIONS.md
+
+Update existing documentation instead of creating duplicate reports when equivalent files already exist.
+
+==================================================
+PART 12 — FINAL EXECUTION INSTRUCTIONS
+==================================================
+
+DO NOT STOP AFTER WRITING A PLAN.
+
+Start by inspecting the repository.
+
+Then:
+
+1. Report the current branch and commit.
+2. Report the working tree status.
+3. Create a complete implementation inventory.
+4. Identify architecture/security blockers.
+5. Complete Phase 36 research and reconciliation.
+6. Implement Phase 36 and its tests.
+7. Continue phases sequentially through Phase 60.
+8. Use acceptance gates.
+9. Preserve all existing functionality.
+10. Maintain offline-first behavior throughout.
+
+If Supabase credentials are unavailable:
+- Continue all local implementation.
+- Prepare migrations.
+- Validate SQL locally where possible.
+- Document the exact external blocker.
+- Do not claim remote migration success.
+
+If provider API keys are unavailable:
+- Implement the adapter.
+- Test with isolated mock fixtures.
+- Clearly mark live provider connectivity as unverified.
+
+If payment credentials are unavailable:
+- Implement the safe provider interface.
+- Do not simulate real payments.
+- Mark live checkout blocked.
+
+Do not build every module as a superficial panel.
+
+Each completed module must include:
+- Real frontend functionality.
+- Real backend/service logic where applicable.
+- Database persistence.
+- Offline behavior where appropriate.
+- Permissions.
+- Validation.
+- Error handling.
+- Tests.
+- Documentation.
+
+FINAL RESPONSE MUST INCLUDE:
+
+1. Completed phases.
+2. Partially completed phases.
+3. Blocked phases.
+4. Files created.
+5. Files modified.
+6. Database changes.
+7. Migration status.
+8. Security findings.
+9. Test results.
+10. Build results.
+11. Bundle size changes.
+12. Accessibility results.
+13. Dataset licenses and provenance.
+14. Provider integration status.
+15. Payment integration status.
+16. Remaining limitations.
+17. Exact next action.
+
+Never claim that all 25 phases are complete if any acceptance gate remains unmet.
+
+The objective is not maximum feature count.
+
+The objective is a reliable, secure, maintainable, genuinely useful SOLODESK AI that works offline, synchronizes safely online, protects business data and can eventually be sold commercially.
+
+BEGIN WITH REPOSITORY INSPECTION AND PHASE 36.

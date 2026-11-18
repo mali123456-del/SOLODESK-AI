@@ -32,6 +32,7 @@ export type AppRouteId =
   | 'settings-ai'
   | 'settings-backup'
   | 'settings-privacy'
+  | 'settings-cloud-sync'
   | 'security-center'
   | 'help-plans'
   | 'about'
@@ -256,6 +257,12 @@ export const APP_NAVIGATION: NavItemConfig[] = [
     label: 'Privacy & Diagnostics',
     group: 'Settings',
     description: 'Local storage transparency, persistence status, and DB health diagnostics.',
+  },
+  {
+    id: 'settings-cloud-sync',
+    label: 'Cloud Sync',
+    group: 'Settings',
+    description: 'Configure Auto-sync background behavior, offline queue pause/resume, and sync checkpoints.',
   },
   {
     id: 'security-center',

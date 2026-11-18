@@ -19,6 +19,7 @@ import { repositories } from '../../database/repositories/dexieRepositories';
 import { formatDisplayDate, todayDateStr } from '../../domain/calculations/dates';
 import type { Appointment } from '../../domain/schemas/entities';
 import { buildFollowUpQueue, type FollowUpQueueItem } from '../../services/communicationService';
+import { buildAppointmentIcsContent } from '../../integrations/calendarEmailAdapter';
 import { downloadTextFile } from '../../export/csvUtils';
 
 export const CommunicationHubView: React.FC = () => {
@@ -83,21 +84,15 @@ export const CommunicationHubView: React.FC = () => {
   }, [appointments, date, startTime, durationMinutes, editing]);
 
   const exportIcsInvite = (apt: Appointment) => {
-    const cleanDate = apt.date.replace(/-/g, '');
-    const cleanTime = apt.startTime.replace(':', '') + '00';
-    const ics = [
-      'BEGIN:VCALENDAR',
-      'VERSION:2.0',
-      'PRODID:-//SOLODESK AI//Workspace//EN',
-      'BEGIN:VEVENT',
-      `UID:${apt.id}@solodesk.local`,
-      `DTSTART:${cleanDate}T${cleanTime}`,
-      `SUMMARY:${apt.title}`,
-      `LOCATION:${apt.locationOrLink || 'Online'}`,
-      `DESCRIPTION:${(apt.meetingNotes || '').replace(/\n/g, '\\n')}`,
-      'END:VEVENT',
-      'END:VCALENDAR',
-    ].join('\r\n');
+    const ics = buildAppointmentIcsContent({
+      uid: apt.id,
+      title: apt.title,
+      date: apt.date,
+      startTime: apt.startTime,
+      durationMinutes: apt.durationMinutes,
+      location: apt.locationOrLink || 'Online',
+      description: apt.meetingNotes || '',
+    });
     downloadTextFile(`${apt.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ics`, ics);
     pushToast({ title: 'Calendar .ics invite downloaded', tone: 'success' });
   };

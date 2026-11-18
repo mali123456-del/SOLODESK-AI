@@ -128,6 +128,9 @@ export const appSettingsSchema = z.object({
   }),
   retentionDays: z.number().int().min(7).max(3650).optional().default(365),
   tourCompleted: z.boolean().optional().default(false),
+  autoSyncEnabled: z.boolean().optional().default(true),
+  syncPaused: z.boolean().optional().default(false),
+  syncCursor: z.string().optional().default(''),
   updatedAt: isoTimestampSchema,
 });
 export type AppSettings = z.infer<typeof appSettingsSchema>;

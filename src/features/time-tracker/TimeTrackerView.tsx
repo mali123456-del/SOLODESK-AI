@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Clock, Download, Play, Plus, Square, Trash2 } from 'lucide-react';
 import {
   Badge,
@@ -28,7 +28,17 @@ import type { TimeEntry } from '../../domain/schemas/entities';
 import { buildCsvContent, downloadTextFile } from '../../export/csvUtils';
 
 export const TimeTrackerView: React.FC = () => {
-  const { timeEntries, projects, tasks, settings, refresh } = useWorkspace();
+  const {
+    timeEntries,
+    projects,
+    tasks,
+    settings,
+    runningTimer,
+    timerElapsedSeconds,
+    startGlobalTimer,
+    stopGlobalTimer,
+    refresh,
+  } = useWorkspace();
   const { pushToast } = useToast();
 
   const [description, setDescription] = useState('');
@@ -36,7 +46,6 @@ export const TimeTrackerView: React.FC = () => {
   const [taskId, setTaskId] = useState('');
   const [hourlyRate, setHourlyRate] = useState(String(settings?.defaultHourlyRate ?? 50));
   const [billable, setBillable] = useState(true);
-  const [nowMs, setNowMs] = useState(() => Date.now());
   const [manualOpen, setManualOpen] = useState(false);
   const [manualMinutes, setManualMinutes] = useState('60');
   const [manualDate, setManualDate] = useState(todayDateStr());
@@ -44,25 +53,7 @@ export const TimeTrackerView: React.FC = () => {
 
   const defaultCurrency = settings?.defaultCurrency ?? 'USD';
   const dateFormat = settings?.dateFormat ?? 'DD MMM YYYY';
-
-  const runningTimer = useMemo(
-    () => timeEntries.find((t) => t.isRunning) ?? null,
-    [timeEntries]
-  );
-
-  useEffect(() => {
-    if (!runningTimer) return;
-    setNowMs(Date.now());
-    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [runningTimer]);
-
-  const runningElapsedSeconds = useMemo(() => {
-    if (!runningTimer) return 0;
-    const started = Date.parse(runningTimer.startTime);
-    if (Number.isNaN(started)) return 0;
-    return Math.max(0, Math.floor((nowMs - started) / 1000));
-  }, [runningTimer, nowMs]);
+  const runningElapsedSeconds = timerElapsedSeconds;
 
   const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
   const taskMap = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
@@ -82,7 +73,7 @@ export const TimeTrackerView: React.FC = () => {
       return;
     }
     try {
-      await repositories.startTimer({
+      await startGlobalTimer({
         description: description.trim(),
         projectId,
         taskId,
@@ -90,8 +81,7 @@ export const TimeTrackerView: React.FC = () => {
         billable,
       });
       setDescription('');
-      await refresh();
-      pushToast({ tone: 'success', title: 'Timer started' });
+      pushToast({ tone: 'success', title: 'Global timer started (persists offline & across views)' });
     } catch (err) {
       pushToast({
         tone: 'error',
@@ -103,8 +93,7 @@ export const TimeTrackerView: React.FC = () => {
 
   const handleStop = async () => {
     if (!runningTimer) return;
-    await repositories.stopTimer(runningTimer.id);
-    await refresh();
+    await stopGlobalTimer(runningTimer.id);
     pushToast({ tone: 'info', title: 'Timer stopped and logged' });
   };
 
