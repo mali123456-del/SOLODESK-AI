@@ -5,15 +5,20 @@ import crypto from 'node:crypto';
 export const tracer = trace.getTracer('solodesk-saas-backend', '1.0.0');
 
 const SENSITIVE_KEY_RE =
-  /^(password|passwordhash|token|tokenhash|secret|apikey|api_key|authorization|cookie|x-gemini-key|passphrase)$/i;
+  /password|token|secret|apikey|api_key|authorization|cookie|x-gemini-key|passphrase|credential|private_?key/i;
+
+function scrubStringSecrets(input: string): string {
+  return input
+    .replace(/AIza[0-9A-Za-z_-]{16,}/g, '[REDACTED_KEY]')
+    .replace(/sk-[0-9A-Za-z_-]{16,}/g, '[REDACTED_KEY]')
+    .replace(/Bearer\s+[A-Za-z0-9._-]{8,}/gi, 'Bearer [REDACTED_TOKEN]')
+    .replace(/\bsd(?:r|i|wh)?_[0-9a-f]{16,}\b/gi, '[REDACTED_TOKEN]');
+}
 
 export function scrubSensitiveData(value: unknown): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value === 'string') {
-    if (/^AIza[0-9A-Za-z_-]{16,}/.test(value) || /^sk-[0-9A-Za-z_-]{16,}/.test(value)) {
-      return '[REDACTED_KEY]';
-    }
-    return value;
+    return scrubStringSecrets(value);
   }
   if (Array.isArray(value)) {
     return value.map(scrubSensitiveData);

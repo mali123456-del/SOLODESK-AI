@@ -6,6 +6,7 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     page,
     context,
   }) => {
+    test.setTimeout(120_000);
     const pageErrors: string[] = [];
     const consoleErrors: string[] = [];
     const failedUrls: string[] = [];
@@ -174,6 +175,72 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await expect(page.getByLabel('Primary Workspace Navigation')).not.toBeVisible();
     await page.getByRole('button', { name: 'Exit Focus Mode' }).first().click();
     await expect(page.getByLabel('Primary Workspace Navigation')).toBeVisible();
+
+    // 7d. Dashboard Quick Notes & Daily Task Completion Goal persistence
+    await page.goto('/#/dashboard');
+    const quickNotesInput = page.getByLabel('Temporary Notes & Reminders');
+    await quickNotesInput.fill('E2E scratchpad reminder');
+    await page.getByRole('button', { name: /Save Note/i }).click();
+    await expect(page.getByText(/Saved locally/i)).toBeVisible();
+
+    await page.getByLabel('Daily task target').fill('2');
+    await page.getByRole('button', { name: /Update Target/i }).click();
+    await expect(page.getByTestId('daily-task-goal-ratio')).toHaveText('0/2');
+
+    await page.goto('/#/tasks');
+    await page.getByRole('button', { name: 'Complete Architecture Audit' }).click();
+
+    await page.goto('/#/dashboard');
+    await expect(page.getByTestId('daily-task-goal-ratio')).toHaveText('1/2');
+    await expect(page.getByTestId('daily-task-goal-percent')).toHaveText('50%');
+
+    await page.reload();
+    await expect(page.getByLabel('Temporary Notes & Reminders')).toHaveValue('E2E scratchpad reminder');
+    await expect(page.getByTestId('daily-task-goal-ratio')).toHaveText('1/2');
+    await expect(page.getByTestId('daily-task-goal-percent')).toHaveText('50%');
+
+    await page.getByRole('button', { name: /Clear Note/i }).click();
+    await page.getByRole('button', { name: 'Clear Scratchpad' }).click();
+    await expect(page.getByLabel('Temporary Notes & Reminders')).toHaveValue('');
+
+    // 7e. Phases 63-66: Workspace creation, isolation, reload persistence, unsaved draft switch guard & Cloud Sync states
+    await page.getByTestId('workspace-switcher-trigger').click();
+    await expect(page.getByRole('heading', { name: 'Workspaces' })).toBeVisible();
+    await page.getByLabel('Create New Isolated Workspace').fill('E2E Isolated Studio');
+    await page.getByRole('button', { name: /Create Workspace/i }).click();
+    await expect(page.getByTestId('active-workspace-name')).toHaveText('E2E Isolated Studio');
+    await expect(page.getByTestId('daily-task-goal-ratio')).toHaveText('0/—');
+
+    await page.goto('/#/clients');
+    await expect(page.getByText('E2E Horizon Labs')).toHaveCount(0);
+
+    await page.reload();
+    await expect(page.getByTestId('active-workspace-name')).toHaveText('E2E Isolated Studio');
+
+    await page.goto('/#/dashboard');
+    await page.getByLabel('Temporary Notes & Reminders').fill('Unsaved E2E Studio Draft');
+    await page.getByTestId('workspace-switcher-trigger').click();
+    await page.getByRole('button', { name: 'Switch', exact: true }).click();
+    await expect(page.getByText('Unsaved Quick Notes Draft')).toBeVisible();
+    await page.getByRole('button', { name: 'Discard Draft & Switch' }).click();
+    await expect(page.getByTestId('active-workspace-name')).toHaveText('Local Workspace');
+    await expect(page.getByTestId('daily-task-goal-ratio')).toHaveText('1/2');
+
+    // Delete isolated secondary workspace with explicit confirmation
+    await page.getByTestId('workspace-switcher-trigger').click();
+    await page.getByRole('button', { name: 'Delete E2E Isolated Studio' }).click();
+    await expect(page.getByText(/Delete workspace "E2E Isolated Studio"\?/i)).toBeVisible();
+    await page.getByRole('button', { name: 'Delete Workspace' }).click();
+    await expect(page.getByRole('button', { name: 'Delete E2E Isolated Studio' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    // Cloud Sync 6-state lifecycle & conflict resolution without fake ACK
+    await page.goto('/#/cloud-sync');
+    await expect(page.getByText('Local Only', { exact: true }).first()).toBeVisible();
+    await page.getByRole('button', { name: /Test Conflict/i }).click();
+    await expect(page.getByText('Conflict', { exact: true }).first()).toBeVisible();
+    await page.getByRole('button', { name: 'Resolve' }).first().click();
+    await expect(page.getByText('Pending', { exact: true }).first()).toBeVisible();
 
     await page.goto('/#/projects');
     await page.getByRole('button', { name: /Gantt Timeline/i }).click();

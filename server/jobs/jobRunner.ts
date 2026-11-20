@@ -1,6 +1,14 @@
 import crypto from 'node:crypto';
+import dns from 'node:dns/promises';
+import http from 'node:http';
+import https from 'node:https';
+import net from 'node:net';
 import type { DatabaseSync } from 'node:sqlite';
-import { validatePublicHttpUrl } from '../../src/security/urlPolicy';
+import { validatePublicHttpUrl, validateResolvedIpAddress } from '../../src/security/urlPolicy';
+
+export type LookupAllFn = (
+  hostname: string
+) => Promise<Array<{ address: string; family: number }>>;
 
 export function signHmacSha256(secret: string, bodyJson: string): string {
   if (!secret) return '';
@@ -113,6 +121,115 @@ export function registerServerWebhook(
   };
 }
 
+export async function resolveAndValidatePinnedAddress(
+  hostname: string,
+  lookupImpl?: LookupAllFn
+): Promise<{ address: string; family: 4 | 6 }> {
+  const bareHost = hostname.replace(/^\[|\]$/g, '');
+  const ipFamily = net.isIP(bareHost);
+  if (ipFamily === 4 || ipFamily === 6) {
+    const check = validateResolvedIpAddress(bareHost);
+    if (!check.valid || !check.normalizedIp) {
+      throw new Error(check.reason || 'Webhook IP literal is blocked.');
+    }
+    return { address: check.normalizedIp, family: ipFamily };
+  }
+
+  const resolver = lookupImpl ?? ((h: string) => dns.lookup(h, { all: true }));
+  let resolved: Array<{ address: string; family: number }>;
+  try {
+    resolved = await resolver(bareHost);
+  } catch (err) {
+    throw new Error(
+      `Webhook DNS resolution failed (fail-closed): ${err instanceof Error ? err.message : 'DNS lookup error'}`
+    );
+  }
+
+  if (!Array.isArray(resolved) || resolved.length === 0) {
+    throw new Error('Webhook hostname did not resolve to any IP addresses (fail-closed).');
+  }
+
+  for (const addr of resolved) {
+    const check = validateResolvedIpAddress(addr.address);
+    if (!check.valid) {
+      throw new Error(
+        check.reason || 'Webhook hostname resolved to a blocked private/reserved IP.'
+      );
+    }
+  }
+
+  const first = resolved[0]!;
+  const family: 4 | 6 = first.family === 6 || first.address.includes(':') ? 6 : 4;
+  return { address: first.address, family };
+}
+
+export async function dispatchPinnedWebhookRequest(input: {
+  url: string;
+  headers: Record<string, string>;
+  bodyJson: string;
+  timeoutMs?: number;
+  lookupImpl?: LookupAllFn;
+}): Promise<{ statusCode: number; ok: boolean }> {
+  const urlCheck = validatePublicHttpUrl(input.url);
+  if (!urlCheck.valid || !urlCheck.parsed) {
+    throw new Error(urlCheck.reason || 'SSRF validation failed');
+  }
+
+  const targetUrl = urlCheck.parsed;
+  const pinned = await resolveAndValidatePinnedAddress(targetUrl.hostname, input.lookupImpl);
+  const timeoutMs = input.timeoutMs ?? 8000;
+  const isHttps = targetUrl.protocol === 'https:';
+  const transport = isHttps ? https : http;
+
+  return new Promise<{ statusCode: number; ok: boolean }>((resolve, reject) => {
+    const req = transport.request(
+      {
+        protocol: targetUrl.protocol,
+        hostname: targetUrl.hostname,
+        port: targetUrl.port ? Number(targetUrl.port) : isHttps ? 443 : 80,
+        path: `${targetUrl.pathname}${targetUrl.search}`,
+        method: 'POST',
+        headers: {
+          ...input.headers,
+          Host: targetUrl.host,
+          'Content-Length': String(Buffer.byteLength(input.bodyJson, 'utf8')),
+        },
+        // Connection-time pinned lookup prevents TOCTOU DNS rebinding between preflight and TCP connect
+        lookup: (_host, optsOrCb, maybeCb) => {
+          const cb = (typeof optsOrCb === 'function' ? optsOrCb : maybeCb) as (
+            err: Error | null,
+            address: string | Array<{ address: string; family: number }>,
+            family?: number
+          ) => void;
+          const opts = typeof optsOrCb === 'object' && optsOrCb !== null ? optsOrCb : {};
+          if ((opts as { all?: boolean }).all) {
+            cb(null, [{ address: pinned.address, family: pinned.family }]);
+          } else {
+            cb(null, pinned.address, pinned.family);
+          }
+        },
+        ...(isHttps ? { servername: targetUrl.hostname } : {}),
+      },
+      (res) => {
+        const statusCode = res.statusCode ?? 0;
+        res.resume();
+        // Reject HTTP redirects instead of following them (matches redirect: 'error')
+        if (statusCode >= 300 && statusCode < 400) {
+          reject(new Error(`Redirect response (${statusCode}) blocked by webhook SSRF policy.`));
+          return;
+        }
+        resolve({ statusCode, ok: statusCode >= 200 && statusCode < 300 });
+      }
+    );
+
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Webhook request timed out after ${timeoutMs}ms.`));
+    });
+    req.on('error', (err) => reject(err));
+    req.end(input.bodyJson);
+  });
+}
+
 export async function dispatchServerWebhookTest(
   db: DatabaseSync,
   input: {
@@ -120,6 +237,7 @@ export async function dispatchServerWebhookTest(
     webhookId: string;
     signingSecret?: string;
     fetchImpl?: typeof fetch;
+    lookupImpl?: LookupAllFn;
   }
 ) {
   const hook = db
@@ -135,6 +253,11 @@ export async function dispatchServerWebhookTest(
   const urlCheck = validatePublicHttpUrl(hook.url);
   if (!urlCheck.valid || !urlCheck.normalizedUrl) {
     throw new Error(urlCheck.reason || 'SSRF validation failed');
+  }
+
+  // Validate DNS resolution before issuing delivery (fails closed on private/reserved/missing DNS)
+  if (urlCheck.parsed && (!input.fetchImpl || input.lookupImpl)) {
+    await resolveAndValidatePinnedAddress(urlCheck.parsed.hostname, input.lookupImpl);
   }
 
   const deliveryId = `del_${crypto.randomUUID()}`;
@@ -153,29 +276,42 @@ export async function dispatchServerWebhookTest(
   let ok = false;
   let errorMessage = '';
 
-  const fetchFn = input.fetchImpl ?? fetch;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Solodesk-Delivery-Id': deliveryId,
+    'X-Solodesk-Event': hook.event_type,
+  };
+  if (sig) {
+    headers['X-Solodesk-Signature'] = `sha256=${sig}`;
+  }
+
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'X-Solodesk-Delivery-Id': deliveryId,
-        'X-Solodesk-Event': hook.event_type,
-      };
-      if (sig) {
-        headers['X-Solodesk-Signature'] = `sha256=${sig}`;
+    if (input.fetchImpl) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await input.fetchImpl(urlCheck.normalizedUrl, {
+          method: 'POST',
+          headers,
+          body: bodyJson,
+          redirect: 'error',
+          signal: controller.signal,
+        });
+        statusCode = res.status;
+        ok = res.ok;
+      } finally {
+        clearTimeout(timer);
       }
-      const res = await fetchFn(urlCheck.normalizedUrl, {
-        method: 'POST',
+    } else {
+      const pinnedRes = await dispatchPinnedWebhookRequest({
+        url: urlCheck.normalizedUrl,
         headers,
-        body: bodyJson,
-        signal: controller.signal,
+        bodyJson,
+        timeoutMs: 8000,
+        lookupImpl: input.lookupImpl,
       });
-      statusCode = res.status;
-      ok = res.ok;
-    } finally {
-      clearTimeout(timer);
+      statusCode = pinnedRes.statusCode;
+      ok = pinnedRes.ok;
     }
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : 'Network error during webhook dispatch';
@@ -222,8 +358,8 @@ export function enqueueServerJob(
 ) {
   const idemKey = input.idempotencyKey?.trim() || `job_${crypto.randomUUID()}`;
   const existing = db
-    .prepare('SELECT id, status, created_at FROM jobs WHERE idempotency_key = ?')
-    .get(idemKey) as { id: string; status: string; created_at: string } | undefined;
+    .prepare('SELECT id, status, created_at FROM jobs WHERE workspace_id = ? AND idempotency_key = ?')
+    .get(input.workspaceId, idemKey) as { id: string; status: string; created_at: string } | undefined;
   if (existing) {
     return { ...existing, deduplicated: true };
   }

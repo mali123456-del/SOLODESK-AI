@@ -21,20 +21,27 @@ import {
   type BackendWorkspaceMembership,
 } from '../../services/backendAuthClient';
 import {
+  buildResolvedPendingPatch,
+  pushSyncQueueWithRetry,
   ROLE_PERMISSION_MATRIX,
   resolveSyncConflict,
   summarizeSyncQueue,
+  SYNC_LIFECYCLE_LABELS,
   type WorkspaceMemberRole,
 } from '../../services/cloudSyncService';
 
 export const CloudSyncView: React.FC = () => {
   const {
+    activeWorkspace,
+    activeWorkspaceId,
     syncQueue,
+    syncLifecycleStatus,
     clients,
     projects,
     invoices,
     autoSyncEnabled,
     setAutoSyncEnabled,
+    setRemoteSyncStatus,
     isOnline,
     refresh,
   } = useWorkspace();
@@ -59,6 +66,8 @@ export const CloudSyncView: React.FC = () => {
   const [authDisplayName, setAuthDisplayName] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
   const [lastPulledSummary, setLastPulledSummary] = useState<string>('');
+  const [lastRetrySummary, setLastRetrySummary] = useState<string>('');
+  const [conflictServerRevisions, setConflictServerRevisions] = useState<Record<string, number>>({});
 
   const summary = useMemo(() => summarizeSyncQueue(syncQueue), [syncQueue]);
 
@@ -69,9 +78,12 @@ export const CloudSyncView: React.FC = () => {
       if (res.ok && res.user) {
         setAuthUser(res.user);
         setBackendWorkspaces(res.workspaces ?? []);
+        setRemoteSyncStatus({ remoteConfigured: true });
         if (res.workspaces?.[0]) {
           setWorkspaceSlug(res.workspaces[0].id);
         }
+      } else {
+        setRemoteSyncStatus({ remoteConfigured: Boolean(endpointUrl.trim()) });
       }
     });
     return () => {
@@ -116,19 +128,21 @@ export const CloudSyncView: React.FC = () => {
   };
 
   const handleResolveItem = async (itemId: string) => {
+    const item = syncQueue.find((q) => q.id === itemId);
+    const knownServerRev = conflictServerRevisions[itemId];
+    const nextRevision = item
+      ? Math.max(item.revision + 1, (knownServerRev ?? item.revision) + 1)
+      : undefined;
     const decision = resolveSyncConflict({
       localUpdatedAt: new Date().toISOString(),
       remoteUpdatedAt: new Date(Date.now() - 60_000).toISOString(),
       strategy: conflictStrategy,
     });
-    const pendingPatch = {
-      status: 'pending' as const,
-      conflictReason: `Resolved locally (${decision.winner}: ${decision.reason}) — awaiting server ACK.`,
-    };
+    const pendingPatch = buildResolvedPendingPatch(decision, nextRevision);
     await repositories.updateSyncQueueItem(itemId, pendingPatch);
     pushToast({
       title: `Conflict resolved locally (${decision.winner})`,
-      description: 'Marked pending until backend sync confirms delivery.',
+      description: 'Marked Pending until remote sync server confirms delivery.',
       tone: 'info',
     });
     await refresh();
@@ -136,13 +150,23 @@ export const CloudSyncView: React.FC = () => {
 
   const handlePushSync = async () => {
     setSyncingNow(true);
+    setRemoteSyncStatus({
+      remoteConfigured: Boolean(authUser || endpointUrl.trim()),
+      isSyncingRemote: true,
+    });
     try {
-      const { pushSyncQueueToServer } = await import('../../services/cloudSyncService');
-      const result = await pushSyncQueueToServer({
+      const result = await pushSyncQueueWithRetry({
         endpointUrl: endpointUrl.trim() || '/api/v1',
         workspaceId: workspaceSlug.trim() || 'solo-studio',
         items: syncQueue,
+        maxAttempts: 3,
+        baseDelayMs: 400,
+        maxDelayMs: 4000,
       });
+
+      setLastRetrySummary(
+        `Attempts: ${result.attempts}${result.delaysMs.length > 0 ? ` (backoff: ${result.delaysMs.join('ms, ')}ms)` : ''}`
+      );
 
       for (const ackedId of result.ackedIds) {
         await repositories.updateSyncQueueItem(ackedId, {
@@ -151,12 +175,22 @@ export const CloudSyncView: React.FC = () => {
         });
       }
       for (const conflict of result.conflicts) {
+        if (typeof conflict.serverRevision === 'number') {
+          setConflictServerRevisions((prev) => ({
+            ...prev,
+            [conflict.id]: conflict.serverRevision!,
+          }));
+        }
         await repositories.updateSyncQueueItem(conflict.id, {
           status: 'conflict',
           conflictReason: conflict.reason,
         });
       }
       if (!result.ok) {
+        if (result.httpStatus === 401) {
+          setAuthUser(null);
+          setBackendWorkspaces([]);
+        }
         for (const failedId of result.failedIds) {
           await repositories.updateSyncQueueItem(failedId, {
             status: 'failed',
@@ -164,11 +198,15 @@ export const CloudSyncView: React.FC = () => {
           });
         }
         pushToast({
-          title: 'Remote sync did not complete',
+          title: result.httpStatus === 401 ? 'Sync session expired — sign in again' : 'Remote sync did not complete',
           description: result.errorMessage || 'Sign in to workspace sync server or check endpoint.',
           tone: 'warning',
         });
       } else {
+        setRemoteSyncStatus({
+          remoteConfigured: true,
+          lastRemoteSyncedAt: result.serverTimestamp,
+        });
         pushToast({
           title: `Server ACKed ${result.ackedIds.length} item(s)`,
           tone: 'success',
@@ -177,6 +215,7 @@ export const CloudSyncView: React.FC = () => {
       await refresh();
     } finally {
       setSyncingNow(false);
+      setRemoteSyncStatus({ isSyncingRemote: false });
     }
   };
 
@@ -237,8 +276,12 @@ export const CloudSyncView: React.FC = () => {
         workspaceId: workspaceSlug.trim() || 'solo-studio',
       });
       if (!res.ok) {
+        if (res.httpStatus === 401) {
+          setAuthUser(null);
+          setBackendWorkspaces([]);
+        }
         pushToast({
-          title: 'Sync pull failed',
+          title: res.httpStatus === 401 ? 'Sync session expired — sign in again' : 'Sync pull failed',
           description: res.errorMessage ?? 'Sign in first or check workspace membership.',
           tone: 'warning',
         });
@@ -270,17 +313,34 @@ export const CloudSyncView: React.FC = () => {
             <Info className="w-5 h-5 text-[#2563EB] shrink-0 mt-0.5" aria-hidden="true" />
             <div className="space-y-1.5 text-sm">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-semibold">Remote Sync Endpoint Status:</span>
+                <span className="font-semibold">Sync State:</span>
+                <Badge
+                  tone={
+                    syncLifecycleStatus === 'synced'
+                      ? 'success'
+                      : syncLifecycleStatus === 'conflict' || syncLifecycleStatus === 'failed'
+                        ? 'danger'
+                        : syncLifecycleStatus === 'pending' || syncLifecycleStatus === 'syncing'
+                          ? 'warning'
+                          : 'neutral'
+                  }
+                >
+                  {SYNC_LIFECYCLE_LABELS[syncLifecycleStatus]}
+                </Badge>
                 {authUser ? (
                   <Badge tone="success">Connected ({authUser.email})</Badge>
                 ) : (
-                  <Badge tone="warning">NOT CONFIGURED / LOCAL-ONLY</Badge>
+                  <Badge tone="warning">Remote Server Optional / Unverified Externally</Badge>
                 )}
               </div>
               <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                SOLODESK AI persists all business records locally in IndexedDB with zero mandatory paid backend.
-                When running the optional Node SaaS server (`/api/v1`), sign in on the right to enable cookie-authenticated push/pull sync.
+                <strong>Active Workspace:</strong> {activeWorkspace?.name ?? activeWorkspaceId}. All business records persist locally in isolated IndexedDB. Outbox items stay <em>Pending</em> locally until an authenticated sync server confirms delivery (<em>Synced</em>).
               </p>
+              {lastRetrySummary && (
+                <p className="text-xs font-mono text-slate-500 dark:text-slate-400">
+                  Last push telemetry · {lastRetrySummary}
+                </p>
+              )}
               {lastPulledSummary && (
                 <p className="text-xs font-mono text-emerald-700 dark:text-emerald-300 pt-1">
                   {lastPulledSummary}
@@ -472,12 +532,18 @@ export const CloudSyncView: React.FC = () => {
                           tone={
                             item.status === 'acked'
                               ? 'success'
-                              : item.status === 'conflict'
+                              : item.status === 'conflict' || item.status === 'failed'
                                 ? 'danger'
                                 : 'warning'
                           }
                         >
-                          {item.status}
+                          {item.status === 'acked'
+                            ? 'Synced'
+                            : item.status === 'conflict'
+                              ? 'Conflict'
+                              : item.status === 'failed'
+                                ? 'Failed'
+                                : 'Pending'}
                         </Badge>
                       </div>
                       {item.conflictReason && (

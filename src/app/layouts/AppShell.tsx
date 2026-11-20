@@ -48,7 +48,12 @@ import type { LocalSyncStatus } from '../../core/syncEvents';
 import type { TimeEntry } from '../../domain/schemas/entities';
 import { formatDurationHMS } from '../../domain/calculations/dates';
 import { SolodeskLogo } from '../../assets/SolodeskLogo';
+import { WorkspaceSwitcher } from '../../features/workspaces/WorkspaceSwitcher';
 import { cn } from '../../lib/cn';
+import {
+  SYNC_LIFECYCLE_LABELS,
+  type SyncLifecycleStatus,
+} from '../../services/cloudSyncService';
 import { APP_NAVIGATION, NAV_GROUPS, type AppRouteId } from '../../types/navigation';
 import { useTheme } from '../providers/ThemeProvider';
 
@@ -103,6 +108,7 @@ interface AppShellProps {
   unreadNotifications?: number;
   isOnline?: boolean;
   syncStatus?: LocalSyncStatus;
+  syncLifecycleStatus?: SyncLifecycleStatus;
   pendingSyncCount?: number;
   syncError?: string | null;
   lastSyncedAt?: string | null;
@@ -124,6 +130,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   unreadNotifications = 0,
   isOnline = true,
   syncStatus = 'idle',
+  syncLifecycleStatus = 'local_only',
   pendingSyncCount = 0,
   syncError = null,
   lastSyncedAt = null,
@@ -208,6 +215,9 @@ export const AppShell: React.FC<AppShellProps> = ({
               <SolodeskLogo inverted />
             </button>
           </div>
+          <div className="px-3 pt-3">
+            <WorkspaceSwitcher />
+          </div>
           {renderNavLinks()}
           <div className="p-3 border-t border-slate-800/80">
             <button
@@ -241,6 +251,9 @@ export const AppShell: React.FC<AppShellProps> = ({
               >
                 <X className="w-5 h-5" aria-hidden="true" />
               </button>
+            </div>
+            <div className="px-3 pt-3">
+              <WorkspaceSwitcher />
             </div>
             {renderNavLinks()}
             <div className="p-3 border-t border-slate-800/80">
@@ -350,6 +363,29 @@ export const AppShell: React.FC<AppShellProps> = ({
                   {pendingSyncCount > 1 ? `Syncing DB (${pendingSyncCount})` : 'Syncing DB…'}
                 </span>
               </span>
+            )}
+
+            {!focusModeActive && (
+              <button
+                type="button"
+                onClick={() => handleSelect('cloud-sync')}
+                data-testid="sync-lifecycle-badge"
+                aria-label={`Cloud sync state: ${SYNC_LIFECYCLE_LABELS[syncLifecycleStatus]}`}
+                title="View Cloud Sync outbox & conflict status"
+                className={cn(
+                  'hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium whitespace-nowrap cursor-pointer',
+                  syncLifecycleStatus === 'synced'
+                    ? 'border-emerald-200 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300'
+                    : syncLifecycleStatus === 'conflict' || syncLifecycleStatus === 'failed'
+                      ? 'border-rose-200 dark:border-rose-800/80 bg-rose-50 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200'
+                      : syncLifecycleStatus === 'pending' || syncLifecycleStatus === 'syncing'
+                        ? 'border-amber-200 dark:border-amber-800/80 bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200'
+                        : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#101827] text-slate-700 dark:text-slate-300'
+                )}
+              >
+                <Cloud className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>{SYNC_LIFECYCLE_LABELS[syncLifecycleStatus]}</span>
+              </button>
             )}
 
             {syncStatus === 'error' && (

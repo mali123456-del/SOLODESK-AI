@@ -275,6 +275,50 @@ const MIGRATIONS: MigrationRecord[] = [
       );
     `,
   },
+  {
+    version: 5,
+    name: '005_sync_idempotency_keys',
+    sql: `
+      CREATE TABLE IF NOT EXISTS sync_idempotency_keys (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        idempotency_key TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        response_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, idempotency_key)
+      );
+    `,
+  },
+  {
+    version: 6,
+    name: '006_scope_jobs_idempotency_per_workspace',
+    sql: `
+      CREATE TABLE jobs_v6 (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        job_type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed')),
+        idempotency_key TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT NOT NULL DEFAULT '',
+        run_at TEXT NOT NULL,
+        executed_at TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        UNIQUE(workspace_id, idempotency_key)
+      );
+      INSERT INTO jobs_v6 (
+        id, workspace_id, job_type, payload_json, status, idempotency_key,
+        attempts, last_error, run_at, executed_at, created_at
+      )
+      SELECT
+        id, workspace_id, job_type, payload_json, status, idempotency_key,
+        attempts, last_error, run_at, executed_at, created_at
+      FROM jobs;
+      DROP TABLE jobs;
+      ALTER TABLE jobs_v6 RENAME TO jobs;
+    `,
+  },
 ];
 
 export function openSqliteDatabase(dbPath = './data/solodesk-saas.sqlite'): DatabaseSync {

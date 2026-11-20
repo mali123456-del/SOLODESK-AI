@@ -72,7 +72,8 @@ import {
   type WorkflowType,
   type WorkspaceGoal,
 } from '../../domain/schemas/entities';
-import { db as defaultDb, type SolodeskDatabase } from '../db';
+import { type SolodeskDatabase } from '../solodeskDatabase';
+import { getActiveWorkspaceDatabase } from '../workspaceManager';
 import type { ISolodeskRepositories } from './interfaces';
 
 function nowIso(): string {
@@ -80,23 +81,39 @@ function nowIso(): string {
 }
 
 export class DexieSolodeskRepositories implements ISolodeskRepositories {
-  private readonly db: SolodeskDatabase;
+  private readonly explicitDb: SolodeskDatabase | null;
   private readonly emitSyncEvents: boolean;
 
-  constructor(database: SolodeskDatabase = defaultDb, emitSyncEvents = database === defaultDb) {
-    this.db = database;
+  constructor(database?: SolodeskDatabase, emitSyncEvents = !database) {
+    this.explicitDb = database ?? null;
     this.emitSyncEvents = emitSyncEvents;
   }
 
-  private runWrite<T>(label: string, fn: () => Promise<T>): Promise<T> {
-    if (!this.emitSyncEvents) return fn();
-    return trackSyncOperation(label, fn);
+  protected get db(): SolodeskDatabase {
+    return this.explicitDb ?? getActiveWorkspaceDatabase();
+  }
+
+  withDatabase(database: SolodeskDatabase): DexieSolodeskRepositories {
+    if (this.explicitDb === database) return this;
+    return new DexieSolodeskRepositories(database, this.emitSyncEvents);
+  }
+
+  private runWrite<T>(
+    label: string,
+    fn: (scoped: DexieSolodeskRepositories, db: SolodeskDatabase) => Promise<T>
+  ): Promise<T> {
+    const database = this.db;
+    const scoped = this.withDatabase(database);
+    const exec = () => fn(scoped, database);
+    if (!this.emitSyncEvents) return exec();
+    return trackSyncOperation(label, exec);
   }
 
   // --- Profile & Settings ---
 
   async getBusinessProfile(): Promise<BusinessProfile> {
-    const existing = await this.db.businessProfile.get('default');
+    const database = this.db;
+    const existing = await database.businessProfile.get('default');
     if (existing) return existing;
     const created = businessProfileSchema.parse({
       id: 'default',
@@ -111,21 +128,23 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
       paymentInstructions: '',
       updatedAt: nowIso(),
     });
-    await this.db.businessProfile.put(created);
+    await database.businessProfile.put(created);
     return created;
   }
 
   async saveBusinessProfile(input: Partial<BusinessProfile>): Promise<BusinessProfile> {
+    const database = this.db;
     return this.runWrite('Save business profile', async () => {
-      const current = await this.getBusinessProfile();
+      const scoped = this.withDatabase(database);
+      const current = await scoped.getBusinessProfile();
       const updated = businessProfileSchema.parse({
         ...current,
         ...input,
         id: 'default',
         updatedAt: nowIso(),
       });
-      await this.db.businessProfile.put(updated);
-      await this.logActivity({
+      await database.businessProfile.put(updated);
+      await scoped.logActivity({
         entityType: 'settings',
         entityId: 'default',
         action: 'updated',
@@ -135,27 +154,32 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
     });
   }
 
-  async getSettings(): Promise<AppSettings> {
-    const existing = await this.db.appSettings.get('default');
+  async getSettings(databaseOverride?: SolodeskDatabase): Promise<AppSettings> {
+    const database = databaseOverride ?? this.db;
+    const existing = await database.appSettings.get('default');
     if (existing) return existing;
     const created = appSettingsSchema.parse({
       id: 'default',
       updatedAt: nowIso(),
     });
-    await this.db.appSettings.put(created);
+    await database.appSettings.put(created);
     return created;
   }
 
-  async saveSettings(input: Partial<AppSettings>): Promise<AppSettings> {
+  async saveSettings(
+    input: Partial<AppSettings>,
+    databaseOverride?: SolodeskDatabase
+  ): Promise<AppSettings> {
+    const database = databaseOverride ?? this.db;
     return this.runWrite('Save workspace settings', async () => {
-      const current = await this.getSettings();
+      const current = await this.getSettings(database);
       const updated = appSettingsSchema.parse({
         ...current,
         ...input,
         id: 'default',
         updatedAt: nowIso(),
       });
-      await this.db.appSettings.put(updated);
+      await database.appSettings.put(updated);
       return updated;
     });
   }
@@ -189,7 +213,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async createClient(input: Omit<Client, 'id' | 'createdAt' | 'updatedAt'>): Promise<Client> {
-    return this.runWrite('Create client', async () => {
+    return this.runWrite('Create client', async (scoped, db) => {
       const ts = nowIso();
       const record = clientSchema.parse({
         ...input,
@@ -197,8 +221,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: ts,
         updatedAt: ts,
       });
-      await this.db.clients.add(record);
-      await this.logActivity({
+      await db.clients.add(record);
+      await scoped.logActivity({
         entityType: 'client',
         entityId: record.id,
         action: 'created',
@@ -209,8 +233,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async updateClient(id: string, patch: Partial<Client>): Promise<Client> {
-    return this.runWrite('Update client', async () => {
-      const existing = await this.db.clients.get(id);
+    return this.runWrite('Update client', async (scoped, db) => {
+      const existing = await db.clients.get(id);
       if (!existing) throw new Error(`Client ${id} not found.`);
       const updated = clientSchema.parse({
         ...existing,
@@ -219,8 +243,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing.createdAt,
         updatedAt: nowIso(),
       });
-      await this.db.clients.put(updated);
-      await this.logActivity({
+      await db.clients.put(updated);
+      await scoped.logActivity({
         entityType: 'client',
         entityId: id,
         action: 'updated',
@@ -249,8 +273,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
     input: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'risks' | 'okrs' | 'isTemplate'> &
       Partial<Pick<Project, 'risks' | 'okrs' | 'isTemplate'>>
   ): Promise<Project> {
-    return this.runWrite('Create project', async () => {
-      const client = await this.db.clients.get(input.clientId);
+    return this.runWrite('Create project', async (scoped, db) => {
+      const client = await db.clients.get(input.clientId);
       if (!client) throw new Error('Referenced client does not exist.');
       const ts = nowIso();
       const record = projectSchema.parse({
@@ -259,8 +283,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: ts,
         updatedAt: ts,
       });
-      await this.db.projects.add(record);
-      await this.logActivity({
+      await db.projects.add(record);
+      await scoped.logActivity({
         entityType: 'project',
         entityId: record.id,
         action: 'created',
@@ -271,11 +295,11 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async updateProject(id: string, patch: Partial<Project>): Promise<Project> {
-    return this.runWrite('Update project', async () => {
-      const existing = await this.db.projects.get(id);
+    return this.runWrite('Update project', async (scoped, db) => {
+      const existing = await db.projects.get(id);
       if (!existing) throw new Error(`Project ${id} not found.`);
       if (patch.clientId && patch.clientId !== existing.clientId) {
-        const client = await this.db.clients.get(patch.clientId);
+        const client = await db.clients.get(patch.clientId);
         if (!client) throw new Error('Referenced client does not exist.');
       }
       const updated = projectSchema.parse({
@@ -285,8 +309,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing.createdAt,
         updatedAt: nowIso(),
       });
-      await this.db.projects.put(updated);
-      await this.logActivity({
+      await db.projects.put(updated);
+      await scoped.logActivity({
         entityType: 'project',
         entityId: id,
         action: 'updated',
@@ -297,24 +321,24 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async deleteProject(id: string): Promise<void> {
-    return this.runWrite('Delete project', async () => this.db.transaction(
+    return this.runWrite('Delete project', async (scoped, db) => db.transaction(
       'rw',
       [
-        this.db.projects,
-        this.db.tasks,
-        this.db.timeEntries,
-        this.db.invoices,
-        this.db.proposals,
-        this.db.quotations,
-        this.db.contracts,
-        this.db.financeEntries,
-        this.db.activities,
+        db.projects,
+        db.tasks,
+        db.timeEntries,
+        db.invoices,
+        db.proposals,
+        db.quotations,
+        db.contracts,
+        db.financeEntries,
+        db.activities,
       ],
       async () => {
-        const existing = await this.db.projects.get(id);
+        const existing = await db.projects.get(id);
         if (!existing) return;
 
-        const linkedInvoices = await this.db.invoices.where('projectId').equals(id).toArray();
+        const linkedInvoices = await db.invoices.where('projectId').equals(id).toArray();
         const blockingInvoices = linkedInvoices.filter((inv) => inv.status !== 'cancelled');
         if (blockingInvoices.length > 0) {
           throw new ReferentialIntegrityError(
@@ -324,17 +348,17 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
 
         // Safely unlink optional projectId references on child records inside the same atomic transaction
         await Promise.all([
-          this.db.tasks.where('projectId').equals(id).modify({ projectId: '' }),
-          this.db.timeEntries.where('projectId').equals(id).modify({ projectId: '' }),
-          this.db.proposals.where('projectId').equals(id).modify({ projectId: '' }),
-          this.db.quotations.where('projectId').equals(id).modify({ projectId: '' }),
-          this.db.contracts.where('projectId').equals(id).modify({ projectId: '' }),
-          this.db.financeEntries.where('projectId').equals(id).modify({ projectId: '' }),
-          this.db.invoices.where('projectId').equals(id).modify({ projectId: '' }),
+          db.tasks.where('projectId').equals(id).modify({ projectId: '' }),
+          db.timeEntries.where('projectId').equals(id).modify({ projectId: '' }),
+          db.proposals.where('projectId').equals(id).modify({ projectId: '' }),
+          db.quotations.where('projectId').equals(id).modify({ projectId: '' }),
+          db.contracts.where('projectId').equals(id).modify({ projectId: '' }),
+          db.financeEntries.where('projectId').equals(id).modify({ projectId: '' }),
+          db.invoices.where('projectId').equals(id).modify({ projectId: '' }),
         ]);
 
-        await this.db.projects.delete(id);
-        await this.logActivity({
+        await db.projects.delete(id);
+        await scoped.logActivity({
           entityType: 'project',
           entityId: id,
           action: 'deleted',
@@ -364,25 +388,25 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
     > &
       Partial<Pick<Task, 'dependsOnIds' | 'estimatedHours' | 'recurrenceRule' | 'autoPriorityScore'>>
   ): Promise<Task> {
-    return this.runWrite('Create task', async () => {
+    return this.runWrite('Create task', async (scoped, db) => {
       if (input.projectId) {
-        const prj = await this.db.projects.get(input.projectId);
+        const prj = await db.projects.get(input.projectId);
         if (!prj) throw new ReferentialIntegrityError('Referenced project does not exist.');
       }
       if (input.clientId) {
-        const cli = await this.db.clients.get(input.clientId);
+        const cli = await db.clients.get(input.clientId);
         if (!cli) throw new ReferentialIntegrityError('Referenced client does not exist.');
       }
       const ts = nowIso();
       const record = taskSchema.parse({
         ...input,
         id: createId('tsk'),
-        completedAt: input.status === 'done' ? ts : '',
+        completedAt: input.status === 'done' ? input.completedAt?.trim() || ts : '',
         createdAt: ts,
         updatedAt: ts,
       });
-      await this.db.tasks.add(record);
-      await this.logActivity({
+      await db.tasks.add(record);
+      await scoped.logActivity({
         entityType: 'task',
         entityId: record.id,
         action: 'created',
@@ -393,22 +417,24 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async updateTask(id: string, patch: Partial<Task>): Promise<Task> {
-    return this.runWrite('Update task', async () => {
-      const existing = await this.db.tasks.get(id);
+    return this.runWrite('Update task', async (scoped, db) => {
+      const existing = await db.tasks.get(id);
       if (!existing) throw new Error(`Task ${id} not found.`);
       if (patch.projectId && patch.projectId !== existing.projectId) {
-        const prj = await this.db.projects.get(patch.projectId);
+        const prj = await db.projects.get(patch.projectId);
         if (!prj) throw new ReferentialIntegrityError('Referenced project does not exist.');
       }
       if (patch.clientId && patch.clientId !== existing.clientId) {
-        const cli = await this.db.clients.get(patch.clientId);
+        const cli = await db.clients.get(patch.clientId);
         if (!cli) throw new ReferentialIntegrityError('Referenced client does not exist.');
       }
       const ts = nowIso();
       const nextStatus = patch.status ?? existing.status;
       let completedAt = existing.completedAt;
       if (nextStatus === 'done' && existing.status !== 'done') {
-        completedAt = ts;
+        completedAt = patch.completedAt?.trim() || ts;
+      } else if (nextStatus === 'done' && existing.status === 'done') {
+        completedAt = patch.completedAt !== undefined ? patch.completedAt : existing.completedAt;
       } else if (nextStatus !== 'done') {
         completedAt = '';
       }
@@ -420,9 +446,9 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing.createdAt,
         updatedAt: ts,
       });
-      await this.db.tasks.put(updated);
+      await db.tasks.put(updated);
       if (nextStatus === 'done' && existing.status !== 'done') {
-        await this.logActivity({
+        await scoped.logActivity({
           entityType: 'task',
           entityId: id,
           action: 'completed',
@@ -434,12 +460,12 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async deleteTask(id: string): Promise<void> {
-    return this.runWrite('Delete task', async () =>
-      this.db.transaction('rw', [this.db.tasks, this.db.timeEntries], async () => {
-        const existing = await this.db.tasks.get(id);
+    return this.runWrite('Delete task', async (_scoped, db) =>
+      db.transaction('rw', [db.tasks, db.timeEntries], async () => {
+        const existing = await db.tasks.get(id);
         if (!existing) return;
-        await this.db.timeEntries.where('taskId').equals(id).modify({ taskId: '' });
-        await this.db.tasks.delete(id);
+        await db.timeEntries.where('taskId').equals(id).modify({ taskId: '' });
+        await db.tasks.delete(id);
       })
     );
   }
@@ -454,16 +480,16 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async createProposal(
     input: Omit<Proposal, 'id' | 'number' | 'createdAt' | 'updatedAt'> & { number?: string }
   ): Promise<Proposal> {
-    return this.runWrite('Create proposal', async () => {
-      const client = await this.db.clients.get(input.clientId);
+    return this.runWrite('Create proposal', async (scoped, db) => {
+      const client = await db.clients.get(input.clientId);
       if (!client) throw new Error('Referenced client does not exist.');
-      return this.db.transaction(
+      return db.transaction(
         'rw',
-        this.db.proposals,
-        this.db.appSettings,
-        this.db.activities,
+        db.proposals,
+        db.appSettings,
+        db.activities,
         async () => {
-          const settings = await this.getSettings();
+          const settings = await scoped.getSettings();
           const assignedNumber =
             input.number?.trim() ||
             `${settings.proposalPrefix}${String(settings.nextProposalSequence).padStart(4, '0')}`;
@@ -475,15 +501,15 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             createdAt: ts,
             updatedAt: ts,
           });
-          await this.db.proposals.add(record);
+          await db.proposals.add(record);
           if (!input.number?.trim()) {
-            await this.db.appSettings.put({
+            await db.appSettings.put({
               ...settings,
               nextProposalSequence: settings.nextProposalSequence + 1,
               updatedAt: ts,
             });
           }
-          await this.logActivity({
+          await scoped.logActivity({
             entityType: 'proposal',
             entityId: record.id,
             action: 'created',
@@ -496,8 +522,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async updateProposal(id: string, patch: Partial<Proposal>): Promise<Proposal> {
-    return this.runWrite('Update proposal', async () => {
-      const existing = await this.db.proposals.get(id);
+    return this.runWrite('Update proposal', async (_scoped, db) => {
+      const existing = await db.proposals.get(id);
       if (!existing) throw new Error(`Proposal ${id} not found.`);
       const updated = proposalSchema.parse({
         ...existing,
@@ -506,14 +532,14 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing.createdAt,
         updatedAt: nowIso(),
       });
-      await this.db.proposals.put(updated);
+      await db.proposals.put(updated);
       return updated;
     });
   }
 
   async deleteProposal(id: string): Promise<void> {
-    return this.runWrite('Delete proposal', async () => {
-      await this.db.proposals.delete(id);
+    return this.runWrite('Delete proposal', async (_scoped, db) => {
+      await db.proposals.delete(id);
     });
   }
 
@@ -527,8 +553,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async createQuotation(
     input: Omit<Quotation, 'id' | 'number' | 'createdAt' | 'updatedAt'> & { number?: string }
   ): Promise<Quotation> {
-    return this.runWrite('Create quotation', async () => {
-      const client = await this.db.clients.get(input.clientId);
+    return this.runWrite('Create quotation', async (scoped, db) => {
+      const client = await db.clients.get(input.clientId);
       if (!client) throw new Error('Referenced client does not exist.');
 
       const totals = calculateDocumentTotals(
@@ -542,13 +568,13 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         getCurrencyDecimals(input.currency)
       );
 
-      return this.db.transaction(
+      return db.transaction(
         'rw',
-        this.db.quotations,
-        this.db.appSettings,
-        this.db.activities,
+        db.quotations,
+        db.appSettings,
+        db.activities,
         async () => {
-          const settings = await this.getSettings();
+          const settings = await scoped.getSettings();
           const assignedNumber =
             input.number?.trim() ||
             `${settings.quotationPrefix}${String(settings.nextQuotationSequence).padStart(4, '0')}`;
@@ -561,15 +587,15 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             createdAt: ts,
             updatedAt: ts,
           });
-          await this.db.quotations.add(record);
+          await db.quotations.add(record);
           if (!input.number?.trim()) {
-            await this.db.appSettings.put({
+            await db.appSettings.put({
               ...settings,
               nextQuotationSequence: settings.nextQuotationSequence + 1,
               updatedAt: ts,
             });
           }
-          await this.logActivity({
+          await scoped.logActivity({
             entityType: 'quotation',
             entityId: record.id,
             action: 'created',
@@ -582,8 +608,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async updateQuotation(id: string, patch: Partial<Quotation>): Promise<Quotation> {
-    return this.runWrite('Update quotation', async () => {
-      const existing = await this.db.quotations.get(id);
+    return this.runWrite('Update quotation', async (_scoped, db) => {
+      const existing = await db.quotations.get(id);
       if (!existing) throw new Error(`Quotation ${id} not found.`);
       const merged = { ...existing, ...patch };
       const totals = calculateDocumentTotals(
@@ -603,7 +629,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing.createdAt,
         updatedAt: nowIso(),
       });
-      await this.db.quotations.put(updated);
+      await db.quotations.put(updated);
       return updated;
     });
   }
@@ -612,18 +638,18 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
     quotationId: string,
     dueDate: string
   ): Promise<{ quotation: Quotation; invoice: Invoice }> {
-    return this.runWrite('Convert quotation to invoice', async () =>
-      this.db.transaction(
+    return this.runWrite('Convert quotation to invoice', async (scoped, db) =>
+      db.transaction(
         'rw',
-        [this.db.quotations, this.db.invoices, this.db.appSettings, this.db.businessProfile, this.db.activities],
+        [db.quotations, db.invoices, db.appSettings, db.businessProfile, db.activities],
         async () => {
-          const quotation = await this.db.quotations.get(quotationId);
+          const quotation = await db.quotations.get(quotationId);
           if (!quotation) throw new Error(`Quotation ${quotationId} not found.`);
           if (quotation.convertedInvoiceId || quotation.status === 'converted') {
             throw new Error('This quotation has already been converted into an invoice.');
           }
 
-          const existingLinked = await this.db.invoices
+          const existingLinked = await db.invoices
             .where('quotationId')
             .equals(quotationId)
             .first();
@@ -631,11 +657,11 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             throw new Error(`Quotation already linked to invoice ${existingLinked.number}.`);
           }
 
-          const settings = await this.getSettings();
-          const profile = await this.getBusinessProfile();
+          const settings = await scoped.getSettings();
+          const profile = await scoped.getBusinessProfile();
           let seq = settings.nextInvoiceSequence;
           let invoiceNumber = `${settings.invoicePrefix}${String(seq).padStart(4, '0')}`;
-          while (await this.db.invoices.where('number').equals(invoiceNumber).first()) {
+          while (await db.invoices.where('number').equals(invoiceNumber).first()) {
             seq += 1;
             invoiceNumber = `${settings.invoicePrefix}${String(seq).padStart(4, '0')}`;
           }
@@ -678,14 +704,14 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             updatedAt: ts,
           });
 
-          await this.db.invoices.add(invoice);
-          await this.db.quotations.put(updatedQuotation);
-          await this.db.appSettings.put({
+          await db.invoices.add(invoice);
+          await db.quotations.put(updatedQuotation);
+          await db.appSettings.put({
             ...settings,
             nextInvoiceSequence: seq + 1,
             updatedAt: ts,
           });
-          await this.logActivity({
+          await scoped.logActivity({
             entityType: 'quotation',
             entityId: quotation.id,
             action: 'converted',
@@ -699,8 +725,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async deleteQuotation(id: string): Promise<void> {
-    return this.runWrite('Delete quotation', async () => {
-      await this.db.quotations.delete(id);
+    return this.runWrite('Delete quotation', async (_scoped, db) => {
+      await db.quotations.delete(id);
     });
   }
 
@@ -714,16 +740,16 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async createContract(
     input: Omit<Contract, 'id' | 'number' | 'createdAt' | 'updatedAt'> & { number?: string }
   ): Promise<Contract> {
-    return this.runWrite('Create contract', async () => {
-      const client = await this.db.clients.get(input.clientId);
+    return this.runWrite('Create contract', async (scoped, db) => {
+      const client = await db.clients.get(input.clientId);
       if (!client) throw new Error('Referenced client does not exist.');
-      return this.db.transaction(
+      return db.transaction(
         'rw',
-        this.db.contracts,
-        this.db.appSettings,
-        this.db.activities,
+        db.contracts,
+        db.appSettings,
+        db.activities,
         async () => {
-          const settings = await this.getSettings();
+          const settings = await scoped.getSettings();
           const assignedNumber =
             input.number?.trim() ||
             `${settings.contractPrefix}${String(settings.nextContractSequence).padStart(4, '0')}`;
@@ -735,15 +761,15 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             createdAt: ts,
             updatedAt: ts,
           });
-          await this.db.contracts.add(record);
+          await db.contracts.add(record);
           if (!input.number?.trim()) {
-            await this.db.appSettings.put({
+            await db.appSettings.put({
               ...settings,
               nextContractSequence: settings.nextContractSequence + 1,
               updatedAt: ts,
             });
           }
-          await this.logActivity({
+          await scoped.logActivity({
             entityType: 'contract',
             entityId: record.id,
             action: 'created',
@@ -756,8 +782,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async updateContract(id: string, patch: Partial<Contract>): Promise<Contract> {
-    return this.runWrite('Update contract', async () => {
-      const existing = await this.db.contracts.get(id);
+    return this.runWrite('Update contract', async (_scoped, db) => {
+      const existing = await db.contracts.get(id);
       if (!existing) throw new Error(`Contract ${id} not found.`);
       const ts = nowIso();
       const nextStatus = patch.status ?? existing.status;
@@ -775,14 +801,14 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing.createdAt,
         updatedAt: ts,
       });
-      await this.db.contracts.put(updated);
+      await db.contracts.put(updated);
       return updated;
     });
   }
 
   async deleteContract(id: string): Promise<void> {
-    return this.runWrite('Delete contract', async () => {
-      await this.db.contracts.delete(id);
+    return this.runWrite('Delete contract', async (_scoped, db) => {
+      await db.contracts.delete(id);
     });
   }
 
@@ -814,12 +840,12 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         Pick<Invoice, 'recurrenceRule' | 'nextRecurrenceDate' | 'exchangeRateToBase' | 'paymentSchedule'>
       >
   ): Promise<Invoice> {
-    return this.runWrite('Create invoice', async () => {
-      const client = await this.db.clients.get(input.clientId);
+    return this.runWrite('Create invoice', async (scoped, db) => {
+      const client = await db.clients.get(input.clientId);
       if (!client) throw new Error('Referenced client does not exist.');
 
       if (input.projectId) {
-        const prj = await this.db.projects.get(input.projectId);
+        const prj = await db.projects.get(input.projectId);
         if (!prj) throw new ReferentialIntegrityError('Referenced project does not exist.');
       }
 
@@ -835,30 +861,30 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         decimals
       );
 
-      return this.db.transaction(
+      return db.transaction(
         'rw',
-        this.db.invoices,
-        this.db.appSettings,
-        this.db.activities,
+        db.invoices,
+        db.appSettings,
+        db.activities,
         async () => {
-          const settings = await this.getSettings();
+          const settings = await scoped.getSettings();
           let invoiceNumber = input.number?.trim() ?? '';
           let bumpSequence = false;
 
           if (invoiceNumber) {
-            const dup = await this.db.invoices.where('number').equals(invoiceNumber).first();
+            const dup = await db.invoices.where('number').equals(invoiceNumber).first();
             if (dup) {
               throw new Error(`Invoice number "${invoiceNumber}" already exists.`);
             }
           } else {
             let seq = settings.nextInvoiceSequence;
             invoiceNumber = `${settings.invoicePrefix}${String(seq).padStart(4, '0')}`;
-            while (await this.db.invoices.where('number').equals(invoiceNumber).first()) {
+            while (await db.invoices.where('number').equals(invoiceNumber).first()) {
               seq += 1;
               invoiceNumber = `${settings.invoicePrefix}${String(seq).padStart(4, '0')}`;
             }
             bumpSequence = true;
-            await this.db.appSettings.put({
+            await db.appSettings.put({
               ...settings,
               nextInvoiceSequence: seq + 1,
               updatedAt: nowIso(),
@@ -876,8 +902,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             createdAt: ts,
             updatedAt: ts,
           });
-          await this.db.invoices.add(record);
-          await this.logActivity({
+          await db.invoices.add(record);
+          await scoped.logActivity({
             entityType: 'invoice',
             entityId: record.id,
             action: bumpSequence ? 'created' : 'created_custom_number',
@@ -890,25 +916,25 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async updateInvoice(id: string, patch: Partial<Invoice>): Promise<Invoice> {
-    return this.runWrite('Update invoice', async () =>
-      this.db.transaction(
+    return this.runWrite('Update invoice', async (scoped, db) =>
+      db.transaction(
         'rw',
-        [this.db.invoices, this.db.payments, this.db.clients, this.db.projects, this.db.activities],
+        [db.invoices, db.payments, db.clients, db.projects, db.activities],
         async () => {
-          const existing = await this.db.invoices.get(id);
+          const existing = await db.invoices.get(id);
           if (!existing) throw new Error(`Invoice ${id} not found.`);
 
           if (patch.clientId && patch.clientId !== existing.clientId) {
-            const cli = await this.db.clients.get(patch.clientId);
+            const cli = await db.clients.get(patch.clientId);
             if (!cli) throw new ReferentialIntegrityError('Referenced client does not exist.');
           }
           if (patch.projectId && patch.projectId !== existing.projectId) {
-            const prj = await this.db.projects.get(patch.projectId);
+            const prj = await db.projects.get(patch.projectId);
             if (!prj) throw new ReferentialIntegrityError('Referenced project does not exist.');
           }
 
           if (patch.number && patch.number.trim() !== existing.number) {
-            const dup = await this.db.invoices.where('number').equals(patch.number.trim()).first();
+            const dup = await db.invoices.where('number').equals(patch.number.trim()).first();
             if (dup && dup.id !== id) {
               throw new Error(`Invoice number "${patch.number.trim()}" is already in use.`);
             }
@@ -927,7 +953,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             decimals
           );
 
-          const payments = await this.db.payments.where('invoiceId').equals(id).toArray();
+          const payments = await db.payments.where('invoiceId').equals(id).toArray();
           const summary = calculatePaymentSummary(
             totals.total,
             payments.map((p) => p.amount),
@@ -950,8 +976,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             createdAt: existing.createdAt,
             updatedAt: nowIso(),
           });
-          await this.db.invoices.put(updated);
-          await this.logActivity({
+          await db.invoices.put(updated);
+          await scoped.logActivity({
             entityType: 'invoice',
             entityId: id,
             action: 'updated',
@@ -964,8 +990,9 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async refreshOverdueInvoices(referenceDate = todayDateStr()): Promise<number> {
-    return this.db.transaction('rw', [this.db.invoices], async () => {
-      const candidates = await this.db.invoices
+    const database = this.db;
+    return database.transaction('rw', [database.invoices], async () => {
+      const candidates = await database.invoices
         .where('status')
         .anyOf(['sent', 'partially_paid'])
         .toArray();
@@ -973,7 +1000,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
       const ts = nowIso();
       for (const inv of candidates) {
         if (inv.dueDate < referenceDate && inv.balanceDue > 0) {
-          await this.db.invoices.put({ ...inv, status: 'overdue', updatedAt: ts });
+          await database.invoices.put({ ...inv, status: 'overdue', updatedAt: ts });
           updatedCount += 1;
         }
       }
@@ -982,13 +1009,13 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async deleteInvoice(id: string): Promise<void> {
-    return this.runWrite('Delete invoice', async () => {
-      await this.db.transaction('rw', [this.db.invoices, this.db.payments], async () => {
-        const linkedPayments = await this.db.payments.where('invoiceId').equals(id).count();
+    return this.runWrite('Delete invoice', async (_scoped, db) => {
+      await db.transaction('rw', [db.invoices, db.payments], async () => {
+        const linkedPayments = await db.payments.where('invoiceId').equals(id).count();
         if (linkedPayments > 0) {
           throw new Error('Cannot delete an invoice that has recorded payments. Cancel it instead.');
         }
-        await this.db.invoices.delete(id);
+        await db.invoices.delete(id);
       });
     });
   }
@@ -1003,18 +1030,18 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async recordPayment(
     input: Omit<Payment, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<{ payment: Payment; invoice: Invoice }> {
-    return this.runWrite('Record payment', async () =>
-      this.db.transaction(
+    return this.runWrite('Record payment', async (scoped, db) =>
+      db.transaction(
         'rw',
-        [this.db.invoices, this.db.payments, this.db.financeEntries, this.db.activities],
+        [db.invoices, db.payments, db.financeEntries, db.activities],
         async () => {
-          const invoice = await this.db.invoices.get(input.invoiceId);
+          const invoice = await db.invoices.get(input.invoiceId);
           if (!invoice) throw new Error('Selected invoice does not exist.');
           if (invoice.status === 'cancelled') {
             throw new Error('Cannot record payment against a cancelled invoice.');
           }
 
-          const existingPayments = await this.db.payments
+          const existingPayments = await db.payments
             .where('invoiceId')
             .equals(invoice.id)
             .toArray();
@@ -1054,7 +1081,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             createdAt: ts,
             updatedAt: ts,
           });
-          await this.db.payments.add(payment);
+          await db.payments.add(payment);
 
           const nextSummary = calculatePaymentSummary(
             invoice.total,
@@ -1075,7 +1102,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             status: nextStatus,
             updatedAt: ts,
           });
-          await this.db.invoices.put(updatedInvoice);
+          await db.invoices.put(updatedInvoice);
 
           const incomeEntry = financeEntrySchema.parse({
             id: createId('fin'),
@@ -1094,9 +1121,9 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             createdAt: ts,
             updatedAt: ts,
           });
-          await this.db.financeEntries.add(incomeEntry);
+          await db.financeEntries.add(incomeEntry);
 
-          await this.logActivity({
+          await scoped.logActivity({
             entityType: 'payment',
             entityId: payment.id,
             action: 'recorded',
@@ -1110,19 +1137,19 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async deletePayment(paymentId: string): Promise<void> {
-    return this.runWrite('Delete payment', async () => {
-      await this.db.transaction(
+    return this.runWrite('Delete payment', async (_scoped, db) => {
+      await db.transaction(
         'rw',
-        [this.db.payments, this.db.invoices, this.db.financeEntries],
+        [db.payments, db.invoices, db.financeEntries],
         async () => {
-          const payment = await this.db.payments.get(paymentId);
+          const payment = await db.payments.get(paymentId);
           if (!payment) return;
-          await this.db.payments.delete(paymentId);
-          await this.db.financeEntries.where('paymentId').equals(paymentId).delete();
+          await db.payments.delete(paymentId);
+          await db.financeEntries.where('paymentId').equals(paymentId).delete();
 
-          const invoice = await this.db.invoices.get(payment.invoiceId);
+          const invoice = await db.invoices.get(payment.invoiceId);
           if (invoice) {
-            const remaining = await this.db.payments.where('invoiceId').equals(invoice.id).toArray();
+            const remaining = await db.payments.where('invoiceId').equals(invoice.id).toArray();
             const summary = calculatePaymentSummary(
               invoice.total,
               remaining.map((p) => p.amount)
@@ -1134,7 +1161,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
                 : invoice.status === 'paid' || invoice.status === 'partially_paid'
                   ? 'sent'
                   : invoice.status;
-            await this.db.invoices.put({
+            await db.invoices.put({
               ...invoice,
               amountPaid: summary.paidAmount,
               balanceDue: summary.balanceDue,
@@ -1173,7 +1200,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         >
       >
   ): Promise<FinanceEntry> {
-    return this.runWrite('Create finance entry', async () => {
+    return this.runWrite('Create finance entry', async (scoped, db) => {
       const ts = nowIso();
       const record = financeEntrySchema.parse({
         ...input,
@@ -1181,8 +1208,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: ts,
         updatedAt: ts,
       });
-      await this.db.financeEntries.add(record);
-      await this.logActivity({
+      await db.financeEntries.add(record);
+      await scoped.logActivity({
         entityType: 'finance',
         entityId: record.id,
         action: 'created',
@@ -1193,8 +1220,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async updateFinanceEntry(id: string, patch: Partial<FinanceEntry>): Promise<FinanceEntry> {
-    return this.runWrite('Update finance entry', async () => {
-      const existing = await this.db.financeEntries.get(id);
+    return this.runWrite('Update finance entry', async (_scoped, db) => {
+      const existing = await db.financeEntries.get(id);
       if (!existing) throw new Error(`Finance entry ${id} not found.`);
       const updated = financeEntrySchema.parse({
         ...existing,
@@ -1203,14 +1230,14 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing.createdAt,
         updatedAt: nowIso(),
       });
-      await this.db.financeEntries.put(updated);
+      await db.financeEntries.put(updated);
       return updated;
     });
   }
 
   async deleteFinanceEntry(id: string): Promise<void> {
-    return this.runWrite('Delete finance entry', async () => {
-      await this.db.financeEntries.delete(id);
+    return this.runWrite('Delete finance entry', async (_scoped, db) => {
+      await db.financeEntries.delete(id);
     });
   }
 
@@ -1233,20 +1260,20 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
     hourlyRate: number;
     billable: boolean;
   }): Promise<TimeEntry> {
-    return this.runWrite('Start timer', async () =>
-      this.db.transaction(
+    return this.runWrite('Start timer', async (_scoped, db) =>
+      db.transaction(
         'rw',
-        [this.db.timeEntries, this.db.projects, this.db.tasks, this.db.activities],
+        [db.timeEntries, db.projects, db.tasks, db.activities],
         async () => {
           if (input.projectId) {
-            const prj = await this.db.projects.get(input.projectId);
+            const prj = await db.projects.get(input.projectId);
             if (!prj) throw new ReferentialIntegrityError('Referenced project does not exist.');
           }
           if (input.taskId) {
-            const tsk = await this.db.tasks.get(input.taskId);
+            const tsk = await db.tasks.get(input.taskId);
             if (!tsk) throw new ReferentialIntegrityError('Referenced task does not exist.');
           }
-          const existingRunning = (await this.db.timeEntries.toArray()).find((t) => t.isRunning);
+          const existingRunning = (await db.timeEntries.toArray()).find((t) => t.isRunning);
           if (existingRunning) {
             throw new Error(
               `A timer is already running ("${existingRunning.description}"). Stop it before starting a new timer.`
@@ -1267,7 +1294,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             createdAt: ts,
             updatedAt: ts,
           });
-          await this.db.timeEntries.add(record);
+          await db.timeEntries.add(record);
           return record;
         }
       )
@@ -1275,9 +1302,9 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async stopTimer(entryId: string): Promise<TimeEntry> {
-    return this.runWrite('Stop timer', async () =>
-      this.db.transaction('rw', [this.db.timeEntries, this.db.activities], async () => {
-        const entry = await this.db.timeEntries.get(entryId);
+    return this.runWrite('Stop timer', async (scoped, db) =>
+      db.transaction('rw', [db.timeEntries, db.activities], async () => {
+        const entry = await db.timeEntries.get(entryId);
         if (!entry) throw new Error('Timer entry not found.');
         if (!entry.isRunning) return entry;
         const endIso = nowIso();
@@ -1292,8 +1319,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
           isRunning: false,
           updatedAt: endIso,
         });
-        await this.db.timeEntries.put(updated);
-        await this.logActivity({
+        await db.timeEntries.put(updated);
+        await scoped.logActivity({
           entityType: 'time',
           entityId: updated.id,
           action: 'stopped',
@@ -1307,13 +1334,13 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async createManualTimeEntry(
     input: Omit<TimeEntry, 'id' | 'isRunning' | 'createdAt' | 'updatedAt'>
   ): Promise<TimeEntry> {
-    return this.runWrite('Log manual time entry', async () => {
+    return this.runWrite('Log manual time entry', async (scoped, db) => {
       if (input.projectId) {
-        const prj = await this.db.projects.get(input.projectId);
+        const prj = await db.projects.get(input.projectId);
         if (!prj) throw new ReferentialIntegrityError('Referenced project does not exist.');
       }
       if (input.taskId) {
-        const tsk = await this.db.tasks.get(input.taskId);
+        const tsk = await db.tasks.get(input.taskId);
         if (!tsk) throw new ReferentialIntegrityError('Referenced task does not exist.');
       }
       const ts = nowIso();
@@ -1324,8 +1351,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: ts,
         updatedAt: ts,
       });
-      await this.db.timeEntries.add(record);
-      await this.logActivity({
+      await db.timeEntries.add(record);
+      await scoped.logActivity({
         entityType: 'time',
         entityId: record.id,
         action: 'logged',
@@ -1336,8 +1363,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async deleteTimeEntry(id: string): Promise<void> {
-    return this.runWrite('Delete time entry', async () => {
-      await this.db.timeEntries.delete(id);
+    return this.runWrite('Delete time entry', async (_scoped, db) => {
+      await db.timeEntries.delete(id);
     });
   }
 
@@ -1350,23 +1377,23 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async saveTemplate(
     input: Omit<ReusableTemplate, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
   ): Promise<ReusableTemplate> {
-    return this.runWrite('Save template', async () => {
+    return this.runWrite('Save template', async (_scoped, db) => {
       const ts = nowIso();
-      const existing = input.id ? await this.db.templates.get(input.id) : undefined;
+      const existing = input.id ? await db.templates.get(input.id) : undefined;
       const record = reusableTemplateSchema.parse({
         ...input,
         id: existing?.id ?? input.id ?? createId('tpl'),
         createdAt: existing?.createdAt ?? ts,
         updatedAt: ts,
       });
-      await this.db.templates.put(record);
+      await db.templates.put(record);
       return record;
     });
   }
 
   async deleteTemplate(id: string): Promise<void> {
-    return this.runWrite('Delete template', async () => {
-      await this.db.templates.delete(id);
+    return this.runWrite('Delete template', async (_scoped, db) => {
+      await db.templates.delete(id);
     });
   }
 
@@ -1388,18 +1415,18 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
     doc: KnowledgeDocument,
     chunks: DocumentChunk[]
   ): Promise<void> {
-    return this.runWrite('Index knowledge document', async () => {
+    return this.runWrite('Index knowledge document', async (scoped, db) => {
       const parsedDoc = knowledgeDocumentSchema.parse(doc);
-      await this.db.transaction(
+      await db.transaction(
         'rw',
-        [this.db.knowledgeDocs, this.db.documentChunks, this.db.activities],
+        [db.knowledgeDocs, db.documentChunks, db.activities],
         async () => {
-          await this.db.knowledgeDocs.put(parsedDoc);
-          await this.db.documentChunks.where('documentId').equals(parsedDoc.id).delete();
+          await db.knowledgeDocs.put(parsedDoc);
+          await db.documentChunks.where('documentId').equals(parsedDoc.id).delete();
           if (chunks.length > 0) {
-            await this.db.documentChunks.bulkPut(chunks);
+            await db.documentChunks.bulkPut(chunks);
           }
-          await this.logActivity({
+          await scoped.logActivity({
             entityType: 'knowledge',
             entityId: parsedDoc.id,
             action: 'indexed',
@@ -1411,10 +1438,10 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async deleteKnowledgeDoc(docId: string): Promise<void> {
-    return this.runWrite('Delete knowledge document', async () => {
-      await this.db.transaction('rw', [this.db.knowledgeDocs, this.db.documentChunks], async () => {
-        await this.db.documentChunks.where('documentId').equals(docId).delete();
-        await this.db.knowledgeDocs.delete(docId);
+    return this.runWrite('Delete knowledge document', async (_scoped, db) => {
+      await db.transaction('rw', [db.knowledgeDocs, db.documentChunks], async () => {
+        await db.documentChunks.where('documentId').equals(docId).delete();
+        await db.knowledgeDocs.delete(docId);
       });
     });
   }
@@ -1440,9 +1467,9 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async saveWorkflowRun(run: WorkflowRun): Promise<WorkflowRun> {
-    return this.runWrite('Save workflow run', async () => {
+    return this.runWrite('Save workflow run', async (_scoped, db) => {
       const parsed = workflowRunSchema.parse(run);
-      await this.db.workflowRuns.put(parsed);
+      await db.workflowRuns.put(parsed);
       return parsed;
     });
   }
@@ -1457,7 +1484,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async createServiceItem(
     input: Omit<ServiceCatalogItem, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<ServiceCatalogItem> {
-    return this.runWrite('Create service catalog item', async () => {
+    return this.runWrite('Create service catalog item', async (scoped, db) => {
       const ts = nowIso();
       const record = serviceCatalogItemSchema.parse({
         ...input,
@@ -1465,8 +1492,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: ts,
         updatedAt: ts,
       });
-      await this.db.serviceCatalog.add(record);
-      await this.logActivity({
+      await db.serviceCatalog.add(record);
+      await scoped.logActivity({
         entityType: 'service',
         entityId: record.id,
         action: 'created',
@@ -1480,8 +1507,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
     id: string,
     patch: Partial<ServiceCatalogItem>
   ): Promise<ServiceCatalogItem> {
-    return this.runWrite('Update service catalog item', async () => {
-      const existing = await this.db.serviceCatalog.get(id);
+    return this.runWrite('Update service catalog item', async (_scoped, db) => {
+      const existing = await db.serviceCatalog.get(id);
       if (!existing) throw new Error(`Service item ${id} not found.`);
       const updated = serviceCatalogItemSchema.parse({
         ...existing,
@@ -1490,14 +1517,14 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing.createdAt,
         updatedAt: nowIso(),
       });
-      await this.db.serviceCatalog.put(updated);
+      await db.serviceCatalog.put(updated);
       return updated;
     });
   }
 
   async deleteServiceItem(id: string): Promise<void> {
-    return this.runWrite('Delete service catalog item', async () => {
-      await this.db.serviceCatalog.delete(id);
+    return this.runWrite('Delete service catalog item', async (_scoped, db) => {
+      await db.serviceCatalog.delete(id);
     });
   }
 
@@ -1511,13 +1538,13 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async createAppointment(
     input: Omit<Appointment, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<Appointment> {
-    return this.runWrite('Create appointment', async () => {
+    return this.runWrite('Create appointment', async (scoped, db) => {
       if (input.clientId) {
-        const cli = await this.db.clients.get(input.clientId);
+        const cli = await db.clients.get(input.clientId);
         if (!cli) throw new ReferentialIntegrityError('Referenced client does not exist.');
       }
       if (input.projectId) {
-        const prj = await this.db.projects.get(input.projectId);
+        const prj = await db.projects.get(input.projectId);
         if (!prj) throw new ReferentialIntegrityError('Referenced project does not exist.');
       }
       const ts = nowIso();
@@ -1527,8 +1554,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: ts,
         updatedAt: ts,
       });
-      await this.db.appointments.add(record);
-      await this.logActivity({
+      await db.appointments.add(record);
+      await scoped.logActivity({
         entityType: 'appointment',
         entityId: record.id,
         action: 'scheduled',
@@ -1539,15 +1566,15 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async updateAppointment(id: string, patch: Partial<Appointment>): Promise<Appointment> {
-    return this.runWrite('Update appointment', async () => {
-      const existing = await this.db.appointments.get(id);
+    return this.runWrite('Update appointment', async (_scoped, db) => {
+      const existing = await db.appointments.get(id);
       if (!existing) throw new Error(`Appointment ${id} not found.`);
       if (patch.clientId && patch.clientId !== existing.clientId) {
-        const cli = await this.db.clients.get(patch.clientId);
+        const cli = await db.clients.get(patch.clientId);
         if (!cli) throw new ReferentialIntegrityError('Referenced client does not exist.');
       }
       if (patch.projectId && patch.projectId !== existing.projectId) {
-        const prj = await this.db.projects.get(patch.projectId);
+        const prj = await db.projects.get(patch.projectId);
         if (!prj) throw new ReferentialIntegrityError('Referenced project does not exist.');
       }
       const updated = appointmentSchema.parse({
@@ -1557,14 +1584,14 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing.createdAt,
         updatedAt: nowIso(),
       });
-      await this.db.appointments.put(updated);
+      await db.appointments.put(updated);
       return updated;
     });
   }
 
   async deleteAppointment(id: string): Promise<void> {
-    return this.runWrite('Delete appointment', async () => {
-      await this.db.appointments.delete(id);
+    return this.runWrite('Delete appointment', async (_scoped, db) => {
+      await db.appointments.delete(id);
     });
   }
 
@@ -1578,8 +1605,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async saveWorkspaceGoal(
     input: Omit<WorkspaceGoal, 'id' | 'updatedAt'> & { id?: string }
   ): Promise<WorkspaceGoal> {
-    return this.runWrite('Save monthly business goal', async () => {
-      const existing = await this.db.workspaceGoals
+    return this.runWrite('Save monthly business goal', async (scoped, db) => {
+      const existing = await db.workspaceGoals
         .where('monthPrefix')
         .equals(input.monthPrefix)
         .first();
@@ -1589,8 +1616,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         id: existing?.id ?? input.id ?? createId('gol'),
         updatedAt: nowIso(),
       });
-      await this.db.workspaceGoals.put(record);
-      await this.logActivity({
+      await db.workspaceGoals.put(record);
+      await scoped.logActivity({
         entityType: 'goal',
         entityId: record.id,
         action: existing ? 'updated' : 'created',
@@ -1657,9 +1684,9 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async saveSavedView(
     input: Omit<SavedView, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
   ): Promise<SavedView> {
-    return this.runWrite('Save custom view', async () => {
+    return this.runWrite('Save custom view', async (_scoped, db) => {
       const ts = nowIso();
-      const existing = input.id ? await this.db.savedViews.get(input.id) : undefined;
+      const existing = input.id ? await db.savedViews.get(input.id) : undefined;
       const record = savedViewSchema.parse({
         ...existing,
         ...input,
@@ -1667,14 +1694,14 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing?.createdAt ?? ts,
         updatedAt: ts,
       });
-      await this.db.savedViews.put(record);
+      await db.savedViews.put(record);
       return record;
     });
   }
 
   async deleteSavedView(id: string): Promise<void> {
-    return this.runWrite('Delete custom view', async () => {
-      await this.db.savedViews.delete(id);
+    return this.runWrite('Delete custom view', async (_scoped, db) => {
+      await db.savedViews.delete(id);
     });
   }
 
@@ -1692,11 +1719,11 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async saveClientPortalLink(
     input: Omit<ClientPortalLink, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
   ): Promise<ClientPortalLink> {
-    return this.runWrite('Save client portal link', async () => {
-      const cli = await this.db.clients.get(input.clientId);
+    return this.runWrite('Save client portal link', async (scoped, db) => {
+      const cli = await db.clients.get(input.clientId);
       if (!cli) throw new ReferentialIntegrityError('Referenced client does not exist.');
       const ts = nowIso();
-      const existing = input.id ? await this.db.clientPortalLinks.get(input.id) : undefined;
+      const existing = input.id ? await db.clientPortalLinks.get(input.id) : undefined;
       const record = clientPortalLinkSchema.parse({
         ...existing,
         ...input,
@@ -1704,8 +1731,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing?.createdAt ?? ts,
         updatedAt: ts,
       });
-      await this.db.clientPortalLinks.put(record);
-      await this.logActivity({
+      await db.clientPortalLinks.put(record);
+      await scoped.logActivity({
         entityType: 'portal',
         entityId: record.id,
         action: existing ? 'updated' : 'created',
@@ -1716,8 +1743,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async deleteClientPortalLink(id: string): Promise<void> {
-    return this.runWrite('Delete client portal link', async () => {
-      await this.db.clientPortalLinks.delete(id);
+    return this.runWrite('Delete client portal link', async (_scoped, db) => {
+      await db.clientPortalLinks.delete(id);
     });
   }
 
@@ -1731,11 +1758,11 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async saveRetainer(
     input: Omit<Retainer, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
   ): Promise<Retainer> {
-    return this.runWrite('Save retainer', async () => {
-      const cli = await this.db.clients.get(input.clientId);
+    return this.runWrite('Save retainer', async (scoped, db) => {
+      const cli = await db.clients.get(input.clientId);
       if (!cli) throw new ReferentialIntegrityError('Referenced client does not exist.');
       const ts = nowIso();
-      const existing = input.id ? await this.db.retainers.get(input.id) : undefined;
+      const existing = input.id ? await db.retainers.get(input.id) : undefined;
       const record = retainerSchema.parse({
         ...existing,
         ...input,
@@ -1743,8 +1770,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing?.createdAt ?? ts,
         updatedAt: ts,
       });
-      await this.db.retainers.put(record);
-      await this.logActivity({
+      await db.retainers.put(record);
+      await scoped.logActivity({
         entityType: 'retainer',
         entityId: record.id,
         action: existing ? 'updated' : 'created',
@@ -1755,8 +1782,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async deleteRetainer(id: string): Promise<void> {
-    return this.runWrite('Delete retainer', async () => {
-      await this.db.retainers.delete(id);
+    return this.runWrite('Delete retainer', async (_scoped, db) => {
+      await db.retainers.delete(id);
     });
   }
 
@@ -1770,9 +1797,9 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async saveVaultFile(
     input: Omit<VaultFile, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
   ): Promise<VaultFile> {
-    return this.runWrite('Save vault document', async () => {
+    return this.runWrite('Save vault document', async (scoped, db) => {
       const ts = nowIso();
-      const existing = input.id ? await this.db.vaultFiles.get(input.id) : undefined;
+      const existing = input.id ? await db.vaultFiles.get(input.id) : undefined;
       const record = vaultFileSchema.parse({
         ...existing,
         ...input,
@@ -1780,8 +1807,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing?.createdAt ?? ts,
         updatedAt: ts,
       });
-      await this.db.vaultFiles.put(record);
-      await this.logActivity({
+      await db.vaultFiles.put(record);
+      await scoped.logActivity({
         entityType: 'vault',
         entityId: record.id,
         action: existing ? 'updated' : 'uploaded',
@@ -1792,8 +1819,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async deleteVaultFile(id: string): Promise<void> {
-    return this.runWrite('Delete vault document', async () => {
-      await this.db.vaultFiles.delete(id);
+    return this.runWrite('Delete vault document', async (_scoped, db) => {
+      await db.vaultFiles.delete(id);
     });
   }
 
@@ -1807,9 +1834,9 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async saveCustomWorkflow(
     input: Omit<CustomWorkflow, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
   ): Promise<CustomWorkflow> {
-    return this.runWrite('Save custom workflow', async () => {
+    return this.runWrite('Save custom workflow', async (_scoped, db) => {
       const ts = nowIso();
-      const existing = input.id ? await this.db.customWorkflows.get(input.id) : undefined;
+      const existing = input.id ? await db.customWorkflows.get(input.id) : undefined;
       const record = customWorkflowSchema.parse({
         ...existing,
         ...input,
@@ -1817,14 +1844,14 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing?.createdAt ?? ts,
         updatedAt: ts,
       });
-      await this.db.customWorkflows.put(record);
+      await db.customWorkflows.put(record);
       return record;
     });
   }
 
   async deleteCustomWorkflow(id: string): Promise<void> {
-    return this.runWrite('Delete custom workflow', async () => {
-      await this.db.customWorkflows.delete(id);
+    return this.runWrite('Delete custom workflow', async (_scoped, db) => {
+      await db.customWorkflows.delete(id);
     });
   }
 
@@ -1836,9 +1863,9 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   async saveWebhook(
     input: Omit<WebhookConfig, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
   ): Promise<WebhookConfig> {
-    return this.runWrite('Save webhook config', async () => {
+    return this.runWrite('Save webhook config', async (_scoped, db) => {
       const ts = nowIso();
-      const existing = input.id ? await this.db.webhooks.get(input.id) : undefined;
+      const existing = input.id ? await db.webhooks.get(input.id) : undefined;
       const record = webhookConfigSchema.parse({
         ...existing,
         ...input,
@@ -1846,14 +1873,14 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         createdAt: existing?.createdAt ?? ts,
         updatedAt: ts,
       });
-      await this.db.webhooks.put(record);
+      await db.webhooks.put(record);
       return record;
     });
   }
 
   async deleteWebhook(id: string): Promise<void> {
-    return this.runWrite('Delete webhook config', async () => {
-      await this.db.webhooks.delete(id);
+    return this.runWrite('Delete webhook config', async (_scoped, db) => {
+      await db.webhooks.delete(id);
     });
   }
 
@@ -1879,7 +1906,8 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async updateSyncQueueItem(id: string, patch: Partial<SyncQueueItem>): Promise<SyncQueueItem> {
-    const existing = await this.db.syncQueue.get(id);
+    const database = this.db;
+    const existing = await database.syncQueue.get(id);
     if (!existing) throw new Error(`Sync queue item ${id} not found.`);
     const updated = syncQueueItemSchema.parse({
       ...existing,
@@ -1888,7 +1916,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
       createdAt: existing.createdAt,
       updatedAt: nowIso(),
     });
-    await this.db.syncQueue.put(updated);
+    await database.syncQueue.put(updated);
     return updated;
   }
 

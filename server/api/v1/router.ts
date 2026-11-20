@@ -7,9 +7,11 @@ import {
   confirmPasswordReset,
   createWorkspaceInvitation,
   deleteUserAccount,
+  getMemberRole,
   loginUser,
   registerUser,
   requestPasswordReset,
+  resolveSessionUser,
   revokeSession,
 } from '../../auth/authService';
 import { generateWithServerGemini, GatewayError } from '../../ai/geminiGateway';
@@ -23,6 +25,7 @@ import {
 } from '../../jobs/jobRunner';
 import {
   createRequireAuthMiddleware,
+  extractSessionToken,
   requireWorkspaceRole,
   sendApiError,
   SESSION_COOKIE_NAME,
@@ -126,19 +129,71 @@ const supportRequestSchema = z.object({
   details: z.string().trim().min(5).max(3000),
 });
 
-function setSessionCookie(res: Response, token: string, expiresAt: string): void {
+function isHttpsRequest(req: Request): boolean {
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  if (typeof forwardedProto === 'string' && forwardedProto.split(',')[0]?.trim() === 'https') {
+    return true;
+  }
+  return Boolean(req.secure);
+}
+
+function setSessionCookie(req: Request, res: Response, token: string, expiresAt: string): void {
   const maxAgeSec = Math.max(60, Math.floor((Date.parse(expiresAt) - Date.now()) / 1000));
+  const secureAttr = isHttpsRequest(req) ? '; Secure' : '';
   res.setHeader(
     'Set-Cookie',
-    `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}`
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${secureAttr}; Max-Age=${maxAgeSec}`
   );
 }
 
-function clearSessionCookie(res: Response): void {
+function clearSessionCookie(req: Request, res: Response): void {
+  const secureAttr = isHttpsRequest(req) ? '; Secure' : '';
   res.setHeader(
     'Set-Cookie',
-    `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+    `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax${secureAttr}; Max-Age=0`
   );
+}
+
+function canonicalizeJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalizeJson(item)).join(',')}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+    a.localeCompare(b)
+  );
+  return `{${entries
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => `${JSON.stringify(k)}:${canonicalizeJson(v)}`)
+    .join(',')}}`;
+}
+
+function nextMonotonicTimestamp(db: DatabaseSync, workspaceId: string): string {
+  const nowMs = Date.now();
+  const cp = db
+    .prepare('SELECT last_cursor AS lastCursor FROM sync_checkpoints WHERE workspace_id = ?')
+    .get(workspaceId) as { lastCursor?: string } | undefined;
+  const prevMs = cp?.lastCursor ? Date.parse(cp.lastCursor) : NaN;
+  const effectiveMs = Number.isFinite(prevMs) && prevMs >= nowMs ? prevMs + 1 : nowMs;
+  return new Date(effectiveMs).toISOString();
+}
+
+const portalAuditRateState = new Map<string, { count: number; resetAt: number }>();
+
+function checkPortalAuditRateLimit(ipKey: string): boolean {
+  const now = Date.now();
+  const existing = portalAuditRateState.get(ipKey);
+  if (!existing || now > existing.resetAt) {
+    portalAuditRateState.set(ipKey, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  if (existing.count >= 25) {
+    return false;
+  }
+  existing.count += 1;
+  return true;
 }
 
 export function createApiV1Router(db: DatabaseSync): express.Router {
@@ -230,7 +285,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });
-      setSessionCookie(res, result.sessionToken, result.expiresAt);
+      setSessionCookie(req, res, result.sessionToken, result.expiresAt);
       res.status(201).json({
         ok: true,
         user: result.user,
@@ -260,7 +315,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'],
       });
-      setSessionCookie(res, result.sessionToken, result.expiresAt);
+      setSessionCookie(req, res, result.sessionToken, result.expiresAt);
       res.json({
         ok: true,
         user: result.user,
@@ -282,7 +337,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     if (req.authSessionId && req.authUser) {
       revokeSession(db, req.authSessionId, req.authUser.id);
     }
-    clearSessionCookie(res);
+    clearSessionCookie(req, res);
     res.json({ ok: true });
   });
 
@@ -341,7 +396,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
 
   router.delete('/auth/account', requireAuth, (req: AuthenticatedRequest, res: Response) => {
     deleteUserAccount(db, req.authUser!.id);
-    clearSessionCookie(res);
+    clearSessionCookie(req, res);
     res.json({ ok: true, deleted: true });
   });
 
@@ -377,7 +432,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
       sendApiError(res, 400, 'INVALID_OR_EXPIRED_TOKEN', 'Reset token is invalid or expired.', req);
       return;
     }
-    clearSessionCookie(res);
+    clearSessionCookie(req, res);
     res.json({ ok: true, sessionsRevoked: true });
   });
 
@@ -432,6 +487,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     requireAuth,
     requireWorkspaceRole(db, ALL_MEMBER_ROLES),
     (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
       const members = db
         .prepare(
           `SELECT m.id, m.user_id AS userId, u.email, u.display_name AS displayName, m.role, m.status, m.created_at AS createdAt
@@ -439,7 +495,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
            JOIN users u ON u.id = m.user_id
            WHERE m.workspace_id = ?`
         )
-        .all(String(req.params.workspaceId));
+        .all(workspaceId);
       res.json({ ok: true, callerRole: req.workspaceRole, members });
     }
   );
@@ -463,7 +519,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         sendApiError(res, 404, 'USER_NOT_FOUND', 'No registered user found with that email.', req);
         return;
       }
-      const workspaceId = String(req.params.workspaceId);
+      const workspaceId = req.authorizedWorkspaceId!;
       const now = new Date().toISOString();
       db.prepare(
         `INSERT INTO workspace_members (id, workspace_id, user_id, role, status, created_at)
@@ -509,7 +565,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         return;
       }
       const invite = createWorkspaceInvitation(db, {
-        workspaceId: String(req.params.workspaceId),
+        workspaceId: req.authorizedWorkspaceId!,
         invitedByUserId: req.authUser!.id,
         email: parsed.data.email,
         role: parsed.data.role,
@@ -563,20 +619,76 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         return;
       }
 
-      const { workspaceId, changes } = parsed.data;
-      const now = new Date().toISOString();
-      const ackedIds: string[] = [];
-      const conflicts: Array<{ id: string; reason: string; serverRevision: number }> = [];
+      const workspaceId = req.authorizedWorkspaceId!;
+      if (parsed.data.workspaceId !== workspaceId) {
+        sendApiError(res, 400, 'TENANT_PARAM_MISMATCH', 'Mismatched workspaceId in sync batch.', req);
+        return;
+      }
+      const { changes } = parsed.data;
+      const rawIdemKey = req.header('idempotency-key');
+      const idempotencyKey =
+        typeof rawIdemKey === 'string' && rawIdemKey.trim().length > 0
+          ? rawIdemKey.trim().slice(0, 128)
+          : '';
+      const requestHash = crypto
+        .createHash('sha256')
+        .update(canonicalizeJson({ workspaceId, changes }))
+        .digest('hex');
 
-      db.exec('BEGIN;');
+      const ackedIds: string[] = [];
+      const conflicts: Array<{
+        id: string;
+        reason: string;
+        serverRevision: number;
+        serverUpdatedAt: string;
+      }> = [];
+
+      db.exec('BEGIN IMMEDIATE;');
       try {
+        if (idempotencyKey) {
+          const prior = db
+            .prepare(
+              'SELECT request_hash AS requestHash, response_json AS responseJson FROM sync_idempotency_keys WHERE workspace_id = ? AND idempotency_key = ?'
+            )
+            .get(workspaceId, idempotencyKey) as
+            | { requestHash: string; responseJson: string }
+            | undefined;
+
+          if (prior) {
+            db.exec('ROLLBACK;');
+            if (prior.requestHash !== requestHash) {
+              sendApiError(
+                res,
+                409,
+                'IDEMPOTENCY_KEY_CONFLICT',
+                'Idempotency-Key was reused with a different sync payload.',
+                req
+              );
+              return;
+            }
+            const replay = JSON.parse(prior.responseJson) as Record<string, unknown>;
+            res.json({ ...replay, idempotentReplay: true });
+            return;
+          }
+        }
+
+        const now = nextMonotonicTimestamp(db, workspaceId);
+
         for (const item of changes) {
           const existing = db
             .prepare(
-              'SELECT revision, updated_at FROM sync_records WHERE workspace_id = ? AND entity_type = ? AND entity_id = ?'
+              'SELECT revision, updated_at AS updatedAt FROM sync_records WHERE workspace_id = ? AND entity_type = ? AND entity_id = ?'
             )
             .get(workspaceId, item.entityType, item.entityId) as
-            | { revision: number; updated_at: string }
+            | { revision: number; updatedAt: string }
+            | undefined;
+
+          const tombstone = db
+            .prepare(
+              'SELECT revision, deleted_at AS deletedAt FROM sync_tombstones WHERE workspace_id = ? AND entity_type = ? AND entity_id = ?'
+            )
+            .get(workspaceId, item.entityType, item.entityId) as
+            | { revision: number; deletedAt: string }
             | undefined;
 
           if (existing && item.revision <= existing.revision) {
@@ -584,6 +696,17 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
               id: item.id,
               reason: `Concurrent or stale client revision ${item.revision} (server is already at revision ${existing.revision})`,
               serverRevision: existing.revision,
+              serverUpdatedAt: existing.updatedAt,
+            });
+            continue;
+          }
+
+          if (tombstone && item.revision <= tombstone.revision) {
+            conflicts.push({
+              id: item.id,
+              reason: `Entity was deleted at revision ${tombstone.revision}; client revision ${item.revision} cannot overwrite tombstone.`,
+              serverRevision: tombstone.revision,
+              serverUpdatedAt: tombstone.deletedAt,
             });
             continue;
           }
@@ -599,6 +722,9 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
                ON CONFLICT(workspace_id, entity_type, entity_id) DO UPDATE SET revision = excluded.revision, deleted_at = excluded.deleted_at`
             ).run(workspaceId, item.entityType, item.entityId, nextRevision, now);
           } else {
+            db.prepare(
+              'DELETE FROM sync_tombstones WHERE workspace_id = ? AND entity_type = ? AND entity_id = ?'
+            ).run(workspaceId, item.entityType, item.entityId);
             db.prepare(
               `INSERT INTO sync_records (workspace_id, entity_type, entity_id, revision, operation, payload_json, updated_at, updated_by_user_id)
                VALUES (?, ?, ?, ?, 'upsert', ?, ?, ?)
@@ -622,19 +748,31 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
            ON CONFLICT(workspace_id) DO UPDATE SET last_cursor = excluded.last_cursor, last_synced_at = excluded.last_synced_at, updated_at = excluded.updated_at`
         ).run(workspaceId, now, now, now);
 
+        const responsePayload = {
+          ok: true,
+          ackedIds,
+          conflicts,
+          serverTimestamp: now,
+        };
+
+        if (idempotencyKey) {
+          db.prepare(
+            `INSERT INTO sync_idempotency_keys (workspace_id, idempotency_key, request_hash, response_json, created_at)
+             VALUES (?, ?, ?, ?, ?)`
+          ).run(workspaceId, idempotencyKey, requestHash, JSON.stringify(responsePayload), now);
+        }
+
         db.exec('COMMIT;');
+        serverMetrics.syncPushCount += 1;
+        res.json(responsePayload);
       } catch (err) {
-        db.exec('ROLLBACK;');
+        try {
+          db.exec('ROLLBACK;');
+        } catch {
+          // Transaction may already be rolled back
+        }
         throw err;
       }
-
-      serverMetrics.syncPushCount += 1;
-      res.json({
-        ok: true,
-        ackedIds,
-        conflicts,
-        serverTimestamp: now,
-      });
     }
   );
 
@@ -643,28 +781,170 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     requireAuth,
     requireWorkspaceRole(db, ALL_MEMBER_ROLES),
     (req: AuthenticatedRequest, res: Response) => {
-      const workspaceId = String(req.query.workspaceId || '');
-      const since = String(req.query.since || '');
-      const records = db
-        .prepare(
-          `SELECT entity_type AS entityType, entity_id AS entityId, revision, payload_json AS payloadJson, updated_at AS updatedAt
-           FROM sync_records
-           WHERE workspace_id = ? AND updated_at > ?
-           ORDER BY updated_at ASC LIMIT 500`
-        )
-        .all(workspaceId, since);
-      const tombstones = db
-        .prepare(
-          `SELECT entity_type AS entityType, entity_id AS entityId, revision, deleted_at AS deletedAt
-           FROM sync_tombstones
-           WHERE workspace_id = ? AND deleted_at > ?`
-        )
-        .all(workspaceId, since);
+      const pullQuerySchema = z.object({
+        since: z.string().max(64).optional().default(''),
+        cursor: z.string().max(512).optional().default(''),
+        limit: z.coerce.number().int().min(1).max(500).optional().default(500),
+      });
+      const parsedQuery = pullQuerySchema.safeParse({
+        since: req.query.since,
+        cursor: req.query.cursor,
+        limit: req.query.limit,
+      });
+      if (!parsedQuery.success) {
+        sendApiError(res, 400, 'VALIDATION_ERROR', 'Invalid sync pull query parameters.', req);
+        return;
+      }
+
+      const workspaceId = req.authorizedWorkspaceId!;
+      const { since, cursor, limit } = parsedQuery.data;
+
+      type KeysetTuple = [string, string, string];
+      let recordCursor: KeysetTuple | null = null;
+      let tombstoneCursor: KeysetTuple | null = null;
+
+      if (cursor) {
+        try {
+          const decoded = JSON.parse(
+            Buffer.from(cursor, 'base64url').toString('utf8')
+          ) as { r?: KeysetTuple; t?: KeysetTuple };
+          if (
+            Array.isArray(decoded.r) &&
+            decoded.r.length === 3 &&
+            decoded.r.every((v) => typeof v === 'string')
+          ) {
+            recordCursor = decoded.r;
+          }
+          if (
+            Array.isArray(decoded.t) &&
+            decoded.t.length === 3 &&
+            decoded.t.every((v) => typeof v === 'string')
+          ) {
+            tombstoneCursor = decoded.t;
+          }
+        } catch {
+          sendApiError(res, 400, 'VALIDATION_ERROR', 'Malformed sync cursor token.', req);
+          return;
+        }
+      }
+
+      const recordsPlusOne = recordCursor
+        ? (db
+            .prepare(
+              `SELECT entity_type AS entityType, entity_id AS entityId, revision, payload_json AS payloadJson, updated_at AS updatedAt
+               FROM sync_records
+               WHERE workspace_id = ?
+                 AND (
+                   updated_at > ?
+                   OR (updated_at = ? AND (entity_type > ? OR (entity_type = ? AND entity_id > ?)))
+                 )
+               ORDER BY updated_at ASC, entity_type ASC, entity_id ASC LIMIT ?`
+            )
+            .all(
+              workspaceId,
+              recordCursor[0],
+              recordCursor[0],
+              recordCursor[1],
+              recordCursor[1],
+              recordCursor[2],
+              limit + 1
+            ) as Array<{
+            entityType: string;
+            entityId: string;
+            revision: number;
+            payloadJson: string;
+            updatedAt: string;
+          }>)
+        : (db
+            .prepare(
+              `SELECT entity_type AS entityType, entity_id AS entityId, revision, payload_json AS payloadJson, updated_at AS updatedAt
+               FROM sync_records
+               WHERE workspace_id = ? AND updated_at > ?
+               ORDER BY updated_at ASC, entity_type ASC, entity_id ASC LIMIT ?`
+            )
+            .all(workspaceId, since, limit + 1) as Array<{
+            entityType: string;
+            entityId: string;
+            revision: number;
+            payloadJson: string;
+            updatedAt: string;
+          }>);
+
+      const tombstonesPlusOne = tombstoneCursor
+        ? (db
+            .prepare(
+              `SELECT entity_type AS entityType, entity_id AS entityId, revision, deleted_at AS deletedAt
+               FROM sync_tombstones
+               WHERE workspace_id = ?
+                 AND (
+                   deleted_at > ?
+                   OR (deleted_at = ? AND (entity_type > ? OR (entity_type = ? AND entity_id > ?)))
+                 )
+               ORDER BY deleted_at ASC, entity_type ASC, entity_id ASC LIMIT ?`
+            )
+            .all(
+              workspaceId,
+              tombstoneCursor[0],
+              tombstoneCursor[0],
+              tombstoneCursor[1],
+              tombstoneCursor[1],
+              tombstoneCursor[2],
+              limit + 1
+            ) as Array<{
+            entityType: string;
+            entityId: string;
+            revision: number;
+            deletedAt: string;
+          }>)
+        : (db
+            .prepare(
+              `SELECT entity_type AS entityType, entity_id AS entityId, revision, deleted_at AS deletedAt
+               FROM sync_tombstones
+               WHERE workspace_id = ? AND deleted_at > ?
+               ORDER BY deleted_at ASC, entity_type ASC, entity_id ASC LIMIT ?`
+            )
+            .all(workspaceId, since, limit + 1) as Array<{
+            entityType: string;
+            entityId: string;
+            revision: number;
+            deletedAt: string;
+          }>);
+
+      const hasMore = recordsPlusOne.length > limit || tombstonesPlusOne.length > limit;
+      const records = recordsPlusOne.slice(0, limit);
+      const tombstones = tombstonesPlusOne.slice(0, limit);
+      const lastRec = records.at(-1);
+      const lastTomb = tombstones.at(-1);
+      const nextRecordTuple: KeysetTuple | undefined = lastRec
+        ? [lastRec.updatedAt, lastRec.entityType, lastRec.entityId]
+        : recordCursor ?? undefined;
+      const nextTombTuple: KeysetTuple | undefined = lastTomb
+        ? [lastTomb.deletedAt, lastTomb.entityType, lastTomb.entityId]
+        : tombstoneCursor ?? undefined;
+
+      const nextPageCursor =
+        nextRecordTuple || nextTombTuple
+          ? Buffer.from(
+              JSON.stringify({
+                ...(nextRecordTuple ? { r: nextRecordTuple } : {}),
+                ...(nextTombTuple ? { t: nextTombTuple } : {}),
+              }),
+              'utf8'
+            ).toString('base64url')
+          : '';
+
+      const maxRecordTs = lastRec?.updatedAt ?? '';
+      const maxTombstoneTs = lastTomb?.deletedAt ?? '';
+      const nextCursor = [since, maxRecordTs, maxTombstoneTs].sort().at(-1) || '';
+
       res.json({
         ok: true,
         serverTimestamp: new Date().toISOString(),
         records,
         tombstones,
+        hasMore,
+        nextCursor,
+        nextPageCursor,
       });
     }
   );
@@ -674,7 +954,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     requireAuth,
     requireWorkspaceRole(db, ALL_MEMBER_ROLES),
     (req: AuthenticatedRequest, res: Response) => {
-      const workspaceId = String(req.query.workspaceId || '');
+      const workspaceId = req.authorizedWorkspaceId!;
       const cp = db
         .prepare(
           'SELECT workspace_id AS workspaceId, last_cursor AS lastCursor, last_synced_at AS lastSyncedAt, updated_at AS updatedAt FROM sync_checkpoints WHERE workspace_id = ?'
@@ -691,7 +971,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     requireAuth,
     requireWorkspaceRole(db, ALL_MEMBER_ROLES),
     (req: AuthenticatedRequest, res: Response) => {
-      const workspaceId = String(req.query.workspaceId || '');
+      const workspaceId = req.authorizedWorkspaceId!;
       const rows = db
         .prepare(
           `SELECT id, name, mime_type AS mimeType, size_bytes AS sizeBytes, sha256, classification, created_at AS createdAt
@@ -729,6 +1009,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         return;
       }
 
+      const workspaceId = req.authorizedWorkspaceId!;
       const safeName = parsed.data.name.replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 120);
       const buffer = Buffer.from(parsed.data.contentBase64, 'base64');
       if (buffer.byteLength > 5_000_000) {
@@ -745,7 +1026,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         id,
-        parsed.data.workspaceId,
+        workspaceId,
         safeName,
         parsed.data.mimeType,
         buffer.byteLength,
@@ -779,14 +1060,36 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
       sendApiError(res, 400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Invalid AI prompt', req);
       return;
     }
+
+    const token = extractSessionToken(req);
+    const resolvedSession = token ? resolveSessionUser(db, token) : null;
+    const requestedWorkspaceId = parsed.data.workspaceId?.trim() || '';
+
+    if (requestedWorkspaceId) {
+      if (!resolvedSession) {
+        sendApiError(res, 401, 'UNAUTHORIZED', 'Authentication required to charge or scope AI generation to a workspace.', req);
+        return;
+      }
+      const role = getMemberRole(db, requestedWorkspaceId, resolvedSession.user.id);
+      if (!role) {
+        sendApiError(res, 403, 'TENANT_ACCESS_DENIED', 'You do not have active membership in the requested workspace.', req);
+        return;
+      }
+      if (!WRITE_ROLES.includes(role)) {
+        sendApiError(res, 403, 'INSUFFICIENT_ROLE', `Role "${role}" is not authorized for workspace AI generation.`, req);
+        return;
+      }
+    }
+
     const headerKey =
       typeof req.headers['x-gemini-key'] === 'string' ? req.headers['x-gemini-key'] : undefined;
 
     try {
       const output = await generateWithServerGemini(db, {
         ...parsed.data,
+        workspaceId: requestedWorkspaceId || undefined,
         sessionGeminiKey: headerKey,
-        userId: req.authUser?.id,
+        userId: resolvedSession?.user.id ?? req.authUser?.id,
       });
       res.json({ ok: true, ...output });
     } catch (err) {
@@ -803,7 +1106,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     requireAuth,
     requireWorkspaceRole(db, ALL_MEMBER_ROLES),
     (req: AuthenticatedRequest, res: Response) => {
-      const workspaceId = String(req.query.workspaceId || '');
+      const workspaceId = req.authorizedWorkspaceId!;
       const records = db
         .prepare(
           `SELECT id, agent_id AS agentId, model, prompt_chars AS promptChars, completion_chars AS completionChars, estimated_cost_usd AS estimatedCostUsd, latency_ms AS latencyMs, status, created_at AS createdAt
@@ -826,7 +1129,10 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         sendApiError(res, 400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Invalid document', req);
         return;
       }
-      const result = indexKnowledgeDocumentOnServer(db, parsed.data);
+      const result = indexKnowledgeDocumentOnServer(db, {
+        ...parsed.data,
+        workspaceId: req.authorizedWorkspaceId!,
+      });
       res.status(201).json({ ok: true, ...result });
     }
   );
@@ -842,7 +1148,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         return;
       }
       const result = searchServerRag(db, {
-        workspaceId: parsed.data.workspaceId,
+        workspaceId: req.authorizedWorkspaceId!,
         query: parsed.data.query,
         topK: parsed.data.topK,
         requestedScope: parsed.data.requestedScope,
@@ -858,8 +1164,8 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     '/jobs',
     requireAuth,
     requireWorkspaceRole(db, ALL_MEMBER_ROLES),
-    (req: Request, res: Response) => {
-      const workspaceId = String(req.query.workspaceId || '');
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
       const jobs = db
         .prepare(
           'SELECT id, job_type AS jobType, status, attempts, run_at AS runAt, executed_at AS executedAt, created_at AS createdAt FROM jobs WHERE workspace_id = ? ORDER BY created_at DESC LIMIT 50'
@@ -873,7 +1179,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     '/jobs/enqueue',
     requireAuth,
     requireWorkspaceRole(db, WRITE_ROLES),
-    (req: Request, res: Response) => {
+    (req: AuthenticatedRequest, res: Response) => {
       const schema = z.object({
         workspaceId: z.string().min(1),
         jobType: z.string().trim().min(1).max(80),
@@ -885,7 +1191,10 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         sendApiError(res, 400, 'VALIDATION_ERROR', 'Invalid job enqueue payload.', req);
         return;
       }
-      const job = enqueueServerJob(db, parsed.data);
+      const job = enqueueServerJob(db, {
+        ...parsed.data,
+        workspaceId: req.authorizedWorkspaceId!,
+      });
       res.status(201).json({ ok: true, job });
     }
   );
@@ -894,8 +1203,8 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     '/jobs/run-due',
     requireAuth,
     requireWorkspaceRole(db, ADMIN_ROLES),
-    (req: Request, res: Response) => {
-      const workspaceId = String(req.body?.workspaceId || '');
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
       const outcome = runDueServerJobs(db, workspaceId);
       res.json({ ok: true, ...outcome });
     }
@@ -905,8 +1214,8 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     '/webhooks',
     requireAuth,
     requireWorkspaceRole(db, ADMIN_ROLES),
-    (req: Request, res: Response) => {
-      const workspaceId = String(req.query.workspaceId || '');
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
       const hooks = db
         .prepare(
           'SELECT id, name, url, event_type AS eventType, enabled, last_status AS lastStatus, last_attempt_at AS lastAttemptAt, created_at AS createdAt FROM webhooks WHERE workspace_id = ?'
@@ -929,6 +1238,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
       try {
         const hook = registerServerWebhook(db, {
           ...parsed.data,
+          workspaceId: req.authorizedWorkspaceId!,
           actorUserId: req.authUser!.id,
         });
         res.status(201).json({ ok: true, webhook: hook });
@@ -948,8 +1258,8 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     '/webhooks/:webhookId/test',
     requireAuth,
     requireWorkspaceRole(db, ADMIN_ROLES),
-    async (req: Request, res: Response) => {
-      const workspaceId = String(req.body?.workspaceId || '');
+    async (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
       const signingSecret = typeof req.body?.secret === 'string' ? req.body.secret : undefined;
       try {
         const delivery = await dispatchServerWebhookTest(db, {
@@ -975,7 +1285,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     requireAuth,
     requireWorkspaceRole(db, ADMIN_ROLES),
     (req: AuthenticatedRequest, res: Response) => {
-      const workspaceId = String(req.body?.workspaceId || '');
+      const workspaceId = req.authorizedWorkspaceId!;
       const newSecret = typeof req.body?.secret === 'string' ? req.body.secret : undefined;
       const result = rotateWebhookSecret(db, {
         workspaceId,
@@ -1022,10 +1332,10 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     '/billing/subscription/:workspaceId',
     requireAuth,
     requireWorkspaceRole(db, FINANCE_ROLES),
-    (req: Request, res: Response) => {
+    (req: AuthenticatedRequest, res: Response) => {
       const sub = db
         .prepare('SELECT * FROM subscriptions WHERE workspace_id = ?')
-        .get(String(req.params.workspaceId));
+        .get(req.authorizedWorkspaceId!);
       res.json({ ok: true, subscription: sub ?? null });
     }
   );
@@ -1045,7 +1355,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
       db.prepare(
         `INSERT INTO support_requests (id, workspace_id, user_id, category, subject, details, status, created_at)
          VALUES (?, ?, ?, ?, ?, ?, 'open', ?)`
-      ).run(id, parsed.data.workspaceId, req.authUser!.id, parsed.data.category, parsed.data.subject, parsed.data.details, now);
+      ).run(id, req.authorizedWorkspaceId!, req.authUser!.id, parsed.data.category, parsed.data.subject, parsed.data.details, now);
       res.status(201).json({ ok: true, supportRequest: { id, status: 'open', createdAt: now } });
     }
   );
@@ -1056,8 +1366,8 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     '/analytics/overview/:workspaceId',
     requireAuth,
     requireWorkspaceRole(db, FINANCE_ROLES),
-    (req: Request, res: Response) => {
-      const workspaceId = String(req.params.workspaceId);
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
       const syncCount = (
         db.prepare('SELECT COUNT(*) AS c FROM sync_records WHERE workspace_id = ?').get(workspaceId) as { c: number }
       ).c;
@@ -1088,8 +1398,8 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     '/security/audit/:workspaceId',
     requireAuth,
     requireWorkspaceRole(db, ADMIN_ROLES),
-    (req: Request, res: Response) => {
-      const workspaceId = String(req.params.workspaceId);
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
       const logs = db
         .prepare(
           'SELECT id, actor_user_id AS actorUserId, event_type AS eventType, severity, detail, created_at AS createdAt FROM audit_logs WHERE workspace_id = ? ORDER BY created_at DESC LIMIT 100'
@@ -1100,9 +1410,13 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
   );
 
   router.post('/portal/audit', (req: Request, res: Response) => {
+    if (!checkPortalAuditRateLimit(req.ip || 'unknown')) {
+      sendApiError(res, 429, 'RATE_LIMITED', 'Too many portal audit events from this IP.', req);
+      return;
+    }
     const schema = z.object({
-      workspaceId: z.string().min(1).default('local-workspace'),
-      tokenPrefix: z.string().min(1).max(32),
+      workspaceId: z.string().min(1).max(80).default('local-workspace'),
+      tokenPrefix: z.string().min(4).max(32),
       valid: z.boolean(),
       reason: z.string().max(200).optional().default(''),
     });

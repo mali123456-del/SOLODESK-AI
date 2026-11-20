@@ -80,6 +80,18 @@ export const notificationPrefsSchema = z.object({
 });
 export type NotificationPrefs = z.infer<typeof notificationPrefsSchema>;
 
+export const quickNoteEntrySchema = z.object({
+  content: z.string().max(10_000).default(''),
+  updatedAt: z.string().default(''),
+});
+export type QuickNoteEntry = z.infer<typeof quickNoteEntrySchema>;
+
+export const dailyTaskGoalConfigSchema = z.object({
+  target: z.number().int().min(0).max(500).default(0),
+  updatedAt: z.string().default(''),
+});
+export type DailyTaskGoalConfig = z.infer<typeof dailyTaskGoalConfigSchema>;
+
 export const appSettingsSchema = z.object({
   id: z.literal('default').default('default'),
   defaultCurrency: z.string().min(3).max(5).default('USD'),
@@ -131,6 +143,11 @@ export const appSettingsSchema = z.object({
   autoSyncEnabled: z.boolean().optional().default(true),
   syncPaused: z.boolean().optional().default(false),
   syncCursor: z.string().optional().default(''),
+  activeWorkspaceId: z.string().min(1).max(100).optional().default('local-workspace'),
+  workspaceTimeZone: z.string().max(80).optional().default(''),
+  quickNotesByWorkspace: z.record(z.string(), quickNoteEntrySchema).optional().default({}),
+  dailyTaskGoalsByWorkspace: z.record(z.string(), dailyTaskGoalConfigSchema).optional().default({}),
+  taskCompletionBackfilledAt: z.string().optional().default(''),
   updatedAt: isoTimestampSchema,
 });
 export type AppSettings = z.infer<typeof appSettingsSchema>;

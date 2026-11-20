@@ -20,13 +20,38 @@ export interface RemoteSyncAdapterConfig {
   mode: 'local_only' | 'custom_sync_endpoint';
 }
 
+export type SyncLifecycleStatus =
+  | 'local_only'
+  | 'pending'
+  | 'syncing'
+  | 'synced'
+  | 'conflict'
+  | 'failed';
+
+export const SYNC_LIFECYCLE_LABELS: Record<SyncLifecycleStatus, string> = {
+  local_only: 'Local Only',
+  pending: 'Pending',
+  syncing: 'Syncing',
+  synced: 'Synced',
+  conflict: 'Conflict',
+  failed: 'Failed',
+};
+
 export interface ServerSyncPushResult {
   ok: boolean;
   ackedIds: string[];
-  conflicts: Array<{ id: string; reason: string }>;
+  conflicts: Array<{
+    id: string;
+    reason: string;
+    serverRevision?: number;
+    serverUpdatedAt?: string;
+  }>;
   failedIds: string[];
   serverTimestamp: string;
   errorMessage?: string;
+  httpStatus?: number;
+  retryable?: boolean;
+  idempotentReplay?: boolean;
 }
 
 export const ROLE_PERMISSION_MATRIX: Record<
@@ -128,13 +153,20 @@ export function resolveSyncConflict(input: {
  * Local conflict resolution ONLY prepares an item for re-transmission ('pending').
  * Items MUST NOT transition to 'acked' without an explicit server confirmation response.
  */
-export function buildResolvedPendingPatch(decision: SyncResolutionDecision): {
+export function buildResolvedPendingPatch(
+  decision: SyncResolutionDecision,
+  nextRevision?: number
+): {
   status: 'pending';
   conflictReason: string;
+  revision?: number;
 } {
   return {
     status: 'pending',
     conflictReason: `Resolved locally (${decision.winner}: ${decision.reason}) — awaiting server ACK.`,
+    ...(typeof nextRevision === 'number' && Number.isInteger(nextRevision) && nextRevision >= 1
+      ? { revision: nextRevision }
+      : {}),
   };
 }
 
@@ -144,6 +176,8 @@ export async function pushSyncQueueToServer(options: {
   authToken?: string;
   items: SyncQueueItem[];
   fetchImpl?: typeof fetch;
+  idempotencyKey?: string;
+  signal?: AbortSignal;
 }): Promise<ServerSyncPushResult> {
   const pendingItems = options.items.filter((i) => i.status === 'pending' || i.status === 'failed');
   if (pendingItems.length === 0) {
@@ -162,7 +196,7 @@ export async function pushSyncQueueToServer(options: {
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Idempotency-Key': createId('idem'),
+    'Idempotency-Key': options.idempotencyKey?.trim() || createId('idem'),
   };
   if (options.authToken) {
     headers.Authorization = `Bearer ${options.authToken}`;
@@ -173,6 +207,7 @@ export async function pushSyncQueueToServer(options: {
       method: 'POST',
       headers,
       credentials: 'include',
+      signal: options.signal,
       body: JSON.stringify({
         workspaceId: options.workspaceId,
         changes: pendingItems.map((item) => ({
@@ -189,6 +224,7 @@ export async function pushSyncQueueToServer(options: {
 
     if (!res.ok) {
       const errBody = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+      const retryable = res.status >= 500 || res.status === 429 || res.status === 408;
       return {
         ok: false,
         ackedIds: [],
@@ -196,13 +232,16 @@ export async function pushSyncQueueToServer(options: {
         failedIds: pendingItems.map((i) => i.id),
         serverTimestamp: new Date().toISOString(),
         errorMessage: errBody.error?.message || `Sync server rejected batch (HTTP ${res.status}).`,
+        httpStatus: res.status,
+        retryable,
       };
     }
 
     const body = (await res.json()) as {
       ackedIds?: string[];
-      conflicts?: Array<{ id: string; reason: string }>;
+      conflicts?: ServerSyncPushResult['conflicts'];
       serverTimestamp?: string;
+      idempotentReplay?: boolean;
     };
 
     return {
@@ -211,8 +250,12 @@ export async function pushSyncQueueToServer(options: {
       conflicts: Array.isArray(body.conflicts) ? body.conflicts : [],
       failedIds: [],
       serverTimestamp: body.serverTimestamp ?? new Date().toISOString(),
+      httpStatus: res.status,
+      retryable: false,
+      idempotentReplay: Boolean(body.idempotentReplay),
     };
   } catch (err) {
+    const aborted = err instanceof Error && err.name === 'AbortError';
     return {
       ok: false,
       ackedIds: [],
@@ -220,8 +263,75 @@ export async function pushSyncQueueToServer(options: {
       failedIds: pendingItems.map((i) => i.id),
       serverTimestamp: new Date().toISOString(),
       errorMessage: err instanceof Error ? err.message : 'Network error during sync push.',
+      retryable: !aborted,
     };
   }
+}
+
+export async function pushSyncQueueWithRetry(options: {
+  endpointUrl?: string;
+  workspaceId: string;
+  authToken?: string;
+  items: SyncQueueItem[];
+  fetchImpl?: typeof fetch;
+  maxAttempts?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  sleepImpl?: (ms: number) => Promise<void>;
+  signal?: AbortSignal;
+}): Promise<ServerSyncPushResult & { attempts: number; delaysMs: number[] }> {
+  const maxAttempts = Math.max(1, Math.min(6, Math.floor(options.maxAttempts ?? 3)));
+  const baseDelayMs = options.baseDelayMs ?? 500;
+  const maxDelayMs = options.maxDelayMs ?? 15_000;
+  const sleep =
+    options.sleepImpl ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const batchIdempotencyKey = createId('idem');
+  const delaysMs: number[] = [];
+
+  let attempts = 0;
+  let lastResult: ServerSyncPushResult = {
+    ok: false,
+    ackedIds: [],
+    conflicts: [],
+    failedIds: [],
+    serverTimestamp: new Date().toISOString(),
+    errorMessage: 'No attempts executed.',
+  };
+
+  while (attempts < maxAttempts) {
+    if (options.signal?.aborted) {
+      return {
+        ...lastResult,
+        ok: false,
+        retryable: false,
+        errorMessage: 'Sync push aborted.',
+        attempts,
+        delaysMs,
+      };
+    }
+
+    attempts += 1;
+    lastResult = await pushSyncQueueToServer({
+      endpointUrl: options.endpointUrl,
+      workspaceId: options.workspaceId,
+      authToken: options.authToken,
+      items: options.items,
+      fetchImpl: options.fetchImpl,
+      idempotencyKey: batchIdempotencyKey,
+      signal: options.signal,
+    });
+
+    if (lastResult.ok || lastResult.retryable === false || attempts >= maxAttempts) {
+      return { ...lastResult, attempts, delaysMs };
+    }
+
+    const delay = computeSyncBackoffDelayMs(attempts - 1, baseDelayMs, maxDelayMs);
+    delaysMs.push(delay);
+    await sleep(delay);
+  }
+
+  return { ...lastResult, attempts, delaysMs };
 }
 
 export interface SyncCheckpoint {
@@ -253,4 +363,24 @@ export function summarizeSyncQueue(items: SyncQueueItem[]) {
     conflicts: items.filter((i) => i.status === 'conflict').length,
     failed: items.filter((i) => i.status === 'failed').length,
   };
+}
+
+export function deriveRemoteSyncLifecycleStatus(input: {
+  syncQueue: SyncQueueItem[];
+  remoteConfigured: boolean;
+  isSyncingRemote?: boolean;
+  localSyncError?: string | null;
+  lastRemoteSyncedAt?: string | null;
+}): SyncLifecycleStatus {
+  if (input.isSyncingRemote) return 'syncing';
+  if (input.syncQueue.some((i) => i.status === 'conflict')) return 'conflict';
+  if (input.syncQueue.some((i) => i.status === 'failed') || Boolean(input.localSyncError)) {
+    return 'failed';
+  }
+  if (input.syncQueue.some((i) => i.status === 'pending')) return 'pending';
+  if (!input.remoteConfigured) return 'local_only';
+  if (input.syncQueue.some((i) => i.status === 'acked') || Boolean(input.lastRemoteSyncedAt)) {
+    return 'synced';
+  }
+  return 'local_only';
 }

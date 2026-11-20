@@ -56,6 +56,8 @@ import {
 } from '../../services/businessHealthService';
 import { buildDailyDigest, computeProductivityStats } from '../../services/productivityService';
 import type { AppRouteId } from '../../types/navigation';
+import { DailyTaskGoalCard } from './DailyTaskGoalCard';
+import { QuickNotesCard } from './QuickNotesCard';
 
 interface DashboardViewProps {
   onNavigate: (route: AppRouteId) => void;
@@ -88,7 +90,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [seeding, setSeeding] = useState(false);
   const [widgetsModalOpen, setWidgetsModalOpen] = useState(false);
 
-  const today = todayDateStr();
+  const today = todayDateStr(new Date(), settings?.workspaceTimeZone?.trim() || undefined);
   const currentMonthPrefix = today.slice(0, 7);
   const existingMonthGoal = workspaceGoals.find((g) => g.monthPrefix === currentMonthPrefix);
 
@@ -313,11 +315,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const toggleWidget = async (id: string) => {
     const defaults = [
       { id: 'digest', visible: true, order: 0 },
-      { id: 'kpis', visible: true, order: 1 },
-      { id: 'stats', visible: true, order: 2 },
-      { id: 'pinned', visible: true, order: 3 },
-      { id: 'goals', visible: true, order: 4 },
-      { id: 'cashflow', visible: true, order: 5 },
+      { id: 'daily-goal', visible: true, order: 1 },
+      { id: 'quick-notes', visible: true, order: 2 },
+      { id: 'kpis', visible: true, order: 3 },
+      { id: 'stats', visible: true, order: 4 },
+      { id: 'pinned', visible: true, order: 5 },
+      { id: 'goals', visible: true, order: 6 },
+      { id: 'cashflow', visible: true, order: 7 },
     ];
     const current = settings?.dashboardWidgets?.length ? settings.dashboardWidgets : defaults;
     const exists = current.some((w) => w.id === id);
@@ -678,6 +682,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           JSON Backup
         </Button>
       </div>
+
+      {/* Daily Task Completion Goal & Quick Notes Scratchpad */}
+      {(widgetVisible('daily-goal') || widgetVisible('quick-notes')) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {widgetVisible('daily-goal') && (
+            <DailyTaskGoalCard onOpenTasks={() => onNavigate('tasks')} referenceDate={today} />
+          )}
+          {widgetVisible('quick-notes') && <QuickNotesCard />}
+        </div>
+      )}
 
       {/* My Day & Monthly Goals / Business Health */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1040,6 +1054,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="space-y-2.5 text-sm">
           {[
             { id: 'digest', label: 'Daily Digest Card' },
+            { id: 'daily-goal', label: 'Daily Task Completion Goal' },
+            { id: 'quick-notes', label: 'Quick Notes Scratchpad' },
             { id: 'stats', label: 'Productivity Statistics' },
             { id: 'pinned', label: 'Pinned & Recently Viewed' },
           ].map((item) => (

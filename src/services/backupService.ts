@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { db } from '../database/db';
+import type { SolodeskDatabase } from '../database/solodeskDatabase';
+import { getActiveWorkspaceDatabase, getActiveWorkspaceIdSync } from '../database/workspaceManager';
 import {
   activityEventSchema,
   appointmentSchema,
@@ -71,6 +72,8 @@ export const backupPayloadSchema = z.object({
   format: z.literal('solodesk-backup'),
   schemaVersion: z.number().int().min(1).max(CURRENT_BACKUP_SCHEMA_VERSION),
   exportedAt: z.string().min(1),
+  workspaceId: z.string().optional(),
+  workspaceName: z.string().optional(),
   recordCounts: z.record(z.string(), z.number().int().min(0)),
   data: backupDataSchema,
 });
@@ -184,7 +187,14 @@ export async function decryptBackupJson(encryptedJson: string, passphrase: strin
   }
 }
 
-export async function createBackupPayload(): Promise<BackupPayload> {
+export async function createBackupPayload(options?: {
+  database?: SolodeskDatabase;
+  workspaceId?: string;
+  workspaceName?: string;
+}): Promise<BackupPayload> {
+  const targetDb = options?.database ?? getActiveWorkspaceDatabase();
+  const targetWorkspaceId = options?.workspaceId ?? getActiveWorkspaceIdSync();
+
   const [
     businessProfile,
     appSettings,
@@ -216,35 +226,35 @@ export async function createBackupPayload(): Promise<BackupPayload> {
     securityAuditLogs,
     savedViews,
   ] = await Promise.all([
-    db.businessProfile.toArray(),
-    db.appSettings.toArray(),
-    db.clients.toArray(),
-    db.projects.toArray(),
-    db.tasks.toArray(),
-    db.proposals.toArray(),
-    db.quotations.toArray(),
-    db.contracts.toArray(),
-    db.invoices.toArray(),
-    db.payments.toArray(),
-    db.financeEntries.toArray(),
-    db.timeEntries.toArray(),
-    db.templates.toArray(),
-    db.knowledgeDocs.toArray(),
-    db.documentChunks.toArray(),
-    db.workflowRuns.toArray(),
-    db.serviceCatalog.toArray(),
-    db.appointments.toArray(),
-    db.workspaceGoals.toArray(),
-    db.activities.toArray(),
-    db.notifications.toArray(),
-    db.vaultFiles.toArray(),
-    db.clientPortalLinks.toArray(),
-    db.retainers.toArray(),
-    db.customWorkflows.toArray(),
-    db.webhooks.toArray(),
-    db.syncQueue.toArray(),
-    db.securityAuditLogs.toArray(),
-    db.savedViews.toArray(),
+    targetDb.businessProfile.toArray(),
+    targetDb.appSettings.toArray(),
+    targetDb.clients.toArray(),
+    targetDb.projects.toArray(),
+    targetDb.tasks.toArray(),
+    targetDb.proposals.toArray(),
+    targetDb.quotations.toArray(),
+    targetDb.contracts.toArray(),
+    targetDb.invoices.toArray(),
+    targetDb.payments.toArray(),
+    targetDb.financeEntries.toArray(),
+    targetDb.timeEntries.toArray(),
+    targetDb.templates.toArray(),
+    targetDb.knowledgeDocs.toArray(),
+    targetDb.documentChunks.toArray(),
+    targetDb.workflowRuns.toArray(),
+    targetDb.serviceCatalog.toArray(),
+    targetDb.appointments.toArray(),
+    targetDb.workspaceGoals.toArray(),
+    targetDb.activities.toArray(),
+    targetDb.notifications.toArray(),
+    targetDb.vaultFiles.toArray(),
+    targetDb.clientPortalLinks.toArray(),
+    targetDb.retainers.toArray(),
+    targetDb.customWorkflows.toArray(),
+    targetDb.webhooks.toArray(),
+    targetDb.syncQueue.toArray(),
+    targetDb.securityAuditLogs.toArray(),
+    targetDb.savedViews.toArray(),
   ]);
 
   const data = {
@@ -310,6 +320,8 @@ export async function createBackupPayload(): Promise<BackupPayload> {
     format: 'solodesk-backup',
     schemaVersion: CURRENT_BACKUP_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
+    workspaceId: targetWorkspaceId,
+    workspaceName: options?.workspaceName,
     recordCounts,
     data,
   });
@@ -318,6 +330,9 @@ export async function createBackupPayload(): Promise<BackupPayload> {
 export interface BackupInspectionResult {
   requiresPassphrase: boolean;
   payload?: BackupPayload;
+  sourceWorkspaceId?: string;
+  currentWorkspaceId?: string;
+  crossWorkspaceMismatch?: boolean;
   conflicts: {
     matchingClientIds: number;
     duplicateInvoiceNumbers: string[];
@@ -333,8 +348,11 @@ export interface BackupInspectionResult {
 
 export async function inspectBackupText(
   rawText: string,
-  passphrase?: string
+  passphrase?: string,
+  options?: { database?: SolodeskDatabase; workspaceId?: string }
 ): Promise<BackupInspectionResult> {
+  const targetDb = options?.database ?? getActiveWorkspaceDatabase();
+  const currentWorkspaceId = options?.workspaceId ?? getActiveWorkspaceIdSync();
   let rawObj: unknown;
   try {
     rawObj = JSON.parse(rawText);
@@ -381,14 +399,14 @@ export async function inspectBackupText(
     existingContracts,
     existingDocs,
   ] = await Promise.all([
-    db.clients.toArray(),
-    db.invoices.toArray(),
-    db.projects.toArray(),
-    db.tasks.toArray(),
-    db.quotations.toArray(),
-    db.proposals.toArray(),
-    db.contracts.toArray(),
-    db.knowledgeDocs.toArray(),
+    targetDb.clients.toArray(),
+    targetDb.invoices.toArray(),
+    targetDb.projects.toArray(),
+    targetDb.tasks.toArray(),
+    targetDb.quotations.toArray(),
+    targetDb.proposals.toArray(),
+    targetDb.contracts.toArray(),
+    targetDb.knowledgeDocs.toArray(),
   ]);
 
   const existingClientIds = new Set(existingClients.map((c) => c.id));
@@ -411,9 +429,17 @@ export async function inspectBackupText(
     })
     .map((i) => i.number);
 
+  const sourceWorkspaceId = payload.workspaceId;
+  const crossWorkspaceMismatch = Boolean(
+    sourceWorkspaceId && currentWorkspaceId && sourceWorkspaceId !== currentWorkspaceId
+  );
+
   return {
     requiresPassphrase: false,
     payload,
+    sourceWorkspaceId,
+    currentWorkspaceId,
+    crossWorkspaceMismatch,
     conflicts: {
       matchingClientIds: payload.data.clients.filter((c) => existingClientIds.has(c.id)).length,
       duplicateInvoiceNumbers,
@@ -430,77 +456,83 @@ export async function inspectBackupText(
 
 export async function restoreBackupPayload(
   payload: BackupPayload,
-  mode: 'replace' | 'merge'
+  mode: 'replace' | 'merge',
+  options?: { database?: SolodeskDatabase; workspaceId?: string }
 ): Promise<{ safetySnapshot: BackupPayload; renamedInvoiceNumbers: string[] }> {
+  const targetDb = options?.database ?? getActiveWorkspaceDatabase();
+  const targetWorkspaceId = options?.workspaceId ?? getActiveWorkspaceIdSync();
   const validated = backupPayloadSchema.parse(payload);
-  const safetySnapshot = await createBackupPayload();
+  const safetySnapshot = await createBackupPayload({
+    database: targetDb,
+    workspaceId: targetWorkspaceId,
+  });
   const renamedInvoiceNumbers: string[] = [];
 
-  await db.transaction(
+  await targetDb.transaction(
     'rw',
     [
-      db.businessProfile,
-      db.appSettings,
-      db.clients,
-      db.projects,
-      db.tasks,
-      db.proposals,
-      db.quotations,
-      db.contracts,
-      db.invoices,
-      db.payments,
-      db.financeEntries,
-      db.timeEntries,
-      db.templates,
-      db.knowledgeDocs,
-      db.documentChunks,
-      db.workflowRuns,
-      db.serviceCatalog,
-      db.appointments,
-      db.workspaceGoals,
-      db.activities,
-      db.notifications,
-      db.vaultFiles,
-      db.clientPortalLinks,
-      db.retainers,
-      db.customWorkflows,
-      db.webhooks,
-      db.syncQueue,
-      db.securityAuditLogs,
-      db.savedViews,
+      targetDb.businessProfile,
+      targetDb.appSettings,
+      targetDb.clients,
+      targetDb.projects,
+      targetDb.tasks,
+      targetDb.proposals,
+      targetDb.quotations,
+      targetDb.contracts,
+      targetDb.invoices,
+      targetDb.payments,
+      targetDb.financeEntries,
+      targetDb.timeEntries,
+      targetDb.templates,
+      targetDb.knowledgeDocs,
+      targetDb.documentChunks,
+      targetDb.workflowRuns,
+      targetDb.serviceCatalog,
+      targetDb.appointments,
+      targetDb.workspaceGoals,
+      targetDb.activities,
+      targetDb.notifications,
+      targetDb.vaultFiles,
+      targetDb.clientPortalLinks,
+      targetDb.retainers,
+      targetDb.customWorkflows,
+      targetDb.webhooks,
+      targetDb.syncQueue,
+      targetDb.securityAuditLogs,
+      targetDb.savedViews,
     ],
     async () => {
       if (mode === 'replace') {
         await Promise.all([
-          db.businessProfile.clear(),
-          db.appSettings.clear(),
-          db.clients.clear(),
-          db.projects.clear(),
-          db.tasks.clear(),
-          db.proposals.clear(),
-          db.quotations.clear(),
-          db.contracts.clear(),
-          db.invoices.clear(),
-          db.payments.clear(),
-          db.financeEntries.clear(),
-          db.timeEntries.clear(),
-          db.templates.clear(),
-          db.knowledgeDocs.clear(),
-          db.documentChunks.clear(),
-          db.workflowRuns.clear(),
-          db.serviceCatalog.clear(),
-          db.appointments.clear(),
-          db.workspaceGoals.clear(),
-          db.activities.clear(),
-          db.notifications.clear(),
-          db.vaultFiles.clear(),
-          db.clientPortalLinks.clear(),
-          db.retainers.clear(),
-          db.customWorkflows.clear(),
-          db.webhooks.clear(),
-          db.syncQueue.clear(),
-          db.securityAuditLogs.clear(),
-          db.savedViews.clear(),
+          targetDb.businessProfile.clear(),
+          targetDb.appSettings.clear(),
+          targetDb.clients.clear(),
+          targetDb.projects.clear(),
+          targetDb.tasks.clear(),
+          targetDb.proposals.clear(),
+          targetDb.quotations.clear(),
+          targetDb.contracts.clear(),
+          targetDb.invoices.clear(),
+          targetDb.payments.clear(),
+          targetDb.financeEntries.clear(),
+          targetDb.timeEntries.clear(),
+          targetDb.templates.clear(),
+          targetDb.knowledgeDocs.clear(),
+          targetDb.documentChunks.clear(),
+          targetDb.workflowRuns.clear(),
+          targetDb.serviceCatalog.clear(),
+          targetDb.appointments.clear(),
+          targetDb.workspaceGoals.clear(),
+          targetDb.activities.clear(),
+          targetDb.notifications.clear(),
+          targetDb.vaultFiles.clear(),
+          targetDb.clientPortalLinks.clear(),
+          targetDb.retainers.clear(),
+          targetDb.customWorkflows.clear(),
+          targetDb.webhooks.clear(),
+          targetDb.syncQueue.clear(),
+          targetDb.securityAuditLogs.clear(),
+          targetDb.savedViews.clear(),
         ]);
       }
 
@@ -509,7 +541,7 @@ export async function restoreBackupPayload(
       // Reconcile unique `&number` index collisions on invoices before bulkPut so merge never aborts with ConstraintError
       let invoicesToWrite = d.invoices;
       if (d.invoices.length > 0) {
-        const existingInvoices = mode === 'merge' ? await db.invoices.toArray() : [];
+        const existingInvoices = mode === 'merge' ? await targetDb.invoices.toArray() : [];
         const usedNumbers = new Map<string, string>(
           existingInvoices.map((inv) => [inv.number, inv.id])
         );
@@ -531,45 +563,52 @@ export async function restoreBackupPayload(
         });
       }
 
-      if (d.businessProfile.length) await db.businessProfile.bulkPut(d.businessProfile);
-      if (d.appSettings.length) await db.appSettings.bulkPut(d.appSettings);
-      if (d.clients.length) await db.clients.bulkPut(d.clients);
-      if (d.projects.length) await db.projects.bulkPut(d.projects);
-      if (d.tasks.length) await db.tasks.bulkPut(d.tasks);
-      if (d.proposals.length) await db.proposals.bulkPut(d.proposals);
-      if (d.quotations.length) await db.quotations.bulkPut(d.quotations);
-      if (d.contracts.length) await db.contracts.bulkPut(d.contracts);
-      if (invoicesToWrite.length) await db.invoices.bulkPut(invoicesToWrite);
-      if (d.payments.length) await db.payments.bulkPut(d.payments);
-      if (d.financeEntries.length) await db.financeEntries.bulkPut(d.financeEntries);
-      if (d.timeEntries.length) await db.timeEntries.bulkPut(d.timeEntries);
-      if (d.templates.length) await db.templates.bulkPut(d.templates);
-      if (d.knowledgeDocs.length) await db.knowledgeDocs.bulkPut(d.knowledgeDocs);
-      if (d.documentChunks.length) await db.documentChunks.bulkPut(d.documentChunks);
-      if (d.workflowRuns.length) await db.workflowRuns.bulkPut(d.workflowRuns);
-      if (d.serviceCatalog.length) await db.serviceCatalog.bulkPut(d.serviceCatalog);
-      if (d.appointments.length) await db.appointments.bulkPut(d.appointments);
-      if (d.workspaceGoals.length) await db.workspaceGoals.bulkPut(d.workspaceGoals);
-      if (d.activities.length) await db.activities.bulkPut(d.activities);
-      if (d.notifications.length) await db.notifications.bulkPut(d.notifications);
-      if (d.vaultFiles.length) await db.vaultFiles.bulkPut(d.vaultFiles);
-      if (d.clientPortalLinks.length) await db.clientPortalLinks.bulkPut(d.clientPortalLinks);
-      if (d.retainers.length) await db.retainers.bulkPut(d.retainers);
-      if (d.customWorkflows.length) await db.customWorkflows.bulkPut(d.customWorkflows);
-      if (d.webhooks.length) await db.webhooks.bulkPut(d.webhooks);
-      if (d.syncQueue.length) await db.syncQueue.bulkPut(d.syncQueue);
-      if (d.securityAuditLogs.length) await db.securityAuditLogs.bulkPut(d.securityAuditLogs);
-      if (d.savedViews.length) await db.savedViews.bulkPut(d.savedViews);
+      if (d.businessProfile.length) await targetDb.businessProfile.bulkPut(d.businessProfile);
+      if (d.appSettings.length) {
+        const normalizedSettings = d.appSettings.map((row) => ({
+          ...row,
+          activeWorkspaceId: targetWorkspaceId,
+        }));
+        await targetDb.appSettings.bulkPut(normalizedSettings);
+      }
+      if (d.clients.length) await targetDb.clients.bulkPut(d.clients);
+      if (d.projects.length) await targetDb.projects.bulkPut(d.projects);
+      if (d.tasks.length) await targetDb.tasks.bulkPut(d.tasks);
+      if (d.proposals.length) await targetDb.proposals.bulkPut(d.proposals);
+      if (d.quotations.length) await targetDb.quotations.bulkPut(d.quotations);
+      if (d.contracts.length) await targetDb.contracts.bulkPut(d.contracts);
+      if (invoicesToWrite.length) await targetDb.invoices.bulkPut(invoicesToWrite);
+      if (d.payments.length) await targetDb.payments.bulkPut(d.payments);
+      if (d.financeEntries.length) await targetDb.financeEntries.bulkPut(d.financeEntries);
+      if (d.timeEntries.length) await targetDb.timeEntries.bulkPut(d.timeEntries);
+      if (d.templates.length) await targetDb.templates.bulkPut(d.templates);
+      if (d.knowledgeDocs.length) await targetDb.knowledgeDocs.bulkPut(d.knowledgeDocs);
+      if (d.documentChunks.length) await targetDb.documentChunks.bulkPut(d.documentChunks);
+      if (d.workflowRuns.length) await targetDb.workflowRuns.bulkPut(d.workflowRuns);
+      if (d.serviceCatalog.length) await targetDb.serviceCatalog.bulkPut(d.serviceCatalog);
+      if (d.appointments.length) await targetDb.appointments.bulkPut(d.appointments);
+      if (d.workspaceGoals.length) await targetDb.workspaceGoals.bulkPut(d.workspaceGoals);
+      if (d.activities.length) await targetDb.activities.bulkPut(d.activities);
+      if (d.notifications.length) await targetDb.notifications.bulkPut(d.notifications);
+      if (d.vaultFiles.length) await targetDb.vaultFiles.bulkPut(d.vaultFiles);
+      if (d.clientPortalLinks.length) await targetDb.clientPortalLinks.bulkPut(d.clientPortalLinks);
+      if (d.retainers.length) await targetDb.retainers.bulkPut(d.retainers);
+      if (d.customWorkflows.length) await targetDb.customWorkflows.bulkPut(d.customWorkflows);
+      if (d.webhooks.length) await targetDb.webhooks.bulkPut(d.webhooks);
+      if (d.syncQueue.length) await targetDb.syncQueue.bulkPut(d.syncQueue);
+      if (d.securityAuditLogs.length) await targetDb.securityAuditLogs.bulkPut(d.securityAuditLogs);
+      if (d.savedViews.length) await targetDb.savedViews.bulkPut(d.savedViews);
     }
   );
 
   return { safetySnapshot, renamedInvoiceNumbers };
 }
 
-export async function markBackupCompleted(): Promise<void> {
-  const existing = await db.appSettings.get('default');
+export async function markBackupCompleted(database?: SolodeskDatabase): Promise<void> {
+  const targetDb = database ?? getActiveWorkspaceDatabase();
+  const existing = await targetDb.appSettings.get('default');
   const now = new Date().toISOString();
   if (existing) {
-    await db.appSettings.put({ ...existing, lastBackupAt: now, updatedAt: now });
+    await targetDb.appSettings.put({ ...existing, lastBackupAt: now, updatedAt: now });
   }
 }

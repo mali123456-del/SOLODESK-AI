@@ -36,6 +36,10 @@ export interface BackendSyncPullResult {
     deletedAt: string;
   }>;
   serverTimestamp: string;
+  hasMore?: boolean;
+  nextCursor?: string;
+  nextPageCursor?: string;
+  httpStatus?: number;
   errorMessage?: string;
 }
 
@@ -162,11 +166,15 @@ export async function pullWorkspaceChangesFromServer(input: {
   endpointUrl?: string;
   workspaceId: string;
   since?: string;
+  cursor?: string;
+  limit?: number;
 }): Promise<BackendSyncPullResult> {
   try {
     const base = normalizeBase(input.endpointUrl);
     const qs = new URLSearchParams({ workspaceId: input.workspaceId });
     if (input.since) qs.set('since', input.since);
+    if (input.cursor) qs.set('cursor', input.cursor);
+    if (typeof input.limit === 'number') qs.set('limit', String(input.limit));
     const res = await fetch(`${base}/sync/pull?${qs.toString()}`, {
       credentials: 'include',
     });
@@ -174,6 +182,9 @@ export async function pullWorkspaceChangesFromServer(input: {
       records?: BackendSyncPullResult['records'];
       tombstones?: BackendSyncPullResult['tombstones'];
       serverTimestamp?: string;
+      hasMore?: boolean;
+      nextCursor?: string;
+      nextPageCursor?: string;
       error?: { message?: string };
     };
     if (!res.ok) {
@@ -182,6 +193,7 @@ export async function pullWorkspaceChangesFromServer(input: {
         records: [],
         tombstones: [],
         serverTimestamp: new Date().toISOString(),
+        httpStatus: res.status,
         errorMessage: body.error?.message || `Pull failed (HTTP ${res.status})`,
       };
     }
@@ -190,6 +202,10 @@ export async function pullWorkspaceChangesFromServer(input: {
       records: body.records ?? [],
       tombstones: body.tombstones ?? [],
       serverTimestamp: body.serverTimestamp ?? new Date().toISOString(),
+      hasMore: body.hasMore,
+      nextCursor: body.nextCursor,
+      nextPageCursor: body.nextPageCursor,
+      httpStatus: res.status,
     };
   } catch (err) {
     return {

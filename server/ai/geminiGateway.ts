@@ -1,7 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import crypto from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { serverMetrics } from '../monitoring/telemetry';
+import { scrubSensitiveData, serverMetrics } from '../monitoring/telemetry';
 
 export const SERVER_GEMINI_MODEL = 'gemini-4-hydrogen';
 
@@ -122,8 +122,9 @@ export async function generateWithServerGemini(
       throw err;
     }
 
-    const msg = err instanceof Error ? err.message : String(err);
-    const lower = msg.toLowerCase();
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    const msg = String(scrubSensitiveData(rawMsg));
+    const lower = rawMsg.toLowerCase();
     let mapped = new GatewayError(502, 'provider_error', `Gemini API failure: ${msg}`);
     if (lower.includes('401') || lower.includes('403') || lower.includes('api key')) {
       mapped = new GatewayError(401, 'unauthorized', 'Gemini rejected the configured API key.');

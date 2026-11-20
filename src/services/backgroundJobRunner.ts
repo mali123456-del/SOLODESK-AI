@@ -1,6 +1,8 @@
 import { addDaysToDateStr, todayDateStr } from '../domain/calculations/dates';
 import { createId, type Invoice } from '../domain/schemas/entities';
+import type { SolodeskDatabase } from '../database/solodeskDatabase';
 import { repositories, type DexieSolodeskRepositories } from '../database/repositories/dexieRepositories';
+import { getActiveWorkspaceDatabase } from '../database/workspaceManager';
 import { computeNextRecurrenceDate } from './financialIntelligenceService';
 
 export interface BackgroundJobSummary {
@@ -10,20 +12,23 @@ export interface BackgroundJobSummary {
   emittedNotifications: number;
 }
 
-const JOB_RUN_STORAGE_KEY = 'solodesk_last_bg_job_date';
+const lastOverdueAlertDateByDb = new Map<string, string>();
 
 /**
- * Deterministic, idempotent local background scheduler.
+ * Deterministic, idempotent local background scheduler bound strictly to one workspace DB.
  * Executes due recurring invoices (`nextRecurrenceDate <= today`), updates overdue status,
- * and pushes deduplicated notifications without double-generating invoices.
+ * and pushes deduplicated notifications without double-generating invoices or using webStorage.
  */
 export async function runWorkspaceBackgroundJobs(options: {
   today?: string;
   repo?: DexieSolodeskRepositories;
+  database?: SolodeskDatabase;
   force?: boolean;
 } = {}): Promise<BackgroundJobSummary> {
   const today = options.today ?? todayDateStr();
-  const repo = options.repo ?? repositories;
+  const targetDb = options.database ?? getActiveWorkspaceDatabase();
+  const repo = options.repo ?? repositories.withDatabase(targetDb);
+  const dbScopeKey = targetDb.name;
 
   const overdueRefreshedCount = await repo.refreshOverdueInvoices();
   const [invoices, notifications] = await Promise.all([
@@ -92,15 +97,15 @@ export async function runWorkspaceBackgroundJobs(options: {
     }
   }
 
-  // Emit non-duplicate overdue alert once per day if overdue balance exists
+  // Emit non-duplicate overdue alert once per day per workspace DB if overdue balance exists
   const alreadyAlertedToday = notifications.some(
     (n) => n.title === 'Overdue Invoices Require Attention' && n.createdAt.startsWith(today)
   );
   const overdueInvoices = invoices.filter((i) => i.status === 'overdue' && i.balanceDue > 0);
-  if (!alreadyAlertedToday && overdueInvoices.length > 0 && typeof window !== 'undefined') {
-    const lastRun = window.sessionStorage.getItem(JOB_RUN_STORAGE_KEY);
+  if (!alreadyAlertedToday && overdueInvoices.length > 0) {
+    const lastRun = lastOverdueAlertDateByDb.get(dbScopeKey);
     if (options.force || lastRun !== today) {
-      window.sessionStorage.setItem(JOB_RUN_STORAGE_KEY, today);
+      lastOverdueAlertDateByDb.set(dbScopeKey, today);
       await repo.pushNotification({
         title: 'Overdue Invoices Require Attention',
         message: `${overdueInvoices.length} invoice(s) are past due.`,

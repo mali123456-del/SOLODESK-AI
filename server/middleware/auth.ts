@@ -9,6 +9,7 @@ export interface AuthenticatedRequest extends Request {
   authUser?: AuthUser;
   authSessionId?: string;
   workspaceRole?: WorkspaceMemberRole;
+  authorizedWorkspaceId?: string;
   requestId?: string;
 }
 
@@ -63,18 +64,58 @@ export function createRequireAuthMiddleware(db: DatabaseSync) {
   };
 }
 
+function resolveCanonicalWorkspaceId(
+  req: Request
+): { ok: true; workspaceId: string } | { ok: false; code: string; message: string } {
+  const rawBodyWs = (req.body as Record<string, unknown> | undefined)?.workspaceId;
+  const rawQueryWs = req.query?.workspaceId;
+
+  if (rawBodyWs !== undefined && typeof rawBodyWs !== 'string') {
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'workspaceId in body must be a string.' };
+  }
+  if (rawQueryWs !== undefined && typeof rawQueryWs !== 'string') {
+    return { ok: false, code: 'VALIDATION_ERROR', message: 'workspaceId query parameter must be a single string.' };
+  }
+
+  const paramWs = typeof req.params.workspaceId === 'string' ? req.params.workspaceId.trim() : '';
+  const bodyWs = typeof rawBodyWs === 'string' ? rawBodyWs.trim() : '';
+  const queryWs = typeof rawQueryWs === 'string' ? rawQueryWs.trim() : '';
+
+  const provided = Array.from(new Set([paramWs, bodyWs, queryWs].filter(Boolean)));
+  if (provided.length > 1) {
+    return {
+      ok: false,
+      code: 'TENANT_PARAM_MISMATCH',
+      message: 'Conflicting workspaceId values supplied across request parameters.',
+    };
+  }
+
+  return { ok: true, workspaceId: provided[0] ?? '' };
+}
+
 export function requireWorkspaceRole(
   db: DatabaseSync,
   allowedRoles: WorkspaceMemberRole[],
-  resolveWorkspaceId: (req: Request) => string = (req) =>
-    String(req.params.workspaceId || req.body?.workspaceId || req.query?.workspaceId || '')
+  resolveWorkspaceId?: (req: Request) => string
 ) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
     if (!req.authUser) {
       sendApiError(res, 401, 'UNAUTHORIZED', 'Authentication required.', req);
       return;
     }
-    const workspaceId = resolveWorkspaceId(req).trim();
+
+    let workspaceId = '';
+    if (resolveWorkspaceId) {
+      workspaceId = resolveWorkspaceId(req).trim();
+    } else {
+      const resolved = resolveCanonicalWorkspaceId(req);
+      if (!resolved.ok) {
+        sendApiError(res, 400, resolved.code, resolved.message, req);
+        return;
+      }
+      workspaceId = resolved.workspaceId;
+    }
+
     if (!workspaceId) {
       sendApiError(res, 400, 'VALIDATION_ERROR', 'workspaceId is required.', req);
       return;
@@ -104,6 +145,7 @@ export function requireWorkspaceRole(
     }
 
     req.workspaceRole = role;
+    req.authorizedWorkspaceId = workspaceId;
     next();
   };
 }

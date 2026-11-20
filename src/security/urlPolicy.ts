@@ -46,9 +46,20 @@ function isPrivateOrReservedIpv6(host: string): boolean {
   if (bare.startsWith('fc') || bare.startsWith('fd')) {
     return true; // unique local fc00::/7
   }
-  if (bare.startsWith('::ffff:')) {
-    const mappedV4 = bare.slice('::ffff:'.length);
-    return isPrivateOrReservedIpv4(mappedV4);
+  const mappedPrefixes = ['::ffff:', '0:0:0:0:0:ffff:'];
+  for (const prefix of mappedPrefixes) {
+    if (bare.startsWith(prefix)) {
+      const mapped = bare.slice(prefix.length);
+      if (isPrivateOrReservedIpv4(mapped)) return true;
+      const hexPair = mapped.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+      if (hexPair) {
+        const hi = parseInt(hexPair[1], 16);
+        const lo = parseInt(hexPair[2], 16);
+        const dotted = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+        return isPrivateOrReservedIpv4(dotted);
+      }
+      return true;
+    }
   }
   return false;
 }
@@ -111,4 +122,29 @@ export function validatePublicHttpUrl(rawUrl: string): SafeUrlValidationResult {
     normalizedUrl: parsed.toString(),
     parsed,
   };
+}
+
+export function validateResolvedIpAddress(rawIp: string): {
+  valid: boolean;
+  normalizedIp?: string;
+  reason?: string;
+} {
+  const withoutZone = String(rawIp ?? '')
+    .trim()
+    .replace(/^\[|\]$/g, '')
+    .split('%')[0]
+    .trim();
+
+  if (!withoutZone) {
+    return { valid: false, reason: 'Resolved IP address is empty.' };
+  }
+
+  if (isPrivateOrReservedIpv4(withoutZone) || isPrivateOrReservedIpv6(withoutZone)) {
+    return {
+      valid: false,
+      reason: `Resolved IP "${withoutZone}" falls within a loopback, private, link-local, metadata, or reserved IP range.`,
+    };
+  }
+
+  return { valid: true, normalizedIp: withoutZone };
 }

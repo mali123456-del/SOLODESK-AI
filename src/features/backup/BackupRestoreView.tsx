@@ -31,7 +31,7 @@ import {
 } from '../../services/backupService';
 
 export const BackupRestoreView: React.FC = () => {
-  const { settings, storageHealth, refresh } = useWorkspace();
+  const { activeWorkspace, settings, storageHealth, refresh } = useWorkspace();
   const { pushToast } = useToast();
 
   const [encryptPassphrase, setEncryptPassphrase] = useState('');
@@ -51,7 +51,10 @@ export const BackupRestoreView: React.FC = () => {
   const handleExport = async (encrypted: boolean) => {
     setExporting(true);
     try {
-      const payload = await createBackupPayload();
+      const payload = await createBackupPayload({
+        workspaceId: activeWorkspace?.id,
+        workspaceName: activeWorkspace?.name,
+      });
       const plain = JSON.stringify(payload, null, 2);
       const output = encrypted
         ? await encryptBackupJson(plain, encryptPassphrase)
@@ -291,6 +294,12 @@ export const BackupRestoreView: React.FC = () => {
                   </div>
                 ))}
               </div>
+
+              {inspection.crossWorkspaceMismatch && (
+                <div role="status" className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200">
+                  Backup originated from workspace <strong>{inspection.payload.workspaceName || inspection.sourceWorkspaceId}</strong> and will be restored into active workspace <strong>{activeWorkspace?.name || inspection.currentWorkspaceId}</strong>.
+                </div>
+              )}
 
               {(inspection.conflicts.matchingClientIds > 0 ||
                 inspection.conflicts.matchingProjectIds > 0 ||

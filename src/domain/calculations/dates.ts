@@ -20,11 +20,37 @@ export function isValidDateOnly(value: string): boolean {
   );
 }
 
-export function todayDateStr(now = new Date()): string {
+export function todayDateStr(now = new Date(), timeZone?: string): string {
+  if (timeZone) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(now);
+      const y = parts.find((p) => p.type === 'year')?.value;
+      const m = parts.find((p) => p.type === 'month')?.value;
+      const d = parts.find((p) => p.type === 'day')?.value;
+      if (y && m && d) return `${y}-${m}-${d}`;
+    } catch {
+      // Fall back to runtime local calendar date if timezone string is invalid
+    }
+  }
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+export function toWorkspaceDateStr(value: string | undefined | null, timeZone?: string): string {
+  if (!value) return '';
+  if (DATE_ONLY_REGEX.test(value)) {
+    return isValidDateOnly(value) ? value : '';
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return todayDateStr(parsed, timeZone);
 }
 
 export function addDaysToDateStr(dateStr: string, days: number): string {

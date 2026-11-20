@@ -3,6 +3,7 @@ import {
   isDateOverdue,
   secondsToDecimalHours,
   todayDateStr,
+  toWorkspaceDateStr,
 } from '../domain/calculations/dates';
 import { addMoney } from '../domain/calculations/money';
 import type {
@@ -183,3 +184,83 @@ export function computeProductivityStats(input: {
     onTimeCompletionPercent,
   };
 }
+
+export interface DailyTaskGoalProgress {
+  date: string;
+  target: number;
+  hasTarget: boolean;
+  completedToday: number;
+  completedTaskIds: string[];
+  rawPercent: number;
+  ringPercent: number;
+  goalReached: boolean;
+  remainingCount: number;
+}
+
+export function validateDailyTaskGoalTarget(raw: string | number): {
+  valid: boolean;
+  value: number;
+  error?: string;
+} {
+  if (typeof raw === 'string' && raw.trim() === '') {
+    return { valid: false, value: 0, error: 'Enter a whole number between 0 and 500.' };
+  }
+  const num = typeof raw === 'number' ? raw : Number(raw.trim());
+  if (!Number.isFinite(num) || !Number.isInteger(num)) {
+    return { valid: false, value: 0, error: 'Daily task target must be a whole number.' };
+  }
+  if (num < 0) {
+    return { valid: false, value: 0, error: 'Daily task target cannot be negative.' };
+  }
+  if (num > 500) {
+    return { valid: false, value: 0, error: 'Daily task target cannot exceed 500 tasks per day.' };
+  }
+  return { valid: true, value: num };
+}
+
+export function computeDailyTaskGoalProgress(input: {
+  tasks: Task[];
+  target?: number | null;
+  today?: string;
+  timeZone?: string;
+}): DailyTaskGoalProgress {
+  const today = input.today ?? todayDateStr(new Date(), input.timeZone);
+  const rawTarget = input.target ?? 0;
+  const safeTarget =
+    typeof rawTarget === 'number' && Number.isFinite(rawTarget) && rawTarget > 0
+      ? Math.min(500, Math.floor(rawTarget))
+      : 0;
+
+  const seenIds = new Set<string>();
+  const completedTaskIds: string[] = [];
+
+  for (const task of input.tasks) {
+    if (!task.id || seenIds.has(task.id)) continue;
+    if (task.status !== 'done') continue;
+    if (!task.completedAt) continue;
+    const completedDate = toWorkspaceDateStr(task.completedAt, input.timeZone);
+    if (!completedDate) continue;
+    if (completedDate === today) {
+      seenIds.add(task.id);
+      completedTaskIds.push(task.id);
+    }
+  }
+
+  const completedToday = completedTaskIds.length;
+  const hasTarget = safeTarget > 0;
+  const rawPercent = hasTarget ? Math.round((completedToday / safeTarget) * 100) : 0;
+  const ringPercent = Math.min(100, Math.max(0, rawPercent));
+
+  return {
+    date: today,
+    target: safeTarget,
+    hasTarget,
+    completedToday,
+    completedTaskIds,
+    rawPercent,
+    ringPercent,
+    goalReached: hasTarget && completedToday >= safeTarget,
+    remainingCount: hasTarget ? Math.max(0, safeTarget - completedToday) : 0,
+  };
+}
+

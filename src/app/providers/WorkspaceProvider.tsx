@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getSyncSnapshot,
   subscribeSyncEvents,
@@ -10,8 +10,28 @@ import {
   requestPersistentBrowserStorage,
   type StorageHealth,
 } from '../../database/db';
+import { runTaskCompletionTimestampMigration } from '../../database/migrations/taskCompletionMigration';
 import { repositories } from '../../database/repositories/dexieRepositories';
+import {
+  createWorkspaceRecord,
+  DEFAULT_WORKSPACE_ID,
+  deleteWorkspaceRecord,
+  getActiveWorkspaceDatabase,
+  getActiveWorkspaceIdSync,
+  getDatabaseForWorkspace,
+  initializeWorkspaceManager,
+  listWorkspaces,
+  renameWorkspaceRecord,
+  switchActiveWorkspace,
+  trackWorkspaceOperation,
+  type WorkspaceMetadata,
+} from '../../database/workspaceManager';
+import {
+  deriveRemoteSyncLifecycleStatus,
+  type SyncLifecycleStatus,
+} from '../../services/cloudSyncService';
 import { runWorkspaceBackgroundJobs } from '../../services/backgroundJobRunner';
+import { validateDailyTaskGoalTarget } from '../../services/productivityService';
 import {
   clearDemoWorkspaceData,
   ensureBuiltInTemplates,
@@ -62,11 +82,22 @@ export interface WorkspaceState {
   error: string | null;
   isOnline: boolean;
   syncStatus: LocalSyncStatus;
+  syncLifecycleStatus: SyncLifecycleStatus;
   pendingSyncCount: number;
   lastSyncedAt: string | null;
+  lastRemoteSyncedAt: string | null;
+  remoteConfigured: boolean;
   syncError: string | null;
   autoSyncEnabled: boolean;
   syncPaused: boolean;
+  workspaces: WorkspaceMetadata[];
+  activeWorkspace: WorkspaceMetadata | null;
+  activeWorkspaceId: string;
+  hasUnsavedQuickNotes: boolean;
+  quickNote: string;
+  quickNoteUpdatedAt: string;
+  dailyTaskGoalTarget: number;
+  dailyTaskGoalUpdatedAt: string;
   runningTimer: TimeEntry | null;
   timerElapsedSeconds: number;
   businessProfile: BusinessProfile | null;
@@ -105,6 +136,16 @@ interface WorkspaceContextValue extends WorkspaceState {
   retrySync: () => Promise<void>;
   setAutoSyncEnabled: (enabled: boolean) => Promise<void>;
   setSyncPaused: (paused: boolean) => Promise<void>;
+  setActiveWorkspaceId: (workspaceId: string) => Promise<void>;
+  createWorkspace: (name: string, switchToNew?: boolean) => Promise<WorkspaceMetadata>;
+  renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceMetadata>;
+  switchWorkspace: (workspaceId: string) => Promise<void>;
+  deleteWorkspace: (workspaceId: string) => Promise<void>;
+  setHasUnsavedQuickNotes: (dirty: boolean) => void;
+  setRemoteSyncStatus: (info: { remoteConfigured?: boolean; lastRemoteSyncedAt?: string | null; isSyncingRemote?: boolean }) => void;
+  saveQuickNote: (content: string) => Promise<void>;
+  clearQuickNote: () => Promise<void>;
+  setDailyTaskGoalTarget: (target: number) => Promise<void>;
   startGlobalTimer: (input: GlobalTimerStartInput) => Promise<TimeEntry>;
   stopGlobalTimer: (timerId?: string) => Promise<void>;
   loadDemoWorkspace: () => Promise<void>;
@@ -128,11 +169,22 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   error: null,
   isOnline: initialOnline,
   syncStatus: 'idle',
+  syncLifecycleStatus: 'local_only',
   pendingSyncCount: 0,
   lastSyncedAt: null,
+  lastRemoteSyncedAt: null,
+  remoteConfigured: false,
   syncError: null,
   autoSyncEnabled: true,
   syncPaused: false,
+  workspaces: [],
+  activeWorkspace: null,
+  activeWorkspaceId: DEFAULT_WORKSPACE_ID,
+  hasUnsavedQuickNotes: false,
+  quickNote: '',
+  quickNoteUpdatedAt: '',
+  dailyTaskGoalTarget: 0,
+  dailyTaskGoalUpdatedAt: '',
   runningTimer: null,
   timerElapsedSeconds: 0,
   businessProfile: null,
@@ -168,6 +220,20 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   retrySync: async () => {},
   setAutoSyncEnabled: async () => {},
   setSyncPaused: async () => {},
+  setActiveWorkspaceId: async () => {},
+  createWorkspace: async () => {
+    throw new Error('WorkspaceProvider not mounted');
+  },
+  renameWorkspace: async () => {
+    throw new Error('WorkspaceProvider not mounted');
+  },
+  switchWorkspace: async () => {},
+  deleteWorkspace: async () => {},
+  setHasUnsavedQuickNotes: () => {},
+  setRemoteSyncStatus: () => {},
+  saveQuickNote: async () => {},
+  clearQuickNote: async () => {},
+  setDailyTaskGoalTarget: async () => {},
   startGlobalTimer: async () => {
     throw new Error('WorkspaceProvider not mounted');
   },
@@ -193,17 +259,43 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   );
   const [syncTelemetry, setSyncTelemetry] = useState(initialSync);
   const [timerNowMs, setTimerNowMs] = useState(() => Date.now());
+  const [workspaces, setWorkspaces] = useState<WorkspaceMetadata[]>([]);
+  const [activeWsIdState, setActiveWsIdState] = useState<string>(() => getActiveWorkspaceIdSync());
+  const [hasUnsavedQuickNotes, setHasUnsavedQuickNotes] = useState(false);
+  const [remoteConfigured, setRemoteConfigured] = useState(false);
+  const [lastRemoteSyncedAt, setLastRemoteSyncedAt] = useState<string | null>(null);
+  const [isSyncingRemote, setIsSyncingRemote] = useState(false);
+  const refreshEpochRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const [state, setState] = useState<
     Omit<
       WorkspaceState,
       | 'isOnline'
       | 'syncStatus'
+      | 'syncLifecycleStatus'
       | 'pendingSyncCount'
       | 'lastSyncedAt'
+      | 'lastRemoteSyncedAt'
+      | 'remoteConfigured'
       | 'syncError'
       | 'autoSyncEnabled'
       | 'syncPaused'
+      | 'workspaces'
+      | 'activeWorkspace'
+      | 'activeWorkspaceId'
+      | 'hasUnsavedQuickNotes'
+      | 'quickNote'
+      | 'quickNoteUpdatedAt'
+      | 'dailyTaskGoalTarget'
+      | 'dailyTaskGoalUpdatedAt'
       | 'runningTimer'
       | 'timerElapsedSeconds'
     >
@@ -288,110 +380,159 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const autoSyncEnabled = state.settings?.autoSyncEnabled ?? true;
   const syncPaused = state.settings?.syncPaused ?? false;
+  const activeWorkspaceId = activeWsIdState || state.settings?.activeWorkspaceId?.trim() || DEFAULT_WORKSPACE_ID;
+  const activeWorkspace = useMemo(
+    () => workspaces.find((w) => w.id === activeWorkspaceId) ?? null,
+    [workspaces, activeWorkspaceId]
+  );
+  const quickNoteEntry = state.settings?.quickNotesByWorkspace?.[activeWorkspaceId];
+  const quickNote = quickNoteEntry?.content ?? '';
+  const quickNoteUpdatedAt = quickNoteEntry?.updatedAt ?? '';
+  const dailyTaskGoalEntry = state.settings?.dailyTaskGoalsByWorkspace?.[activeWorkspaceId];
+  const dailyTaskGoalTarget = dailyTaskGoalEntry?.target ?? 0;
+  const dailyTaskGoalUpdatedAt = dailyTaskGoalEntry?.updatedAt ?? '';
+
+  const syncLifecycleStatus = useMemo(
+    () =>
+      deriveRemoteSyncLifecycleStatus({
+        syncQueue: state.syncQueue,
+        remoteConfigured,
+        isSyncingRemote,
+        localSyncError: syncTelemetry.lastError,
+        lastRemoteSyncedAt,
+      }),
+    [state.syncQueue, remoteConfigured, isSyncingRemote, syncTelemetry.lastError, lastRemoteSyncedAt]
+  );
 
   const refresh = useCallback(async () => {
+    const myEpoch = ++refreshEpochRef.current;
+    const currentWsId = getActiveWorkspaceIdSync();
     try {
       await trackSyncOperation('Sync local IndexedDB workspace', async () => {
-        await ensureBuiltInTemplates();
-        await runWorkspaceBackgroundJobs();
+        await trackWorkspaceOperation(currentWsId, async (activeDb) => {
+          const wsList = await listWorkspaces();
+          const scopedRepos = repositories.withDatabase(activeDb);
+          await runTaskCompletionTimestampMigration(activeDb);
+          await ensureBuiltInTemplates(activeDb);
+          await runWorkspaceBackgroundJobs({ database: activeDb, repo: scopedRepos });
 
-        const [
-          businessProfile,
-          settings,
-          clients,
-          projects,
-          tasks,
-          proposals,
-          quotations,
-          contracts,
-          invoices,
-          payments,
-          financeEntries,
-          timeEntries,
-          templates,
-          knowledgeDocs,
-          workflowRuns,
-          serviceCatalog,
-          appointments,
-          workspaceGoals,
-          activities,
-          notifications,
-          vaultFiles,
-          clientPortalLinks,
-          retainers,
-          customWorkflows,
-          webhooks,
-          syncQueue,
-          securityAuditLogs,
-          savedViews,
-          storageHealth,
-        ] = await Promise.all([
-          repositories.getBusinessProfile(),
-          repositories.getSettings(),
-          repositories.listClients(),
-          repositories.listProjects(),
-          repositories.listTasks(),
-          repositories.listProposals(),
-          repositories.listQuotations(),
-          repositories.listContracts(),
-          repositories.listInvoices(),
-          repositories.listPayments(),
-          repositories.listFinanceEntries(),
-          repositories.listTimeEntries(),
-          repositories.listTemplates(),
-          repositories.listKnowledgeDocs(),
-          repositories.listWorkflowRuns(),
-          repositories.listServiceCatalog(),
-          repositories.listAppointments(),
-          repositories.listWorkspaceGoals(),
-          repositories.listActivities(120),
-          repositories.listNotifications(),
-          repositories.listVaultFiles(),
-          repositories.listClientPortalLinks(),
-          repositories.listRetainers(),
-          repositories.listCustomWorkflows(),
-          repositories.listWebhooks(),
-          repositories.listSyncQueue(),
-          repositories.listSecurityAuditLogs(200),
-          repositories.listSavedViews(),
-          getStorageHealth(),
-        ]);
+          const [
+            businessProfile,
+            settings,
+            clients,
+            projects,
+            tasks,
+            proposals,
+            quotations,
+            contracts,
+            invoices,
+            payments,
+            financeEntries,
+            timeEntries,
+            templates,
+            knowledgeDocs,
+            workflowRuns,
+            serviceCatalog,
+            appointments,
+            workspaceGoals,
+            activities,
+            notifications,
+            vaultFiles,
+            clientPortalLinks,
+            retainers,
+            customWorkflows,
+            webhooks,
+            syncQueue,
+            securityAuditLogs,
+            savedViews,
+            storageHealth,
+          ] = await Promise.all([
+            scopedRepos.getBusinessProfile(),
+            scopedRepos.getSettings(),
+            scopedRepos.listClients(),
+            scopedRepos.listProjects(),
+            scopedRepos.listTasks(),
+            scopedRepos.listProposals(),
+            scopedRepos.listQuotations(),
+            scopedRepos.listContracts(),
+            scopedRepos.listInvoices(),
+            scopedRepos.listPayments(),
+            scopedRepos.listFinanceEntries(),
+            scopedRepos.listTimeEntries(),
+            scopedRepos.listTemplates(),
+            scopedRepos.listKnowledgeDocs(),
+            scopedRepos.listWorkflowRuns(),
+            scopedRepos.listServiceCatalog(),
+            scopedRepos.listAppointments(),
+            scopedRepos.listWorkspaceGoals(),
+            scopedRepos.listActivities(120),
+            scopedRepos.listNotifications(),
+            scopedRepos.listVaultFiles(),
+            scopedRepos.listClientPortalLinks(),
+            scopedRepos.listRetainers(),
+            scopedRepos.listCustomWorkflows(),
+            scopedRepos.listWebhooks(),
+            scopedRepos.listSyncQueue(),
+            scopedRepos.listSecurityAuditLogs(200),
+            scopedRepos.listSavedViews(),
+            getStorageHealth(),
+          ]);
 
-        setState({
-          loading: false,
-          error: null,
-          businessProfile,
-          settings,
-          clients,
-          projects,
-          tasks,
-          proposals,
-          quotations,
-          contracts,
-          invoices,
-          payments,
-          financeEntries,
-          timeEntries,
-          templates,
-          knowledgeDocs,
-          workflowRuns,
-          serviceCatalog,
-          appointments,
-          workspaceGoals,
-          activities,
-          notifications,
-          vaultFiles,
-          clientPortalLinks,
-          retainers,
-          customWorkflows,
-          webhooks,
-          syncQueue,
-          securityAuditLogs,
-          savedViews,
-          storageHealth,
+          if (
+            !mountedRef.current ||
+            typeof window === 'undefined' ||
+            myEpoch !== refreshEpochRef.current ||
+            currentWsId !== getActiveWorkspaceIdSync()
+          ) {
+            return;
+          }
+
+          setWorkspaces(wsList);
+          setActiveWsIdState(currentWsId);
+          setState({
+            loading: false,
+            error: null,
+            businessProfile,
+            settings,
+            clients,
+            projects,
+            tasks,
+            proposals,
+            quotations,
+            contracts,
+            invoices,
+            payments,
+            financeEntries,
+            timeEntries,
+            templates,
+            knowledgeDocs,
+            workflowRuns,
+            serviceCatalog,
+            appointments,
+            workspaceGoals,
+            activities,
+            notifications,
+            vaultFiles,
+            clientPortalLinks,
+            retainers,
+            customWorkflows,
+            webhooks,
+            syncQueue,
+            securityAuditLogs,
+            savedViews,
+            storageHealth,
+          });
         });
       });
     } catch (err) {
+      if (
+        !mountedRef.current ||
+        typeof window === 'undefined' ||
+        myEpoch !== refreshEpochRef.current ||
+        currentWsId !== getActiveWorkspaceIdSync()
+      ) {
+        return;
+      }
       setState((prev) => ({
         ...prev,
         loading: false,
@@ -403,11 +544,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     void (async () => {
       await requestPersistentBrowserStorage();
+      const init = await initializeWorkspaceManager();
+      if (!mountedRef.current || typeof window === 'undefined') return;
+      setActiveWsIdState(init.activeWorkspaceId);
+      setWorkspaces(init.workspaces);
       await refresh();
     })();
   }, [refresh]);
 
-  // Automatic background refresh when returning online with Auto-sync enabled
+  // Automatic background check when returning online with Auto-sync enabled
   useEffect(() => {
     if (!isOnline || !autoSyncEnabled || syncPaused) return;
     if (state.loading) return;
@@ -428,36 +573,213 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const setAutoSyncEnabled = useCallback(
     async (enabled: boolean) => {
-      await repositories.saveSettings({ autoSyncEnabled: enabled });
-      await repositories.logSecurityEvent({
+      const wsId = getActiveWorkspaceIdSync();
+      const targetDb = getDatabaseForWorkspace(wsId);
+      const updatedSettings = await repositories.saveSettings({ autoSyncEnabled: enabled }, targetDb);
+      if (wsId === getActiveWorkspaceIdSync()) {
+        setState((prev) => ({ ...prev, settings: updatedSettings }));
+      }
+      await repositories.withDatabase(targetDb).logSecurityEvent({
         eventType: 'auto_sync_toggled',
         severity: 'info',
         actor: 'user',
         detail: `Background Auto-sync ${enabled ? 'enabled' : 'disabled'} by user.`,
       });
-      await refresh();
+      if (wsId === getActiveWorkspaceIdSync()) {
+        await refresh();
+      }
     },
     [refresh]
   );
 
   const setSyncPaused = useCallback(
     async (paused: boolean) => {
-      await repositories.saveSettings({ syncPaused: paused });
+      const wsId = getActiveWorkspaceIdSync();
+      const targetDb = getDatabaseForWorkspace(wsId);
+      const updatedSettings = await repositories.saveSettings({ syncPaused: paused }, targetDb);
+      if (wsId === getActiveWorkspaceIdSync()) {
+        setState((prev) => ({ ...prev, settings: updatedSettings }));
+        await refresh();
+      }
+    },
+    [refresh]
+  );
+
+  const switchWorkspace = useCallback(
+    async (workspaceId: string) => {
+      refreshEpochRef.current += 1;
+      const switched = await switchActiveWorkspace(workspaceId);
+      const targetDb = getDatabaseForWorkspace(switched.id);
+      setHasUnsavedQuickNotes(false);
+      await repositories.saveSettings({ activeWorkspaceId: switched.id }, targetDb);
       await refresh();
+    },
+    [refresh]
+  );
+
+  const setActiveWorkspaceId = useCallback(
+    async (workspaceId: string) => {
+      await switchWorkspace(workspaceId);
+    },
+    [switchWorkspace]
+  );
+
+  const createWorkspace = useCallback(
+    async (name: string, switchToNew = true): Promise<WorkspaceMetadata> => {
+      const created = await createWorkspaceRecord({ name });
+      const createdDb = getDatabaseForWorkspace(created.id);
+      if (switchToNew) {
+        refreshEpochRef.current += 1;
+        const switched = await switchActiveWorkspace(created.id);
+        setHasUnsavedQuickNotes(false);
+        await repositories.saveSettings(
+          {
+            activeWorkspaceId: switched.id,
+            onboardingCompleted: true,
+          },
+          createdDb
+        );
+        await refresh();
+      } else {
+        await repositories.saveSettings(
+          {
+            activeWorkspaceId: created.id,
+            onboardingCompleted: true,
+          },
+          createdDb
+        );
+        const wsList = await listWorkspaces();
+        setWorkspaces(wsList);
+      }
+      return created;
+    },
+    [refresh]
+  );
+
+  const renameWorkspace = useCallback(
+    async (workspaceId: string, name: string): Promise<WorkspaceMetadata> => {
+      const updated = await renameWorkspaceRecord(workspaceId, name);
+      const wsList = await listWorkspaces();
+      setWorkspaces(wsList);
+      return updated;
+    },
+    []
+  );
+
+  const deleteWorkspace = useCallback(
+    async (workspaceId: string) => {
+      refreshEpochRef.current += 1;
+      await deleteWorkspaceRecord(workspaceId);
+      setHasUnsavedQuickNotes(false);
+      await refresh();
+    },
+    [refresh]
+  );
+
+  const setRemoteSyncStatus = useCallback(
+    (info: { remoteConfigured?: boolean; lastRemoteSyncedAt?: string | null; isSyncingRemote?: boolean }) => {
+      if (typeof info.remoteConfigured === 'boolean') {
+        setRemoteConfigured(info.remoteConfigured);
+      }
+      if (info.lastRemoteSyncedAt !== undefined) {
+        setLastRemoteSyncedAt(info.lastRemoteSyncedAt);
+      }
+      if (typeof info.isSyncingRemote === 'boolean') {
+        setIsSyncingRemote(info.isSyncingRemote);
+      }
+    },
+    []
+  );
+
+  const saveQuickNote = useCallback(
+    async (content: string) => {
+      if (content.length > 10_000) {
+        throw new Error('Quick Notes cannot exceed 10,000 characters.');
+      }
+      const wsId = getActiveWorkspaceIdSync();
+      const targetDb = getDatabaseForWorkspace(wsId);
+      const current = await repositories.getSettings(targetDb);
+      const nextNotes = {
+        ...(current.quickNotesByWorkspace ?? {}),
+        [wsId]: {
+          content,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+      await repositories.saveSettings(
+        { quickNotesByWorkspace: nextNotes, activeWorkspaceId: wsId },
+        targetDb
+      );
+      if (wsId === getActiveWorkspaceIdSync()) {
+        setHasUnsavedQuickNotes(false);
+        await refresh();
+      }
+    },
+    [refresh]
+  );
+
+  const clearQuickNote = useCallback(async () => {
+    const wsId = getActiveWorkspaceIdSync();
+    const targetDb = getDatabaseForWorkspace(wsId);
+    const current = await repositories.getSettings(targetDb);
+    const nextNotes = {
+      ...(current.quickNotesByWorkspace ?? {}),
+      [wsId]: {
+        content: '',
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    await repositories.saveSettings(
+      { quickNotesByWorkspace: nextNotes, activeWorkspaceId: wsId },
+      targetDb
+    );
+    if (wsId === getActiveWorkspaceIdSync()) {
+      setHasUnsavedQuickNotes(false);
+      await refresh();
+    }
+  }, [refresh]);
+
+  const setDailyTaskGoalTarget = useCallback(
+    async (target: number) => {
+      const validation = validateDailyTaskGoalTarget(target);
+      if (!validation.valid) {
+        throw new Error(validation.error ?? 'Invalid daily task target.');
+      }
+      const wsId = getActiveWorkspaceIdSync();
+      const targetDb = getDatabaseForWorkspace(wsId);
+      const current = await repositories.getSettings(targetDb);
+      const nextGoals = {
+        ...(current.dailyTaskGoalsByWorkspace ?? {}),
+        [wsId]: {
+          target: validation.value,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+      await repositories.saveSettings(
+        { dailyTaskGoalsByWorkspace: nextGoals, activeWorkspaceId: wsId },
+        targetDb
+      );
+      if (wsId === getActiveWorkspaceIdSync()) {
+        await refresh();
+      }
     },
     [refresh]
   );
 
   const startGlobalTimer = useCallback(
     async (input: GlobalTimerStartInput): Promise<TimeEntry> => {
-      const created = await repositories.startTimer({
+      const wsId = getActiveWorkspaceIdSync();
+      const targetDb = getDatabaseForWorkspace(wsId);
+      const created = await repositories.withDatabase(targetDb).startTimer({
         projectId: input.projectId ?? '',
         taskId: input.taskId ?? '',
         description: input.description,
         hourlyRate: Math.max(0, Number(input.hourlyRate) || 0),
         billable: input.billable,
       });
-      await refresh();
+      if (wsId === getActiveWorkspaceIdSync()) {
+        await refresh();
+      }
       return created;
     },
     [refresh]
@@ -467,19 +789,23 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     async (timerId?: string) => {
       const targetId = timerId ?? runningTimer?.id;
       if (!targetId) return;
-      await repositories.stopTimer(targetId);
-      await refresh();
+      const wsId = getActiveWorkspaceIdSync();
+      const targetDb = getDatabaseForWorkspace(wsId);
+      await repositories.withDatabase(targetDb).stopTimer(targetId);
+      if (wsId === getActiveWorkspaceIdSync()) {
+        await refresh();
+      }
     },
     [runningTimer, refresh]
   );
 
   const loadDemoWorkspace = useCallback(async () => {
-    await seedDemoWorkspace();
+    await seedDemoWorkspace(getActiveWorkspaceDatabase());
     await refresh();
   }, [refresh]);
 
   const removeDemoWorkspace = useCallback(async () => {
-    await clearDemoWorkspaceData();
+    await clearDemoWorkspaceData(getActiveWorkspaceDatabase());
     await refresh();
   }, [refresh]);
 
@@ -523,17 +849,38 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       ...state,
       isOnline,
       syncStatus: syncTelemetry.status,
+      syncLifecycleStatus,
       pendingSyncCount: syncTelemetry.pendingCount,
       lastSyncedAt: syncTelemetry.lastSyncedAt,
+      lastRemoteSyncedAt,
+      remoteConfigured,
       syncError: syncTelemetry.lastError,
       autoSyncEnabled,
       syncPaused,
+      workspaces,
+      activeWorkspace,
+      activeWorkspaceId,
+      hasUnsavedQuickNotes,
+      quickNote,
+      quickNoteUpdatedAt,
+      dailyTaskGoalTarget,
+      dailyTaskGoalUpdatedAt,
       runningTimer,
       timerElapsedSeconds,
       refresh,
       retrySync,
       setAutoSyncEnabled,
       setSyncPaused,
+      setActiveWorkspaceId,
+      createWorkspace,
+      renameWorkspace,
+      switchWorkspace,
+      deleteWorkspace,
+      setHasUnsavedQuickNotes,
+      setRemoteSyncStatus,
+      saveQuickNote,
+      clearQuickNote,
+      setDailyTaskGoalTarget,
       startGlobalTimer,
       stopGlobalTimer,
       loadDemoWorkspace,
@@ -546,14 +893,34 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       state,
       isOnline,
       syncTelemetry,
+      syncLifecycleStatus,
+      lastRemoteSyncedAt,
+      remoteConfigured,
       autoSyncEnabled,
       syncPaused,
+      workspaces,
+      activeWorkspace,
+      activeWorkspaceId,
+      hasUnsavedQuickNotes,
+      quickNote,
+      quickNoteUpdatedAt,
+      dailyTaskGoalTarget,
+      dailyTaskGoalUpdatedAt,
       runningTimer,
       timerElapsedSeconds,
       refresh,
       retrySync,
       setAutoSyncEnabled,
       setSyncPaused,
+      setActiveWorkspaceId,
+      createWorkspace,
+      renameWorkspace,
+      switchWorkspace,
+      deleteWorkspace,
+      setRemoteSyncStatus,
+      saveQuickNote,
+      clearQuickNote,
+      setDailyTaskGoalTarget,
       startGlobalTimer,
       stopGlobalTimer,
       loadDemoWorkspace,

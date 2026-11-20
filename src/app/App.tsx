@@ -150,6 +150,7 @@ const WorkspaceRouter: React.FC = () => {
     error,
     isOnline,
     syncStatus,
+    syncLifecycleStatus,
     pendingSyncCount,
     syncError,
     lastSyncedAt,
@@ -407,6 +408,7 @@ const WorkspaceRouter: React.FC = () => {
       unreadNotifications={unreadCount}
       isOnline={isOnline}
       syncStatus={syncStatus}
+      syncLifecycleStatus={syncLifecycleStatus}
       pendingSyncCount={pendingSyncCount}
       syncError={syncError}
       lastSyncedAt={lastSyncedAt}

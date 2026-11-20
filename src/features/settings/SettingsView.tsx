@@ -15,9 +15,11 @@ import {
 } from 'lucide-react';
 import { useTheme, type ThemePreference } from '../../app/providers/ThemeProvider';
 import { useWorkspace } from '../../app/providers/WorkspaceProvider';
-import { db, requestPersistentBrowserStorage } from '../../database/db';
+import { requestPersistentBrowserStorage } from '../../database/db';
 import { repositories } from '../../database/repositories/dexieRepositories';
+import { getActiveWorkspaceDatabase } from '../../database/workspaceManager';
 import { runDatabaseHealthCheck, type DatabaseHealthReport } from '../../observability/healthCheck';
+import { SYNC_LIFECYCLE_LABELS } from '../../services/cloudSyncService';
 import type { DateFormatPreference } from '../../domain/calculations/dates';
 import { SUPPORTED_CURRENCIES } from '../../domain/calculations/money';
 import {
@@ -68,6 +70,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate 
     storageHealth,
     isOnline,
     syncStatus,
+    syncLifecycleStatus,
     pendingSyncCount,
     lastSyncedAt,
     syncError,
@@ -366,8 +369,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate 
   const handleFactoryReset = async () => {
     setSavingReset(true);
     try {
-      await db.transaction('rw', db.tables, async () => {
-        await Promise.all(db.tables.map((t) => t.clear()));
+      const targetDb = getActiveWorkspaceDatabase();
+      await targetDb.transaction('rw', targetDb.tables, async () => {
+        await Promise.all(targetDb.tables.map((t) => t.clear()));
       });
       clearSessionGeminiKey();
       setHasKey(false);
@@ -1005,9 +1009,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate 
                 </p>
               </div>
               <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
-                <p className="text-slate-500">Local DB Sync</p>
+                <p className="text-slate-500">Sync Lifecycle</p>
                 <p className="font-semibold mt-0.5 text-slate-900 dark:text-white">
-                  {syncStatus} {pendingSyncCount > 0 ? `(${pendingSyncCount} pending)` : ''}
+                  {SYNC_LIFECYCLE_LABELS[syncLifecycleStatus]} ({syncStatus}{pendingSyncCount > 0 ? `, ${pendingSyncCount} pending` : ''})
                 </p>
               </div>
               <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
@@ -1166,9 +1170,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate 
                   </p>
                 </div>
                 <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800">
-                  <p className="text-slate-500">Last Local Sync</p>
-                  <p className="font-mono tabular-nums font-semibold mt-0.5 text-slate-900 dark:text-white">
-                    {lastSyncedAt ? new Date(lastSyncedAt).toLocaleTimeString() : 'Not yet synced'}
+                  <p className="text-slate-500">Sync Lifecycle</p>
+                  <p className="font-semibold mt-0.5 text-slate-900 dark:text-white">
+                    {SYNC_LIFECYCLE_LABELS[syncLifecycleStatus]} ({lastSyncedAt ? new Date(lastSyncedAt).toLocaleTimeString() : 'Local Only'})
                   </p>
                 </div>
               </div>

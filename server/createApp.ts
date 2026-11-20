@@ -3,7 +3,8 @@ import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { createApiV1Router } from './api/v1/router';
 import { openSqliteDatabase } from './database/sqliteDb';
-import { requestTelemetryMiddleware } from './monitoring/telemetry';
+import { sendApiError } from './middleware/auth';
+import { logStructured, requestTelemetryMiddleware, scrubSensitiveData } from './monitoring/telemetry';
 
 export interface BackendAppOptions {
   sqlitePath?: string;
@@ -38,6 +39,22 @@ export function createBackendApp(options: BackendAppOptions = {}): {
       res.sendFile(path.join(distDir, 'index.html'));
     });
   }
+
+  app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+    const isSyntax = err instanceof SyntaxError && 'status' in err && (err as { status?: number }).status === 400;
+    const rawMsg = err instanceof Error ? err.message : 'Unexpected server error.';
+    const safeMsg = String(scrubSensitiveData(rawMsg));
+    if (isSyntax) {
+      sendApiError(res, 400, 'INVALID_JSON', 'Malformed JSON request body.', req);
+      return;
+    }
+    logStructured('error', 'unhandled_express_error', {
+      path: req.path,
+      method: req.method,
+      error: safeMsg,
+    });
+    sendApiError(res, 500, 'INTERNAL_ERROR', 'An unexpected internal error occurred.', req);
+  });
 
   return { app, db };
 }
