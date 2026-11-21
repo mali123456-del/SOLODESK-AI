@@ -374,6 +374,29 @@ const MIGRATIONS: MigrationRecord[] = [
         ON voice_notes(workspace_id, parent_type, parent_id);
     `,
   },
+  {
+    version: 8,
+    name: '008_privacy_consents_and_audit_indexes',
+    sql: `
+      CREATE TABLE IF NOT EXISTS privacy_consents (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        consent_type TEXT NOT NULL CHECK (consent_type IN ('local_storage', 'ai_processing', 'cloud_sync', 'crash_telemetry')),
+        granted INTEGER NOT NULL DEFAULT 0,
+        version TEXT NOT NULL DEFAULT '1.0',
+        updated_by_user_id TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL,
+        UNIQUE(workspace_id, consent_type)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_privacy_consents_ws
+        ON privacy_consents(workspace_id, consent_type);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_ws_type_created
+        ON audit_logs(workspace_id, event_type, created_at);
+      CREATE INDEX IF NOT EXISTS idx_payment_webhook_provider_event
+        ON payment_webhook_events(provider, provider_event_id);
+    `,
+  },
 ];
 
 export function openSqliteDatabase(dbPath = './data/solodesk-saas.sqlite'): DatabaseSync {
@@ -423,4 +446,39 @@ export function getAppliedMigrations(db: DatabaseSync): Array<{ version: number;
     version: number;
     name: string;
   }>;
+}
+
+export function verifySqliteIntegrity(db: DatabaseSync): { ok: boolean; result: string } {
+  const row = db.prepare('PRAGMA quick_check').get() as { quick_check?: string } | undefined;
+  const result = row?.quick_check ?? 'unknown';
+  return { ok: result === 'ok', result };
+}
+
+export function createAndVerifySqliteBackup(
+  sourceDb: DatabaseSync,
+  backupFilePath: string
+): { ok: boolean; backupPath: string; sizeBytes: number; migrationsCount: number; integrity: string } {
+  const resolved = path.resolve(backupFilePath);
+  fs.mkdirSync(path.dirname(resolved), { recursive: true });
+  if (fs.existsSync(resolved)) {
+    fs.unlinkSync(resolved);
+  }
+  const escapedPath = resolved.replace(/'/g, "''");
+  sourceDb.exec(`VACUUM INTO '${escapedPath}';`);
+
+  const stat = fs.statSync(resolved);
+  const restored = openSqliteDatabase(resolved);
+  try {
+    const integrity = verifySqliteIntegrity(restored);
+    const migrations = getAppliedMigrations(restored);
+    return {
+      ok: integrity.ok && migrations.length >= 8,
+      backupPath: resolved,
+      sizeBytes: stat.size,
+      migrationsCount: migrations.length,
+      integrity: integrity.result,
+    };
+  } finally {
+    restored.close();
+  }
 }

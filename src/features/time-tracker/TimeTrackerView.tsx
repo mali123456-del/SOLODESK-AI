@@ -35,6 +35,7 @@ export const TimeTrackerView: React.FC = () => {
     settings,
     runningTimer,
     timerElapsedSeconds,
+    backgroundTimerMode,
     startGlobalTimer,
     stopGlobalTimer,
     refresh,
@@ -244,8 +245,13 @@ export const TimeTrackerView: React.FC = () => {
         {runningTimer ? (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold text-[#2563EB] uppercase tracking-wider">
-                Active Timer Running
+              <p className="text-xs font-semibold text-[#2563EB] tracking-wide">
+                Active Timer Running ·{' '}
+                <span data-testid="background-timer-mode">
+                  {backgroundTimerMode === 'web-worker'
+                    ? 'Background Web Worker active'
+                    : 'Local interval fallback active'}
+                </span>
               </p>
               <p className="text-base font-bold text-slate-900 dark:text-white mt-0.5">
                 {runningTimer.description}
@@ -258,7 +264,10 @@ export const TimeTrackerView: React.FC = () => {
               </p>
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-3xl font-bold font-mono tabular-nums text-slate-900 dark:text-white">
+              <span
+                data-testid="active-timer-elapsed"
+                className="text-3xl font-bold font-mono tabular-nums text-slate-900 dark:text-white"
+              >
                 {formatDurationHMS(runningElapsedSeconds)}
               </span>
               <Button variant="danger" onClick={() => void handleStop()} icon={<Square className="w-4 h-4" />}>

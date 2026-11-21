@@ -15,7 +15,17 @@ import {
   revokeSession,
 } from '../../auth/authService';
 import { generateWithServerGemini, GatewayError } from '../../ai/geminiGateway';
-import { getAppliedMigrations } from '../../database/sqliteDb';
+import {
+  checkWorkspaceEntitlement,
+  getWorkspaceEntitlementSnapshot,
+  type ServerPlanTier,
+} from '../../billing/entitlements';
+import {
+  getExternalProviderReadiness,
+  initiateExternalCheckoutSession,
+  verifyRawBodyHmacSignature,
+} from '../../billing/paymentProviders';
+import { getAppliedMigrations, verifySqliteIntegrity } from '../../database/sqliteDb';
 import {
   dispatchServerWebhookTest,
   enqueueServerJob,
@@ -34,6 +44,7 @@ import {
 import { serverMetrics } from '../../monitoring/telemetry';
 import {
   formatAuditLogsCsv,
+  purgeExpiredAuditLogs,
   queryAuditLogs,
   writeAuditEvent,
 } from '../../monitoring/auditService';
@@ -198,6 +209,14 @@ const portalAuditRateState = new Map<string, { count: number; resetAt: number }>
 
 function checkPortalAuditRateLimit(ipKey: string): boolean {
   const now = Date.now();
+  if (portalAuditRateState.size > 2000) {
+    for (const [k, v] of portalAuditRateState.entries()) {
+      if (now > v.resetAt) portalAuditRateState.delete(k);
+    }
+    if (portalAuditRateState.size > 5000) {
+      portalAuditRateState.clear();
+    }
+  }
   const existing = portalAuditRateState.get(ipKey);
   if (!existing || now > existing.resetAt) {
     portalAuditRateState.set(ipKey, { count: 1, resetAt: now + 60_000 });
@@ -239,13 +258,17 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
   router.get('/ready', (_req: Request, res: Response) => {
     try {
       const ping = db.prepare('SELECT 1 AS ok').get() as { ok: number };
+      const integrity = verifySqliteIntegrity(db);
       const migrations = getAppliedMigrations(db);
-      res.json({
-        ok: ping.ok === 1,
+      const readiness = getExternalProviderReadiness();
+      res.status(integrity.ok ? 200 : 503).json({
+        ok: ping.ok === 1 && integrity.ok,
         database: 'sqlite_node_builtin',
+        integrity: integrity.result,
         migrationsApplied: migrations.length,
         metrics: serverMetrics,
         geminiServerKeyConfigured: Boolean(process.env.GEMINI_API_KEY?.trim()),
+        externalProvidersConfigured: readiness.filter((p) => p.configured).map((p) => p.provider),
       });
     } catch (err) {
       sendApiError(
@@ -264,11 +287,11 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         title: 'SOLODESK AI SaaS Backend API',
         version: '1.0.0',
         description:
-          'Multi-tenant workspace API supporting optional authentication, incremental sync, object storage, server Gemini gateway, Hybrid RAG v3, webhooks, background jobs, and commercial catalog.',
+          'Multi-tenant workspace API supporting optional authentication, incremental sync, object storage, server Gemini gateway, Hybrid RAG v3, webhooks, background jobs, entitlements, privacy consents, and commercial catalog.',
       },
       paths: {
         '/api/v1/health': { get: { summary: 'Liveness probe' } },
-        '/api/v1/ready': { get: { summary: 'Database and telemetry readiness probe' } },
+        '/api/v1/ready': { get: { summary: 'Database integrity and telemetry readiness probe' } },
         '/api/v1/auth/register': { post: { summary: 'Register user and initialize owner workspace' } },
         '/api/v1/auth/login': { post: { summary: 'Authenticate and issue HttpOnly/Bearer session' } },
         '/api/v1/auth/me': { get: { summary: 'Current user & workspace memberships' } },
@@ -281,14 +304,17 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         '/api/v1/webhooks': { get: { summary: 'List webhooks' }, post: { summary: 'Register SSRF-checked webhook' } },
         '/api/v1/jobs/run-due': { post: { summary: 'Execute due background jobs idempotently' } },
         '/api/v1/billing/catalog': { get: { summary: 'Plan catalog & Pakistan/global payment provider status' } },
+        '/api/v1/billing/entitlements/:workspaceId': { get: { summary: 'Authoritative workspace plan limits & live usage' } },
         '/api/v1/billing/checkout-session': { post: { summary: 'Check payment checkout readiness or initiate session' } },
-        '/api/v1/billing/webhook/:provider': { post: { summary: 'Verify HMAC billing webhook and update subscription state idempotently' } },
+        '/api/v1/billing/webhook/:provider': { post: { summary: 'Verify raw-body HMAC billing webhook and update subscription state idempotently' } },
         '/api/v1/voice-notes/:workspaceId': { get: { summary: 'List workspace voice notes' } },
         '/api/v1/voice-notes': { post: { summary: 'Store workspace voice note with MIME and 5MB cap' } },
         '/api/v1/invoices/calculate': { post: { summary: 'Authoritative big.js invoice calculation verification' } },
         '/api/v1/audit-logs/:workspaceId': { get: { summary: 'Query immutable workspace audit logs' } },
         '/api/v1/audit-logs/:workspaceId/export': { get: { summary: 'Export audit logs as CSV or JSON' } },
+        '/api/v1/privacy/consents/:workspaceId': { get: { summary: 'Read workspace privacy consent records' }, put: { summary: 'Update workspace privacy consent' } },
         '/api/v1/integrations/:workspaceId': { get: { summary: 'List workspace integration adapters' }, post: { summary: 'Save integration adapter metadata' } },
+        '/api/v1/integrations/provider-status': { get: { summary: 'Sanitized external staging provider readiness matrix' } },
       },
     });
   });
@@ -542,6 +568,15 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         return;
       }
       const workspaceId = req.authorizedWorkspaceId!;
+      const existingMember = getMemberRole(db, workspaceId, targetUser.id);
+      if (!existingMember) {
+        const seatCheck = checkWorkspaceEntitlement(db, workspaceId, { kind: 'seat_assign' });
+        if (!seatCheck.allowed) {
+          sendApiError(res, 403, seatCheck.code, seatCheck.message, req);
+          return;
+        }
+      }
+
       const now = new Date().toISOString();
       db.prepare(
         `INSERT INTO workspace_members (id, workspace_id, user_id, role, status, created_at)
@@ -549,16 +584,28 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
          ON CONFLICT(workspace_id, user_id) DO UPDATE SET role = excluded.role, status = 'active'`
       ).run(`wm_${crypto.randomUUID()}`, workspaceId, targetUser.id, parsed.data.role, now);
 
-      db.prepare(
-        `INSERT INTO audit_logs (id, workspace_id, actor_user_id, event_type, severity, detail, created_at)
-         VALUES (?, ?, ?, 'member_role_assigned', 'info', ?, ?)`
-      ).run(
-        `aud_${crypto.randomUUID()}`,
-        workspaceId,
-        req.authUser!.id,
-        `Assigned role ${parsed.data.role} to ${targetUser.email}`,
-        now
+      const memberCount = (
+        db
+          .prepare("SELECT COUNT(*) AS c FROM workspace_members WHERE workspace_id = ? AND status = 'active'")
+          .get(workspaceId) as { c: number }
+      ).c;
+      db.prepare('UPDATE subscriptions SET seat_count = ?, updated_at = ? WHERE workspace_id = ?').run(
+        memberCount,
+        now,
+        workspaceId
       );
+
+      writeAuditEvent(db, {
+        workspaceId,
+        actorUserId: req.authUser!.id,
+        eventType: 'MEMBER_ROLE_UPDATED',
+        severity: 'info',
+        outcome: 'success',
+        resourceType: 'workspace_member',
+        resourceId: targetUser.id,
+        detail: `Assigned role ${parsed.data.role} to ${targetUser.email}`,
+        metadata: { email: targetUser.email, role: parsed.data.role },
+      });
 
       res.status(201).json({
         ok: true,
@@ -586,11 +633,29 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         sendApiError(res, 400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Invalid invitation', req);
         return;
       }
+      const seatCheck = checkWorkspaceEntitlement(db, req.authorizedWorkspaceId!, {
+        kind: 'seat_assign',
+      });
+      if (!seatCheck.allowed) {
+        sendApiError(res, 403, seatCheck.code, seatCheck.message, req);
+        return;
+      }
       const invite = createWorkspaceInvitation(db, {
         workspaceId: req.authorizedWorkspaceId!,
         invitedByUserId: req.authUser!.id,
         email: parsed.data.email,
         role: parsed.data.role,
+      });
+      writeAuditEvent(db, {
+        workspaceId: req.authorizedWorkspaceId!,
+        actorUserId: req.authUser!.id,
+        eventType: 'MEMBER_INVITED',
+        severity: 'info',
+        outcome: 'success',
+        resourceType: 'invitation',
+        resourceId: invite.id,
+        detail: `Invited ${invite.email} as ${invite.role}`,
+        metadata: { role: invite.role },
       });
       res.status(201).json({
         ok: true,
@@ -647,6 +712,14 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         return;
       }
       const { changes } = parsed.data;
+      const syncQuota = checkWorkspaceEntitlement(db, workspaceId, {
+        kind: 'sync_push',
+        opsCount: changes.length,
+      });
+      if (!syncQuota.allowed) {
+        sendApiError(res, 403, syncQuota.code, syncQuota.message, req);
+        return;
+      }
       const rawIdemKey = req.header('idempotency-key');
       const idempotencyKey =
         typeof rawIdemKey === 'string' && rawIdemKey.trim().length > 0
@@ -1032,6 +1105,11 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
       }
 
       const workspaceId = req.authorizedWorkspaceId!;
+      const vaultQuota = checkWorkspaceEntitlement(db, workspaceId, { kind: 'vault_upload' });
+      if (!vaultQuota.allowed) {
+        sendApiError(res, 403, vaultQuota.code, vaultQuota.message, req);
+        return;
+      }
       const safeName = parsed.data.name.replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 120);
       const buffer = Buffer.from(parsed.data.contentBase64, 'base64');
       if (buffer.byteLength > 5_000_000) {
@@ -1086,6 +1164,8 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     const token = extractSessionToken(req);
     const resolvedSession = token ? resolveSessionUser(db, token) : null;
     const requestedWorkspaceId = parsed.data.workspaceId?.trim() || '';
+    const headerKey =
+      typeof req.headers['x-gemini-key'] === 'string' ? req.headers['x-gemini-key'].trim() : undefined;
 
     if (requestedWorkspaceId) {
       if (!resolvedSession) {
@@ -1101,10 +1181,24 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         sendApiError(res, 403, 'INSUFFICIENT_ROLE', `Role "${role}" is not authorized for workspace AI generation.`, req);
         return;
       }
+      const aiQuota = checkWorkspaceEntitlement(db, requestedWorkspaceId, {
+        kind: 'ai_generate',
+        estimatedChars: parsed.data.prompt.length + (parsed.data.context?.length ?? 0),
+      });
+      if (!aiQuota.allowed) {
+        sendApiError(res, 403, aiQuota.code, aiQuota.message, req);
+        return;
+      }
+    } else if (!resolvedSession && !headerKey && process.env.GEMINI_API_KEY?.trim()) {
+      sendApiError(
+        res,
+        401,
+        'UNAUTHORIZED',
+        'Authentication or x-gemini-key header required to use server-managed AI generation.',
+        req
+      );
+      return;
     }
-
-    const headerKey =
-      typeof req.headers['x-gemini-key'] === 'string' ? req.headers['x-gemini-key'] : undefined;
 
     try {
       const output = await generateWithServerGemini(db, {
@@ -1113,6 +1207,23 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         sessionGeminiKey: headerKey,
         userId: resolvedSession?.user.id ?? req.authUser?.id,
       });
+      if (requestedWorkspaceId && resolvedSession) {
+        writeAuditEvent(db, {
+          workspaceId: requestedWorkspaceId,
+          actorUserId: resolvedSession.user.id,
+          eventType: 'AI_GENERATED',
+          severity: 'info',
+          outcome: 'success',
+          resourceType: 'ai_gateway',
+          resourceId: parsed.data.agentId ?? 'copilot',
+          detail: `Generated AI completion (${output.model})`,
+          metadata: {
+            provider: parsed.data.provider,
+            model: output.model,
+            latencyMs: output.latencyMs,
+          },
+        });
+      }
       res.json({ ok: true, ...output });
     } catch (err) {
       if (err instanceof GatewayError) {
@@ -1257,6 +1368,13 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         sendApiError(res, 400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Invalid webhook', req);
         return;
       }
+      const webhookQuota = checkWorkspaceEntitlement(db, req.authorizedWorkspaceId!, {
+        kind: 'webhook_create',
+      });
+      if (!webhookQuota.allowed) {
+        sendApiError(res, 403, webhookQuota.code, webhookQuota.message, req);
+        return;
+      }
       try {
         const hook = registerServerWebhook(db, {
           ...parsed.data,
@@ -1362,6 +1480,57 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     }
   );
 
+  router.get(
+    '/billing/entitlements/:workspaceId',
+    requireAuth,
+    requireWorkspaceRole(db, ALL_MEMBER_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const snapshot = getWorkspaceEntitlementSnapshot(db, req.authorizedWorkspaceId!);
+      if (!snapshot) {
+        sendApiError(res, 404, 'WORKSPACE_NOT_FOUND', 'Workspace not found.', req);
+        return;
+      }
+      res.json({ ok: true, entitlements: snapshot });
+    }
+  );
+
+  router.get(
+    '/billing/support-requests/:workspaceId',
+    requireAuth,
+    requireWorkspaceRole(db, ALL_MEMBER_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const rows = db
+        .prepare(
+          `SELECT id, workspace_id AS workspaceId, user_id AS userId, category, subject, details, status, created_at AS createdAt
+           FROM support_requests WHERE workspace_id = ? ORDER BY created_at DESC LIMIT 100`
+        )
+        .all(req.authorizedWorkspaceId!);
+      res.json({ ok: true, supportRequests: rows });
+    }
+  );
+
+  router.patch(
+    '/billing/support-requests/:workspaceId/:requestId',
+    requireAuth,
+    requireWorkspaceRole(db, ADMIN_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const schema = z.object({ status: z.enum(['open', 'in_progress', 'resolved']) });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        sendApiError(res, 400, 'VALIDATION_ERROR', 'Valid status required.', req);
+        return;
+      }
+      const result = db
+        .prepare('UPDATE support_requests SET status = ? WHERE id = ? AND workspace_id = ?')
+        .run(parsed.data.status, String(req.params.requestId), req.authorizedWorkspaceId!);
+      if (Number(result.changes ?? 0) === 0) {
+        sendApiError(res, 404, 'NOT_FOUND', 'Support request not found.', req);
+        return;
+      }
+      res.json({ ok: true, status: parsed.data.status });
+    }
+  );
+
   router.post(
     '/billing/support-request',
     requireAuth,
@@ -1446,6 +1615,15 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     if (!parsed.success) {
       sendApiError(res, 400, 'VALIDATION_ERROR', 'Invalid portal audit payload', req);
       return;
+    }
+    if (parsed.data.workspaceId !== 'local-workspace') {
+      const wsExists = db
+        .prepare('SELECT id FROM workspaces WHERE id = ?')
+        .get(parsed.data.workspaceId) as { id: string } | undefined;
+      if (!wsExists) {
+        sendApiError(res, 404, 'WORKSPACE_NOT_FOUND', 'Workspace not found for portal audit log.', req);
+        return;
+      }
     }
     const id = `pal_${crypto.randomUUID()}`;
     db.prepare(
@@ -1742,7 +1920,132 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     }
   );
 
+  router.post(
+    '/audit-logs/:workspaceId/purge',
+    requireAuth,
+    requireWorkspaceRole(db, ADMIN_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const schema = z.object({ retentionDays: z.number().int().min(30).max(3650) });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        sendApiError(res, 400, 'VALIDATION_ERROR', 'retentionDays must be between 30 and 3650.', req);
+        return;
+      }
+      const workspaceId = req.authorizedWorkspaceId!;
+      const outcome = purgeExpiredAuditLogs(db, workspaceId, parsed.data.retentionDays);
+      writeAuditEvent(db, {
+        workspaceId,
+        actorUserId: req.authUser!.id,
+        eventType: 'SECURITY_SETTING_CHANGED',
+        severity: 'info',
+        outcome: 'success',
+        resourceType: 'audit_logs',
+        resourceId: workspaceId,
+        detail: `Purged ${outcome.deletedCount} audit log(s) older than ${parsed.data.retentionDays} days.`,
+        metadata: { retentionDays: parsed.data.retentionDays, deletedCount: outcome.deletedCount },
+      });
+      res.json({ ok: true, ...outcome });
+    }
+  );
+
+  // --- Privacy Consents Server Parity ---
+
+  router.get(
+    '/privacy/consents/:workspaceId',
+    requireAuth,
+    requireWorkspaceRole(db, ALL_MEMBER_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const rows = db
+        .prepare(
+          `SELECT id, workspace_id AS workspaceId, consent_type AS consentType,
+                  granted, version, updated_by_user_id AS updatedByUserId, updated_at AS updatedAt
+           FROM privacy_consents WHERE workspace_id = ? ORDER BY consent_type ASC`
+        )
+        .all(req.authorizedWorkspaceId!) as Array<{
+        id: string;
+        workspaceId: string;
+        consentType: string;
+        granted: number;
+        version: string;
+        updatedByUserId: string;
+        updatedAt: string;
+      }>;
+      res.json({
+        ok: true,
+        consents: rows.map((r) => ({ ...r, granted: Boolean(r.granted) })),
+      });
+    }
+  );
+
+  router.put(
+    '/privacy/consents/:workspaceId',
+    requireAuth,
+    requireWorkspaceRole(db, ADMIN_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const schema = z.object({
+        consentType: z.enum(['local_storage', 'ai_processing', 'cloud_sync', 'crash_telemetry']),
+        granted: z.boolean(),
+        version: z.string().trim().min(1).max(32).default('1.0'),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        sendApiError(res, 400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Invalid consent payload.', req);
+        return;
+      }
+      const workspaceId = req.authorizedWorkspaceId!;
+      const now = new Date().toISOString();
+      const id = `con_${crypto.randomUUID()}`;
+      db.prepare(
+        `INSERT INTO privacy_consents (id, workspace_id, consent_type, granted, version, updated_by_user_id, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(workspace_id, consent_type) DO UPDATE SET
+           granted = excluded.granted,
+           version = excluded.version,
+           updated_by_user_id = excluded.updated_by_user_id,
+           updated_at = excluded.updated_at`
+      ).run(
+        id,
+        workspaceId,
+        parsed.data.consentType,
+        parsed.data.granted ? 1 : 0,
+        parsed.data.version,
+        req.authUser!.id,
+        now
+      );
+
+      writeAuditEvent(db, {
+        workspaceId,
+        actorUserId: req.authUser!.id,
+        eventType: 'PRIVACY_CONSENT_UPDATED',
+        severity: 'info',
+        outcome: 'success',
+        resourceType: 'privacy_consent',
+        resourceId: parsed.data.consentType,
+        detail: `Consent ${parsed.data.consentType} set to ${parsed.data.granted ? 'granted' : 'revoked'} (v${parsed.data.version}).`,
+        metadata: { consentType: parsed.data.consentType, granted: parsed.data.granted, version: parsed.data.version },
+      });
+
+      const saved = db
+        .prepare(
+          `SELECT id, workspace_id AS workspaceId, consent_type AS consentType,
+                  granted, version, updated_by_user_id AS updatedByUserId, updated_at AS updatedAt
+           FROM privacy_consents WHERE workspace_id = ? AND consent_type = ?`
+        )
+        .get(workspaceId, parsed.data.consentType) as { granted: number };
+
+      res.json({ ok: true, consent: { ...saved, granted: Boolean(saved.granted) } });
+    }
+  );
+
   // --- Integration Connections ---
+
+  router.get('/integrations/provider-status', requireAuth, (_req: AuthenticatedRequest, res: Response) => {
+    res.json({
+      ok: true,
+      checkedAt: new Date().toISOString(),
+      providers: getExternalProviderReadiness(),
+    });
+  });
 
   router.get(
     '/integrations/:workspaceId',
@@ -1910,10 +2213,11 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
     '/billing/checkout-session',
     requireAuth,
     requireWorkspaceRole(db, FINANCE_ROLES),
-    (req: AuthenticatedRequest, res: Response) => {
+    async (req: AuthenticatedRequest, res: Response) => {
       const schema = z.object({
         workspaceId: z.string().min(1),
         targetTier: z.enum(['free', 'pro', 'ultimate', 'business', 'enterprise']),
+        preferredProvider: z.enum(['stripe', 'safepay', 'payfast']).optional(),
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
@@ -1921,37 +2225,25 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         return;
       }
 
-      const liveProviderConfigured = Boolean(
-        process.env.STRIPE_SECRET_KEY?.trim() ||
-          process.env.SAFEPAY_SECRET_KEY?.trim() ||
-          process.env.PAYFAST_MERCHANT_KEY?.trim()
-      );
+      const outcome = await initiateExternalCheckoutSession({
+        workspaceId: req.authorizedWorkspaceId!,
+        targetTier: parsed.data.targetTier,
+        preferredProvider: parsed.data.preferredProvider,
+      });
 
-      if (parsed.data.targetTier === 'free') {
-        res.json({
-          ok: true,
-          checkoutStatus: 'local_free',
-          targetTier: 'free',
-          message: 'Free Offline Solo requires no external checkout session.',
-        });
-        return;
-      }
-
-      if (!liveProviderConfigured) {
-        sendApiError(
-          res,
-          501,
-          'BLOCKED_EXTERNAL_PROVIDER_REQUIRED',
-          'Live payment checkout is disabled until Stripe/Safepay/PayFast merchant credentials are configured in server environment variables.',
-          req
-        );
+      if (!outcome.ok) {
+        sendApiError(res, outcome.status, outcome.code, outcome.message, req);
         return;
       }
 
       res.json({
         ok: true,
-        checkoutStatus: 'provider_ready',
+        checkoutStatus: outcome.checkoutStatus,
+        provider: outcome.provider,
+        sessionId: outcome.sessionId,
+        checkoutUrl: outcome.checkoutUrl,
         targetTier: parsed.data.targetTier,
+        message: outcome.message,
       });
     }
   );
@@ -1969,18 +2261,16 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
       return;
     }
 
-    const signatureHeader = String(req.headers['x-billing-signature'] ?? '').trim();
-    const rawBody = JSON.stringify(req.body ?? {});
-    const expectedDigest = crypto
-      .createHmac('sha256', webhookSecret)
-      .update(rawBody)
-      .digest('hex');
-    const providedHex = signatureHeader.replace(/^sha256=/i, '').toLowerCase();
-
-    const validSignature =
-      providedHex.length === expectedDigest.length &&
-      /^[0-9a-f]+$/.test(providedHex) &&
-      crypto.timingSafeEqual(Buffer.from(providedHex, 'hex'), Buffer.from(expectedDigest, 'hex'));
+    const signatureHeader = String(
+      req.headers['x-billing-signature'] ?? req.headers['stripe-signature'] ?? ''
+    ).trim();
+    const rawBuf = (req as Request & { rawBody?: Buffer }).rawBody;
+    const rawBodyStr = rawBuf ? rawBuf.toString('utf8') : JSON.stringify(req.body ?? {});
+    const validSignature = verifyRawBodyHmacSignature({
+      rawPayload: rawBuf ?? rawBodyStr,
+      signatureHeader,
+      secret: webhookSecret,
+    });
 
     if (!validSignature) {
       sendApiError(res, 401, 'INVALID_WEBHOOK_SIGNATURE', 'Invalid billing webhook signature.', req);
@@ -2001,14 +2291,31 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
       return;
     }
 
+    const wsRow = db
+      .prepare('SELECT id FROM workspaces WHERE id = ?')
+      .get(parsed.data.workspaceId) as { id: string } | undefined;
+    if (!wsRow) {
+      sendApiError(res, 404, 'WORKSPACE_NOT_FOUND', 'Workspace not found for billing webhook.', req);
+      return;
+    }
+
     const provider = String(req.params.provider).slice(0, 60);
     const existing = db
-      .prepare('SELECT id FROM payment_webhook_events WHERE provider_event_id = ?')
-      .get(parsed.data.eventId);
+      .prepare('SELECT id FROM payment_webhook_events WHERE provider = ? AND provider_event_id = ?')
+      .get(provider, parsed.data.eventId);
     if (existing) {
       res.json({ ok: true, idempotentReplay: true, eventId: parsed.data.eventId });
       return;
     }
+
+    const normalizedStatus = parsed.data.billingStatus.toLowerCase();
+    const effectiveTier: ServerPlanTier =
+      normalizedStatus === 'cancelled' ||
+      normalizedStatus === 'canceled' ||
+      normalizedStatus === 'refunded' ||
+      normalizedStatus === 'expired'
+        ? 'free'
+        : parsed.data.planTier;
 
     const now = new Date().toISOString();
     const eventRowId = `pwe_${crypto.randomUUID()}`;
@@ -2025,12 +2332,12 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         parsed.data.eventId,
         parsed.data.amountCents,
         parsed.data.currency,
-        rawBody,
+        rawBodyStr,
         now
       );
 
       db.prepare('UPDATE workspaces SET plan_tier = ?, updated_at = ? WHERE id = ?').run(
-        parsed.data.planTier,
+        effectiveTier,
         now,
         parsed.data.workspaceId
       );
@@ -2040,7 +2347,7 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
          SET plan_tier = ?, billing_provider = ?, billing_status = ?, updated_at = ?
          WHERE workspace_id = ?`
       ).run(
-        parsed.data.planTier,
+        effectiveTier,
         provider,
         parsed.data.billingStatus,
         now,
@@ -2051,12 +2358,18 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         workspaceId: parsed.data.workspaceId,
         actorUserId: 'billing-webhook',
         eventType: 'BILLING_EVENT_PROCESSED',
-        severity: 'info',
+        severity: effectiveTier === 'free' && parsed.data.planTier !== 'free' ? 'warning' : 'info',
         outcome: 'success',
         resourceType: 'subscription',
         resourceId: parsed.data.workspaceId,
-        detail: `Processed ${provider} billing event ${parsed.data.eventId} -> ${parsed.data.planTier} (${parsed.data.billingStatus}).`,
-        metadata: { provider, eventId: parsed.data.eventId, planTier: parsed.data.planTier },
+        detail: `Processed ${provider} billing event ${parsed.data.eventId} -> ${effectiveTier} (${parsed.data.billingStatus}).`,
+        metadata: {
+          provider,
+          eventId: parsed.data.eventId,
+          requestedPlanTier: parsed.data.planTier,
+          effectivePlanTier: effectiveTier,
+          billingStatus: parsed.data.billingStatus,
+        },
       });
 
       db.exec('COMMIT;');
@@ -2069,7 +2382,13 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
       throw err;
     }
 
-    res.json({ ok: true, processed: true, eventId: parsed.data.eventId, planTier: parsed.data.planTier });
+    res.json({
+      ok: true,
+      processed: true,
+      eventId: parsed.data.eventId,
+      planTier: effectiveTier,
+      billingStatus: parsed.data.billingStatus,
+    });
   });
 
   router.use((_req: Request, res: Response) => {

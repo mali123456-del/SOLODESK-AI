@@ -5,6 +5,7 @@ import https from 'node:https';
 import net from 'node:net';
 import type { DatabaseSync } from 'node:sqlite';
 import { validatePublicHttpUrl, validateResolvedIpAddress } from '../../src/security/urlPolicy';
+import { writeAuditEvent } from '../monitoring/auditService';
 
 export type LookupAllFn = (
   hostname: string
@@ -57,16 +58,17 @@ export function rotateWebhookSecret(
     input.webhookId,
     input.workspaceId
   );
-  db.prepare(
-    `INSERT INTO audit_logs (id, workspace_id, actor_user_id, event_type, severity, detail, created_at)
-     VALUES (?, ?, ?, 'webhook_secret_rotated', 'info', ?, ?)`
-  ).run(
-    `aud_${crypto.randomUUID()}`,
-    input.workspaceId,
-    input.actorUserId,
-    `Rotated signing secret for webhook ${input.webhookId}`,
-    now
-  );
+  writeAuditEvent(db, {
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+    eventType: 'WEBHOOK_ROTATED',
+    severity: 'info',
+    outcome: 'success',
+    resourceType: 'webhook',
+    resourceId: input.webhookId,
+    detail: `Rotated signing secret for webhook ${input.webhookId}`,
+    metadata: { webhookId: input.webhookId },
+  });
 
   return { rotated: true, nextSecretPreview: `${rawSecret.slice(0, 8)}...` };
 }
@@ -84,18 +86,17 @@ export function registerServerWebhook(
 ) {
   const urlCheck = validatePublicHttpUrl(input.url);
   if (!urlCheck.valid || !urlCheck.normalizedUrl) {
-    db.prepare(
-      `INSERT INTO audit_logs (id, workspace_id, actor_user_id, event_type, severity, detail, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      `aud_${crypto.randomUUID()}`,
-      input.workspaceId,
-      input.actorUserId,
-      'webhook_ssrf_blocked',
-      'warning',
-      `Blocked unsafe webhook destination "${input.url}": ${urlCheck.reason ?? 'Policy denied'}`,
-      new Date().toISOString()
-    );
+    writeAuditEvent(db, {
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      eventType: 'SECURITY_SETTING_CHANGED',
+      severity: 'warning',
+      outcome: 'denied',
+      resourceType: 'webhook',
+      resourceId: 'ssrf_blocked',
+      detail: `Blocked unsafe webhook destination: ${urlCheck.reason ?? 'Policy denied'}`,
+      metadata: { reason: urlCheck.reason ?? 'Policy denied' },
+    });
     throw new Error(urlCheck.reason || 'Webhook destination violates SSRF policy.');
   }
 
@@ -109,6 +110,18 @@ export function registerServerWebhook(
     `INSERT INTO webhooks (id, workspace_id, name, url, event_type, secret_hash, enabled, last_status, last_attempt_at, created_at)
      VALUES (?, ?, ?, ?, ?, ?, 1, 'Registered', '', ?)`
   ).run(id, input.workspaceId, input.name.trim(), urlCheck.normalizedUrl, input.eventType, secretHash, now);
+
+  writeAuditEvent(db, {
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+    eventType: 'WEBHOOK_CREATED',
+    severity: 'info',
+    outcome: 'success',
+    resourceType: 'webhook',
+    resourceId: id,
+    detail: `Registered outbound webhook "${input.name.trim()}" (${input.eventType})`,
+    metadata: { eventType: input.eventType },
+  });
 
   return {
     id,
@@ -395,15 +408,17 @@ export function runDueServerJobs(db: DatabaseSync, workspaceId: string) {
     db.prepare(
       `UPDATE jobs SET status = 'completed', attempts = ?, executed_at = ? WHERE id = ?`
     ).run(job.attempts + 1, now, job.id);
-    db.prepare(
-      `INSERT INTO audit_logs (id, workspace_id, actor_user_id, event_type, severity, detail, created_at)
-       VALUES (?, ?, 'job-runner', 'background_job_completed', 'info', ?, ?)`
-    ).run(
-      `aud_${crypto.randomUUID()}`,
+    writeAuditEvent(db, {
       workspaceId,
-      `Executed job ${job.job_type} (${job.id})`,
-      now
-    );
+      actorUserId: 'job-runner',
+      eventType: 'WORKFLOW_EXECUTED',
+      severity: 'info',
+      outcome: 'success',
+      resourceType: 'job',
+      resourceId: job.id,
+      detail: `Executed job ${job.job_type} (${job.id})`,
+      metadata: { jobType: job.job_type },
+    });
     executed.push({ id: job.id, jobType: job.job_type, status: 'completed' });
   }
 

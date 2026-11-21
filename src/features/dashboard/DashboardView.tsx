@@ -17,12 +17,16 @@ import {
   Receipt,
   Star,
   Target,
+  TrendingUp,
   Users,
 } from 'lucide-react';
 import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
   XAxis,
@@ -52,6 +56,7 @@ import {
   todayDateStr,
 } from '../../domain/calculations/dates';
 import { addMoney, formatMoney, subtractMoney } from '../../domain/calculations/money';
+import { buildMonthlyRevenueTrend } from '../../domain/calculations/revenueTrend';
 import {
   evaluateMonthlyBusinessHealth,
   generateWeeklyDigest,
@@ -68,6 +73,7 @@ const DEFAULT_DASHBOARD_WIDGETS = [
   { id: 'quick-notes', label: 'Quick Notes Scratchpad', visible: true, order: 2 },
   { id: 'stats', label: 'Productivity Statistics', visible: true, order: 3 },
   { id: 'pinned', label: 'Pinned & Recently Viewed', visible: true, order: 4 },
+  { id: 'revenue-trend', label: 'Monthly Revenue Trend', visible: true, order: 5 },
 ];
 
 interface DashboardViewProps {
@@ -199,6 +205,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       .sort((a, b) => a.month.localeCompare(b.month))
       .slice(-6);
   }, [filteredFinance]);
+
+  const revenueTrendSeries = useMemo(
+    () =>
+      buildMonthlyRevenueTrend(invoices, {
+        cutoffDate,
+        maxMonths: 12,
+      }),
+    [invoices, cutoffDate]
+  );
+
+  const totalInvoicedInTrend = useMemo(
+    () => addMoney(...revenueTrendSeries.map((pt) => pt.invoicedRevenue)),
+    [revenueTrendSeries]
+  );
+  const totalCollectedInTrend = useMemo(
+    () => addMoney(...revenueTrendSeries.map((pt) => pt.collectedRevenue)),
+    [revenueTrendSeries]
+  );
 
   const businessHealth = useMemo(
     () =>
@@ -918,6 +942,68 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           )}
         </Card>
       </div>
+
+      {widgetVisible('revenue-trend') && (
+        <Card aria-label="Monthly Revenue Trend">
+          <CardHeader
+            title="Monthly Revenue Trend"
+            description={
+              revenueTrendSeries.length > 0
+                ? `Invoiced ${formatMoney(totalInvoicedInTrend, currency)} · Collected ${formatMoney(totalCollectedInTrend, currency)} across ${revenueTrendSeries.length} month(s) (Observed Data)`
+                : 'Monthly invoiced vs. collected totals from non-cancelled invoices (Observed Data).'
+            }
+            action={
+              <Button size="sm" variant="ghost" onClick={() => onNavigate('invoices')}>
+                View Invoices <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
+            }
+          />
+          {revenueTrendSeries.length === 0 ? (
+            <EmptyState
+              icon={<TrendingUp className="w-5 h-5" />}
+              title="No invoice revenue trend yet"
+              description="Create or import invoices to chart your monthly invoiced and collected revenue trend."
+              action={
+                <Button size="sm" variant="outline" onClick={() => onNavigate('invoices')}>
+                  Create First Invoice
+                </Button>
+              }
+            />
+          ) : (
+            <div className="h-64 w-full" data-testid="monthly-revenue-trend-chart">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={revenueTrendSeries} margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} />
+                  <RechartsTooltip
+                    formatter={(value) => formatMoney(Number(value) || 0, currency)}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Line
+                    type="monotone"
+                    dataKey="invoicedRevenue"
+                    name="Invoiced Revenue"
+                    stroke="#2563EB"
+                    strokeWidth={2.25}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="collectedRevenue"
+                    name="Collected Payments"
+                    stroke="#16A34A"
+                    strokeWidth={2.25}
+                    dot={{ r: 3 }}
+                    activeDot={{ r: 5 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </Card>
+      )}
 
       <Card>
         <CardHeader

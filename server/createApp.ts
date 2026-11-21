@@ -20,14 +20,68 @@ export function createBackendApp(options: BackendAppOptions = {}): {
   const app = express();
 
   app.disable('x-powered-by');
-  app.use((_req: Request, res: Response, next: NextFunction) => {
+  app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(self), geolocation=(), payment=()');
+    const forwardedProto = req.headers['x-forwarded-proto'];
+    if (req.secure || (typeof forwardedProto === 'string' && forwardedProto.split(',')[0]?.trim() === 'https')) {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
     next();
   });
 
-  app.use(express.json({ limit: '6mb' }));
+  app.use(
+    express.json({
+      limit: '6mb',
+      verify: (req, _res, buf) => {
+        (req as Request & { rawBody?: Buffer }).rawBody = buf;
+      },
+    })
+  );
+
+  // Defense-in-depth CSRF check for mutating cookie-authenticated browser requests without Bearer token
+  app.use('/api/v1', (req: Request, res: Response, next: NextFunction) => {
+    const method = req.method.toUpperCase();
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+      next();
+      return;
+    }
+    const authHeader = req.headers.authorization;
+    if (typeof authHeader === 'string' && authHeader.toLowerCase().startsWith('bearer ')) {
+      next();
+      return;
+    }
+    const cookieHeader = req.headers.cookie;
+    if (typeof cookieHeader === 'string' && cookieHeader.includes('solodesk_session=')) {
+      const originRaw =
+        (typeof req.headers.origin === 'string' ? req.headers.origin : '') ||
+        (typeof req.headers.referer === 'string' ? req.headers.referer : '');
+      if (originRaw) {
+        try {
+          const parsedOrigin = new URL(originRaw);
+          const reqHost = (req.headers.host || '').trim().toLowerCase();
+          if (reqHost && parsedOrigin.host.toLowerCase() !== reqHost) {
+            sendApiError(
+              res,
+              403,
+              'CSRF_ORIGIN_MISMATCH',
+              'Cross-origin cookie-authenticated mutation blocked.',
+              req
+            );
+            return;
+          }
+        } catch {
+          sendApiError(res, 403, 'CSRF_ORIGIN_MISMATCH', 'Invalid request Origin header.', req);
+          return;
+        }
+      }
+    }
+    next();
+  });
+
   app.use(requestTelemetryMiddleware);
 
   app.use('/api/v1', createApiV1Router(db));

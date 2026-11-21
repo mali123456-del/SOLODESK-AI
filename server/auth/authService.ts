@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { WorkspaceMemberRole } from '../../src/services/cloudSyncService';
+import { writeAuditEvent } from '../monitoring/auditService';
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
@@ -114,17 +115,17 @@ export function registerUser(
       'INSERT INTO subscriptions (workspace_id, plan_tier, billing_provider, billing_status, seat_count, ai_tokens_used_month, sync_ops_month, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(workspaceId, 'free', 'none_configured', 'free_active', 1, 0, 0, now);
 
-    db.prepare(
-      'INSERT INTO audit_logs (id, workspace_id, actor_user_id, event_type, severity, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(
-      `aud_${crypto.randomUUID()}`,
+    writeAuditEvent(db, {
       workspaceId,
-      userId,
-      'user_registered',
-      'info',
-      `Registered workspace owner account ${email}`,
-      now
-    );
+      actorUserId: userId,
+      eventType: 'WORKSPACE_CREATED',
+      severity: 'info',
+      outcome: 'success',
+      resourceType: 'workspace',
+      resourceId: workspaceId,
+      detail: `Registered workspace owner account ${email}`,
+      metadata: { email },
+    });
 
     db.exec('COMMIT;');
   } catch (err) {
@@ -187,6 +188,20 @@ export function loginUser(
       'SELECT workspace_id FROM workspace_members WHERE user_id = ? AND status = ? ORDER BY created_at ASC LIMIT 1'
     )
     .get(row.id, 'active') as { workspace_id: string } | undefined;
+
+  if (ws?.workspace_id) {
+    writeAuditEvent(db, {
+      workspaceId: ws.workspace_id,
+      actorUserId: row.id,
+      eventType: 'AUTH_LOGIN_SUCCESS',
+      severity: 'info',
+      outcome: 'success',
+      resourceType: 'session',
+      resourceId: row.id,
+      detail: `Authenticated user ${email}`,
+      metadata: { ipAddress: input.ipAddress ?? '' },
+    });
+  }
 
   const session = createSession(db, row.id, input.ipAddress ?? '', input.userAgent ?? '');
   return {
@@ -281,12 +296,27 @@ export function getMemberRole(
 
 export function deleteUserAccount(db: DatabaseSync, userId: string): void {
   const now = new Date().toISOString();
+  const memberships = db
+    .prepare("SELECT workspace_id AS workspaceId FROM workspace_members WHERE user_id = ? AND status = 'active'")
+    .all(userId) as Array<{ workspaceId: string }>;
   db.exec('BEGIN;');
   try {
     db.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ?').run(now, userId);
     db.prepare(
       'UPDATE users SET deleted_at = ?, email = ?, display_name = ?, password_hash = ?, updated_at = ? WHERE id = ?'
     ).run(now, `deleted_${userId}@redacted.invalid`, 'Deleted User', 'redacted', now, userId);
+    for (const m of memberships) {
+      writeAuditEvent(db, {
+        workspaceId: m.workspaceId,
+        actorUserId: userId,
+        eventType: 'ACCOUNT_DELETED',
+        severity: 'warning',
+        outcome: 'success',
+        resourceType: 'user',
+        resourceId: userId,
+        detail: `User account ${userId} redacted and all sessions revoked.`,
+      });
+    }
     db.exec('COMMIT;');
   } catch (err) {
     db.exec('ROLLBACK;');
@@ -433,6 +463,17 @@ export function acceptWorkspaceInvitation(
     ).run(`wm_${crypto.randomUUID()}`, row.workspace_id, input.userId, row.role, now);
 
     db.prepare('UPDATE workspace_invitations SET accepted_at = ? WHERE id = ?').run(now, row.id);
+    writeAuditEvent(db, {
+      workspaceId: row.workspace_id,
+      actorUserId: input.userId,
+      eventType: 'MEMBER_ROLE_UPDATED',
+      severity: 'info',
+      outcome: 'success',
+      resourceType: 'workspace_member',
+      resourceId: input.userId,
+      detail: `Accepted workspace invitation as role ${row.role}`,
+      metadata: { invitationId: row.id, role: row.role },
+    });
     db.exec('COMMIT;');
   } catch (err) {
     db.exec('ROLLBACK;');

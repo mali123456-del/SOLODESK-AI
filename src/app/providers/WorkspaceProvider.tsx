@@ -31,6 +31,12 @@ import {
   type SyncLifecycleStatus,
 } from '../../services/cloudSyncService';
 import { runWorkspaceBackgroundJobs } from '../../services/backgroundJobRunner';
+import {
+  computeElapsedSecondsFromIso,
+  createBackgroundTimerController,
+  type BackgroundTimerController,
+  type BackgroundTimerMode,
+} from '../../services/backgroundTimerService';
 import { validateDailyTaskGoalTarget } from '../../services/productivityService';
 import {
   clearDemoWorkspaceData,
@@ -104,6 +110,7 @@ export interface WorkspaceState {
   dailyTaskGoalUpdatedAt: string;
   runningTimer: TimeEntry | null;
   timerElapsedSeconds: number;
+  backgroundTimerMode: BackgroundTimerMode;
   businessProfile: BusinessProfile | null;
   settings: AppSettings | null;
   clients: Client[];
@@ -195,6 +202,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   dailyTaskGoalUpdatedAt: '',
   runningTimer: null,
   timerElapsedSeconds: 0,
+  backgroundTimerMode: 'fallback',
   businessProfile: null,
   settings: null,
   clients: [],
@@ -271,6 +279,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   );
   const [syncTelemetry, setSyncTelemetry] = useState(initialSync);
   const [timerNowMs, setTimerNowMs] = useState(() => Date.now());
+  const [backgroundTimerMode, setBackgroundTimerMode] = useState<BackgroundTimerMode>(() =>
+    typeof Worker !== 'undefined' ? 'web-worker' : 'fallback'
+  );
+  const timerControllerRef = useRef<BackgroundTimerController | null>(null);
   const [workspaces, setWorkspaces] = useState<WorkspaceMetadata[]>([]);
   const [activeWsIdState, setActiveWsIdState] = useState<string>(() => getActiveWorkspaceIdSync());
   const [hasUnsavedQuickNotes, setHasUnsavedQuickNotes] = useState(false);
@@ -310,6 +322,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       | 'dailyTaskGoalUpdatedAt'
       | 'runningTimer'
       | 'timerElapsedSeconds'
+      | 'backgroundTimerMode'
     >
   >({
     loading: true,
@@ -379,18 +392,35 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     [state.timeEntries]
   );
 
-  // Persistent global ticker: updates once per second regardless of active route
+  // Persistent Web Worker background ticker: continues accurate timing even when tab is hidden
   useEffect(() => {
-    if (!runningTimer) return;
+    const controller = createBackgroundTimerController((snapshot) => {
+      if (!mountedRef.current) return;
+      setTimerNowMs(snapshot.nowMs);
+      setBackgroundTimerMode(snapshot.mode);
+    });
+    timerControllerRef.current = controller;
+    setBackgroundTimerMode(controller.mode);
+    return () => {
+      controller.dispose();
+      timerControllerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = timerControllerRef.current;
+    if (!controller) return;
+    if (!runningTimer) {
+      controller.stop();
+      return;
+    }
     setTimerNowMs(Date.now());
-    const id = window.setInterval(() => {
-      setTimerNowMs(Date.now());
-    }, 1000);
-    return () => window.clearInterval(id);
+    controller.start(runningTimer.startTime);
+    setBackgroundTimerMode(controller.mode);
   }, [runningTimer]);
 
   const timerElapsedSeconds = useMemo(
-    () => computeElapsedSeconds(runningTimer, timerNowMs),
+    () => (runningTimer ? computeElapsedSecondsFromIso(runningTimer.startTime, timerNowMs) : 0),
     [runningTimer, timerNowMs]
   );
 
@@ -923,6 +953,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       dailyTaskGoalUpdatedAt,
       runningTimer,
       timerElapsedSeconds,
+      backgroundTimerMode,
       refresh,
       retrySync,
       setAutoSyncEnabled,
@@ -964,6 +995,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       dailyTaskGoalUpdatedAt,
       runningTimer,
       timerElapsedSeconds,
+      backgroundTimerMode,
       refresh,
       retrySync,
       setAutoSyncEnabled,
