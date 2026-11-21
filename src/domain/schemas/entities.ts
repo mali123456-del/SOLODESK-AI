@@ -140,6 +140,7 @@ export const appSettingsSchema = z.object({
   }),
   retentionDays: z.number().int().min(7).max(3650).optional().default(365),
   tourCompleted: z.boolean().optional().default(false),
+  dismissedSetupChecklist: z.boolean().optional().default(false),
   autoSyncEnabled: z.boolean().optional().default(true),
   syncPaused: z.boolean().optional().default(false),
   syncCursor: z.string().optional().default(''),
@@ -155,6 +156,27 @@ export type AppSettings = z.infer<typeof appSettingsSchema>;
 export const clientStatusEnum = z.enum(['active', 'lead', 'archived']);
 export type ClientStatus = z.infer<typeof clientStatusEnum>;
 
+export const leadStageEnum = z.enum([
+  'new',
+  'contacted',
+  'qualified',
+  'proposal_sent',
+  'negotiation',
+  'won',
+  'lost',
+]);
+export type LeadStage = z.infer<typeof leadStageEnum>;
+
+export const clientContactSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(120),
+  role: z.string().trim().max(100).default(''),
+  email: z.string().trim().max(160).default(''),
+  phone: z.string().trim().max(60).default(''),
+  isPrimary: z.boolean().default(false),
+});
+export type ClientContact = z.infer<typeof clientContactSchema>;
+
 export const clientSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1, 'Client name is required').max(140),
@@ -164,6 +186,8 @@ export const clientSchema = z.object({
   website: z.string().trim().max(200).default(''),
   location: z.string().trim().max(140).default(''),
   status: clientStatusEnum.default('active'),
+  leadStage: leadStageEnum.optional().default('qualified'),
+  contacts: z.array(clientContactSchema).optional().default([]),
   category: z.string().trim().max(80).default('General'),
   tags: z.array(z.string().trim().min(1).max(40)).default([]),
   notes: z.string().max(4000).default(''),
@@ -204,6 +228,21 @@ export const projectOkrSchema = z.object({
 });
 export type ProjectOkr = z.infer<typeof projectOkrSchema>;
 
+export const commentEntrySchema = z.object({
+  id: z.string().min(1),
+  author: z.string().trim().min(1).max(100).default('Workspace Owner'),
+  body: z.string().trim().min(1).max(2000),
+  createdAt: isoTimestampSchema,
+});
+export type CommentEntry = z.infer<typeof commentEntrySchema>;
+
+export const projectMemberSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().trim().min(1).max(100),
+  role: z.string().trim().max(80).default('Contributor'),
+});
+export type ProjectMember = z.infer<typeof projectMemberSchema>;
+
 export const projectSchema = z.object({
   id: z.string().min(1),
   clientId: z.string().min(1, 'Client is required'),
@@ -221,6 +260,9 @@ export const projectSchema = z.object({
   milestones: z.array(milestoneSchema).default([]),
   risks: z.array(projectRiskSchema).optional().default([]),
   okrs: z.array(projectOkrSchema).optional().default([]),
+  members: z.array(projectMemberSchema).optional().default([]),
+  comments: z.array(commentEntrySchema).optional().default([]),
+  attachmentVaultIds: z.array(z.string()).optional().default([]),
   isTemplate: z.boolean().optional().default(false),
   notes: z.string().max(4000).default(''),
   isDemo: z.boolean().optional().default(false),
@@ -248,8 +290,11 @@ export const taskSchema = z.object({
   status: taskStatusEnum.default('todo'),
   priority: priorityEnum.default('medium'),
   dueDate: optionalDateOnlySchema,
+  assignee: z.string().trim().max(120).optional().default(''),
   tags: z.array(z.string().trim().min(1).max(40)).default([]),
   subtasks: z.array(subtaskSchema).default([]),
+  comments: z.array(commentEntrySchema).optional().default([]),
+  attachmentVaultIds: z.array(z.string()).optional().default([]),
   dependsOnIds: z.array(z.string()).optional().default([]),
   estimatedHours: z.number().finite().min(0).optional().default(0),
   recurrenceRule: z.enum(['none', 'daily', 'weekly', 'monthly']).optional().default('none'),
@@ -263,6 +308,13 @@ export type Task = z.infer<typeof taskSchema>;
 
 export const proposalStatusEnum = z.enum(['draft', 'sent', 'accepted', 'rejected', 'archived']);
 export type ProposalStatus = z.infer<typeof proposalStatusEnum>;
+
+export const revisionHistoryItemSchema = z.object({
+  version: z.number().int().min(1),
+  summary: z.string().trim().min(1).max(300),
+  savedAt: isoTimestampSchema,
+});
+export type RevisionHistoryItem = z.infer<typeof revisionHistoryItemSchema>;
 
 export const proposalSchema = z.object({
   id: z.string().min(1),
@@ -279,6 +331,9 @@ export const proposalSchema = z.object({
   terms: z.string().max(4000).default(''),
   validUntil: optionalDateOnlySchema,
   status: proposalStatusEnum.default('draft'),
+  revision: z.number().int().min(1).optional().default(1),
+  revisionHistory: z.array(revisionHistoryItemSchema).optional().default([]),
+  attachmentVaultIds: z.array(z.string()).optional().default([]),
   isDemo: z.boolean().optional().default(false),
   createdAt: isoTimestampSchema,
   updatedAt: isoTimestampSchema,
@@ -342,6 +397,9 @@ export const contractSchema = z.object({
   sections: z.array(contractSectionSchema).min(1),
   status: contractStatusEnum.default('draft'),
   acceptedAt: z.string().optional().default(''),
+  revision: z.number().int().min(1).optional().default(1),
+  revisionHistory: z.array(revisionHistoryItemSchema).optional().default([]),
+  attachmentVaultIds: z.array(z.string()).optional().default([]),
   isDemo: z.boolean().optional().default(false),
   createdAt: isoTimestampSchema,
   updatedAt: isoTimestampSchema,
@@ -824,3 +882,108 @@ export const savedViewSchema = z.object({
   updatedAt: isoTimestampSchema,
 });
 export type SavedView = z.infer<typeof savedViewSchema>;
+
+// Phase 82.1: Voice Notes on Projects & Tasks
+export const VOICE_NOTE_ALLOWED_MIME_TYPES = [
+  'audio/webm',
+  'audio/mp4',
+  'audio/ogg',
+  'audio/wav',
+  'audio/mpeg',
+] as const;
+
+export const VOICE_NOTE_MAX_BYTES = 5_000_000;
+
+export const voiceNoteSchema = z.object({
+  id: z.string().min(1),
+  parentType: z.enum(['project', 'task']),
+  parentId: z.string().min(1),
+  title: z.string().trim().min(1).max(140).default('Voice Note'),
+  mimeType: z.string().trim().min(1).max(80),
+  sizeBytes: z.number().int().min(1).max(VOICE_NOTE_MAX_BYTES),
+  durationSeconds: z.number().finite().min(0).max(3600).default(0),
+  audioDataUrl: z.string().min(1).max(7_200_000),
+  transcript: z.string().max(4000).optional().default(''),
+  createdAt: isoTimestampSchema,
+  updatedAt: isoTimestampSchema,
+});
+export type VoiceNote = z.infer<typeof voiceNoteSchema>;
+
+// Phase 85: Centralized Audit Log System (Immutable Event Taxonomy)
+export const auditEventTypeEnum = z.enum([
+  'AUTH_LOGIN_SUCCESS',
+  'AUTH_LOGIN_FAILURE',
+  'AUTH_LOGOUT',
+  'WORKSPACE_CREATED',
+  'WORKSPACE_RENAMED',
+  'WORKSPACE_DELETED',
+  'MEMBER_INVITED',
+  'MEMBER_ROLE_UPDATED',
+  'SECURITY_SETTING_CHANGED',
+  'DATA_EXPORTED',
+  'BACKUP_CREATED',
+  'BACKUP_RESTORED',
+  'WEBHOOK_CREATED',
+  'WEBHOOK_ROTATED',
+  'VOICE_NOTE_CREATED',
+  'VOICE_NOTE_DELETED',
+  'INTEGRATION_UPDATED',
+  'BILLING_EVENT_PROCESSED',
+  'AI_GENERATED',
+  'ACCOUNT_DELETED',
+  'PROPOSAL_UPDATED',
+  'CONTRACT_UPDATED',
+  'PRIVACY_CONSENT_UPDATED',
+  'WORKFLOW_EXECUTED',
+]);
+export type AuditEventType = z.infer<typeof auditEventTypeEnum>;
+
+export const auditEventSchema = z.object({
+  id: z.string().min(1),
+  workspaceId: z.string().min(1).default('local-workspace'),
+  actorId: z.string().min(1).max(120).default('local-owner'),
+  actorEmail: z.string().max(160).default('owner@local.workspace'),
+  eventType: auditEventTypeEnum,
+  action: z.string().min(1).max(100),
+  resourceType: z.string().min(1).max(80),
+  resourceId: z.string().max(120).default(''),
+  outcome: z.enum(['success', 'failure']).default('success'),
+  correlationId: z.string().max(120).default(''),
+  severity: z.enum(['info', 'warning', 'critical']).default('info'),
+  detail: z.string().min(1).max(500),
+  metadataJson: z.string().max(2500).default('{}'),
+  createdAt: isoTimestampSchema,
+});
+export type AuditEvent = z.infer<typeof auditEventSchema>;
+
+// Phase 89: Centralized Integration Hub Connections
+export const integrationConnectionSchema = z.object({
+  id: z.string().min(1),
+  provider: z.string().trim().min(1).max(80),
+  category: z.enum(['calendar', 'email', 'payment', 'ai', 'webhook', 'cloud_sync', 'automation']),
+  displayName: z.string().trim().min(1).max(120),
+  status: z.enum(['configured', 'blocked_credentials', 'disconnected', 'error']).default('disconnected'),
+  accountLabel: z.string().trim().max(160).default(''),
+  endpointUrl: z.string().trim().max(500).default(''),
+  scopes: z.array(z.string()).default([]),
+  lastSyncAt: z.string().optional().default(''),
+  lastError: z.string().max(400).optional().default(''),
+  createdAt: isoTimestampSchema,
+  updatedAt: isoTimestampSchema,
+});
+export type IntegrationConnection = z.infer<typeof integrationConnectionSchema>;
+
+// Phase 93: Privacy Consent Tracking
+export const privacyConsentSchema = z.object({
+  id: z.string().min(1),
+  consentKey: z.enum([
+    'ai_external_processing',
+    'cloud_sync_upload',
+    'webhook_outbound_payloads',
+    'error_diagnostics_local',
+  ]),
+  granted: z.boolean().default(false),
+  purpose: z.string().trim().min(1).max(300),
+  updatedAt: isoTimestampSchema,
+});
+export type PrivacyConsent = z.infer<typeof privacyConsentSchema>;

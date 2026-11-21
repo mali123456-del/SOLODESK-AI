@@ -2,6 +2,7 @@ import type {
   ActivityEvent,
   Appointment,
   AppSettings,
+  AuditEvent,
   BusinessProfile,
   Client,
   ClientPortalLink,
@@ -9,10 +10,12 @@ import type {
   CustomWorkflow,
   DocumentChunk,
   FinanceEntry,
+  IntegrationConnection,
   Invoice,
   KnowledgeDocument,
   NotificationItem,
   Payment,
+  PrivacyConsent,
   Project,
   Proposal,
   Quotation,
@@ -25,6 +28,7 @@ import type {
   Task,
   TimeEntry,
   VaultFile,
+  VoiceNote,
   WebhookConfig,
   WorkflowRun,
   WorkflowType,
@@ -42,7 +46,10 @@ export interface ISolodeskRepositories {
   listClients(): Promise<Client[]>;
   getClient(id: string): Promise<Client | undefined>;
   findDuplicateClients(input: { email?: string; name?: string; excludeId?: string }): Promise<Client[]>;
-  createClient(input: Omit<Client, 'id' | 'createdAt' | 'updatedAt'>): Promise<Client>;
+  createClient(
+    input: Omit<Client, 'id' | 'createdAt' | 'updatedAt' | 'leadStage' | 'contacts'> &
+      Partial<Pick<Client, 'leadStage' | 'contacts'>>
+  ): Promise<Client>;
   updateClient(id: string, patch: Partial<Client>): Promise<Client>;
   archiveClient(id: string): Promise<Client>;
 
@@ -50,8 +57,24 @@ export interface ISolodeskRepositories {
   listProjects(): Promise<Project[]>;
   getProject(id: string): Promise<Project | undefined>;
   createProject(
-    input: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'risks' | 'okrs' | 'isTemplate'> &
-      Partial<Pick<Project, 'risks' | 'okrs' | 'isTemplate'>>
+    input: Omit<
+      Project,
+      | 'id'
+      | 'createdAt'
+      | 'updatedAt'
+      | 'risks'
+      | 'okrs'
+      | 'members'
+      | 'comments'
+      | 'attachmentVaultIds'
+      | 'isTemplate'
+    > &
+      Partial<
+        Pick<
+          Project,
+          'risks' | 'okrs' | 'members' | 'comments' | 'attachmentVaultIds' | 'isTemplate'
+        >
+      >
   ): Promise<Project>;
   updateProject(id: string, patch: Partial<Project>): Promise<Project>;
   deleteProject(id: string): Promise<void>;
@@ -64,19 +87,41 @@ export interface ISolodeskRepositories {
       | 'id'
       | 'createdAt'
       | 'updatedAt'
+      | 'assignee'
+      | 'comments'
+      | 'attachmentVaultIds'
       | 'dependsOnIds'
       | 'estimatedHours'
       | 'recurrenceRule'
       | 'autoPriorityScore'
     > &
-      Partial<Pick<Task, 'dependsOnIds' | 'estimatedHours' | 'recurrenceRule' | 'autoPriorityScore'>>
+      Partial<
+        Pick<
+          Task,
+          | 'assignee'
+          | 'comments'
+          | 'attachmentVaultIds'
+          | 'dependsOnIds'
+          | 'estimatedHours'
+          | 'recurrenceRule'
+          | 'autoPriorityScore'
+        >
+      >
   ): Promise<Task>;
   updateTask(id: string, patch: Partial<Task>): Promise<Task>;
   deleteTask(id: string): Promise<void>;
 
   // Proposals, Quotations, Contracts
   listProposals(): Promise<Proposal[]>;
-  createProposal(input: Omit<Proposal, 'id' | 'number' | 'createdAt' | 'updatedAt'> & { number?: string }): Promise<Proposal>;
+  createProposal(
+    input: Omit<
+      Proposal,
+      'id' | 'number' | 'createdAt' | 'updatedAt' | 'revision' | 'revisionHistory' | 'attachmentVaultIds'
+    > &
+      Partial<Pick<Proposal, 'revision' | 'revisionHistory' | 'attachmentVaultIds'>> & {
+        number?: string;
+      }
+  ): Promise<Proposal>;
   updateProposal(id: string, patch: Partial<Proposal>): Promise<Proposal>;
   deleteProposal(id: string): Promise<void>;
 
@@ -87,7 +132,15 @@ export interface ISolodeskRepositories {
   deleteQuotation(id: string): Promise<void>;
 
   listContracts(): Promise<Contract[]>;
-  createContract(input: Omit<Contract, 'id' | 'number' | 'createdAt' | 'updatedAt'> & { number?: string }): Promise<Contract>;
+  createContract(
+    input: Omit<
+      Contract,
+      'id' | 'number' | 'createdAt' | 'updatedAt' | 'revision' | 'revisionHistory' | 'attachmentVaultIds'
+    > &
+      Partial<Pick<Contract, 'revision' | 'revisionHistory' | 'attachmentVaultIds'>> & {
+        number?: string;
+      }
+  ): Promise<Contract>;
   updateContract(id: string, patch: Partial<Contract>): Promise<Contract>;
   deleteContract(id: string): Promise<void>;
 
@@ -237,4 +290,45 @@ export interface ISolodeskRepositories {
   // Phase 24: Security Audit Logs
   listSecurityAuditLogs(limit?: number): Promise<SecurityAuditLog[]>;
   logSecurityEvent(input: Omit<SecurityAuditLog, 'id' | 'createdAt'>): Promise<SecurityAuditLog>;
+
+  // Phase 82.1: Voice Notes
+  listVoiceNotes(parentType?: 'project' | 'task', parentId?: string): Promise<VoiceNote[]>;
+  createVoiceNote(input: Omit<VoiceNote, 'id' | 'createdAt' | 'updatedAt'>): Promise<VoiceNote>;
+  deleteVoiceNote(id: string): Promise<void>;
+
+  // Phase 85: Centralized Audit Events (Immutable Append-Only)
+  listAuditEvents(limit?: number): Promise<AuditEvent[]>;
+  recordAuditEvent(
+    input: Omit<
+      AuditEvent,
+      | 'id'
+      | 'createdAt'
+      | 'workspaceId'
+      | 'actorId'
+      | 'actorEmail'
+      | 'outcome'
+      | 'correlationId'
+      | 'severity'
+      | 'metadataJson'
+    > &
+      Partial<
+        Pick<
+          AuditEvent,
+          'workspaceId' | 'actorId' | 'actorEmail' | 'outcome' | 'correlationId' | 'severity' | 'metadataJson'
+        >
+      >
+  ): Promise<AuditEvent>;
+
+  // Phase 89: Integration Hub Connections
+  listIntegrationConnections(): Promise<IntegrationConnection[]>;
+  saveIntegrationConnection(
+    input: Omit<IntegrationConnection, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+  ): Promise<IntegrationConnection>;
+  deleteIntegrationConnection(id: string): Promise<void>;
+
+  // Phase 93: Privacy Consents
+  listPrivacyConsents(): Promise<PrivacyConsent[]>;
+  savePrivacyConsent(
+    input: Omit<PrivacyConsent, 'id' | 'updatedAt'> & { id?: string }
+  ): Promise<PrivacyConsent>;
 }

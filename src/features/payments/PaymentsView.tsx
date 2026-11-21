@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { CreditCard, Plus, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, CreditCard, Plus, Search, Trash2 } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -205,6 +205,18 @@ export const PaymentsView: React.FC = () => {
           </Button>
         }
       />
+
+      <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
+        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+        <div>
+          <p className="font-semibold">Offline Manual Ledger Active — Automated Gateway Settlement Blocked</p>
+          <p className="mt-0.5">
+            Recording payments updates invoice balances and income records atomically in local
+            IndexedDB. Automated live card checkout (Stripe, Safepay, PayFast, or JazzCash) remains
+            disabled until verified merchant API credentials are provisioned.
+          </p>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>

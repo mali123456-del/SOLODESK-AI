@@ -31,6 +31,7 @@ export const CommunicationHubView: React.FC = () => {
     proposals,
     businessProfile,
     settings,
+    templates,
     refresh,
   } = useWorkspace();
   const { pushToast } = useToast();
@@ -53,6 +54,11 @@ export const CommunicationHubView: React.FC = () => {
   const [saving, setSaving] = useState(false);
 
   const [activeDraft, setActiveDraft] = useState<FollowUpQueueItem | null>(null);
+  const [draftSubject, setDraftSubject] = useState('');
+  const [draftBody, setDraftBody] = useState('');
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [dispatchedDraftIds, setDispatchedDraftIds] = useState<Record<string, string>>({});
+  const [confirmMailLaunch, setConfirmMailLaunch] = useState(false);
 
   const clientMap = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
   const followUps = useMemo(
@@ -159,8 +165,31 @@ export const CommunicationHubView: React.FC = () => {
     }
   };
 
-  const copyFollowUpDraft = async (item: FollowUpQueueItem) => {
-    const fullText = `Subject: ${item.suggestedSubject}\n\n${item.suggestedBody}`;
+  const openFollowUpDraft = (item: FollowUpQueueItem) => {
+    setActiveDraft(item);
+    setDraftSubject(item.suggestedSubject);
+    setDraftBody(item.suggestedBody);
+    setSelectedTemplateId('');
+    setConfirmMailLaunch(false);
+  };
+
+  const applySavedTemplate = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    if (!activeDraft || !templateId) return;
+    const tpl = templates.find((t) => t.id === templateId);
+    if (!tpl) return;
+    setDraftSubject(`${tpl.name} — ${activeDraft.clientName}`);
+    setDraftBody(
+      tpl.content
+        .replace(/\{\{client_name\}\}/gi, activeDraft.clientName)
+        .replace(/\{\{business_name\}\}/gi, businessProfile?.businessName || 'Our Studio')
+    );
+  };
+
+  const copyFollowUpDraft = async (item: FollowUpQueueItem, subjectOverride?: string, bodyOverride?: string) => {
+    const subj = subjectOverride ?? item.suggestedSubject;
+    const body = bodyOverride ?? item.suggestedBody;
+    const fullText = `Subject: ${subj}\n\n${body}`;
     try {
       await navigator.clipboard.writeText(fullText);
       pushToast({
@@ -169,7 +198,7 @@ export const CommunicationHubView: React.FC = () => {
         description: 'Ready to paste into your mail client.',
       });
     } catch {
-      setActiveDraft(item);
+      openFollowUpDraft(item);
     }
   };
 
@@ -321,7 +350,10 @@ export const CommunicationHubView: React.FC = () => {
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <Button size="sm" variant="outline" onClick={() => setActiveDraft(item)}>
+                        {dispatchedDraftIds[item.id] && (
+                          <Badge tone="success">Opened</Badge>
+                        )}
+                        <Button size="sm" variant="outline" onClick={() => openFollowUpDraft(item)}>
                           Draft
                         </Button>
                         <Button
@@ -452,38 +484,91 @@ export const CommunicationHubView: React.FC = () => {
       {/* Follow-Up Draft Dialog */}
       <Dialog
         open={Boolean(activeDraft)}
-        onClose={() => setActiveDraft(null)}
+        onClose={() => {
+          setActiveDraft(null);
+          setConfirmMailLaunch(false);
+        }}
         title={activeDraft ? `Follow-Up Draft — ${activeDraft.clientName}` : 'Follow-Up Draft'}
         size="lg"
       >
         {activeDraft && (
           <div className="space-y-4 text-xs">
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#101827] space-y-1">
+            {dispatchedDraftIds[activeDraft.id] && (
+              <div className="p-2.5 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200">
+                Duplicate guard: you already launched a mail draft for this item at{' '}
+                {new Date(dispatchedDraftIds[activeDraft.id]).toLocaleTimeString()}.
+              </div>
+            )}
+            <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#101827] space-y-2">
               <p className="text-slate-500">
                 To: <span className="font-mono text-slate-800 dark:text-slate-200">{activeDraft.clientEmail || activeDraft.clientName}</span>
               </p>
-              <p className="text-slate-500">
-                Subject: <span className="font-semibold text-slate-900 dark:text-white">{activeDraft.suggestedSubject}</span>
-              </p>
+              {templates.length > 0 && (
+                <Select
+                  label="Apply Saved Template (Optional)"
+                  value={selectedTemplateId}
+                  onChange={(e) => applySavedTemplate(e.target.value)}
+                  options={[
+                    { value: '', label: 'Keep contextual follow-up draft' },
+                    ...templates
+                      .filter((t) => t.kind === 'email' || t.kind === 'proposal' || t.kind === 'contract')
+                      .map((t) => ({ value: t.id, label: `${t.name} (${t.kind})` })),
+                  ]}
+                />
+              )}
+              <Input
+                label="Subject"
+                value={draftSubject}
+                onChange={(e) => setDraftSubject(e.target.value)}
+              />
             </div>
-            <pre className="p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#101827] text-slate-800 dark:text-slate-200 whitespace-pre-wrap font-sans leading-relaxed">
-              {activeDraft.suggestedBody}
-            </pre>
+            <Textarea
+              label="Message Body"
+              rows={7}
+              value={draftBody}
+              onChange={(e) => setDraftBody(e.target.value)}
+            />
+            {confirmMailLaunch && activeDraft.clientEmail && (
+              <div className="p-3 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-950/30 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-slate-700 dark:text-slate-200">
+                  Confirm opening your local mail client for <strong>{activeDraft.clientEmail}</strong>?
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setConfirmMailLaunch(false)}>
+                    Cancel
+                  </Button>
+                  <a
+                    href={`mailto:${encodeURIComponent(activeDraft.clientEmail)}?subject=${encodeURIComponent(draftSubject)}&body=${encodeURIComponent(draftBody)}`}
+                    onClick={() => {
+                      setDispatchedDraftIds((prev) => ({
+                        ...prev,
+                        [activeDraft.id]: new Date().toISOString(),
+                      }));
+                      setConfirmMailLaunch(false);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] bg-blue-600 text-white text-xs font-medium hover:bg-blue-700"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Confirm Launch Mail App
+                  </a>
+                </div>
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setActiveDraft(null)}>
                 Close
               </Button>
-              {activeDraft.clientEmail && (
-                <a
-                  href={`mailto:${encodeURIComponent(activeDraft.clientEmail)}?subject=${encodeURIComponent(activeDraft.suggestedSubject)}&body=${encodeURIComponent(activeDraft.suggestedBody)}`}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-[10px] border border-slate-200 dark:border-slate-700 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800"
+              {activeDraft.clientEmail && !confirmMailLaunch && (
+                <Button
+                  variant="outline"
+                  icon={<ExternalLink className="w-3.5 h-3.5" />}
+                  onClick={() => setConfirmMailLaunch(true)}
                 >
-                  <ExternalLink className="w-3.5 h-3.5" />
                   Open in Mail App
-                </a>
+                </Button>
               )}
               <Button
-                onClick={() => void copyFollowUpDraft(activeDraft)}
+                onClick={() => void copyFollowUpDraft(activeDraft, draftSubject, draftBody)}
                 icon={<Copy className="w-3.5 h-3.5" />}
               >
                 Copy Full Draft

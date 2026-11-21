@@ -28,7 +28,13 @@ import {
   type BackupVerificationReport,
 } from '../../security/auditLogger';
 
-export const SecurityCenterView: React.FC = () => {
+import type { AppRouteId } from '../../types/navigation';
+
+interface SecurityCenterViewProps {
+  onNavigate?: (route: AppRouteId) => void;
+}
+
+export const SecurityCenterView: React.FC<SecurityCenterViewProps> = ({ onNavigate }) => {
   const { settings, securityAuditLogs, isOnline, refresh } = useWorkspace();
   const { pushToast } = useToast();
 
@@ -108,10 +114,18 @@ export const SecurityCenterView: React.FC = () => {
         title="Security, Privacy & Reliability Center"
         description="Verify browser storage health, encryption roundtrips, CSP status, data retention, and immutable audit logs."
         actions={
-          <Button variant="outline" onClick={handleExportDiagnostics}>
-            <Download className="w-4 h-4 mr-1.5" aria-hidden="true" />
-            Export Diagnostics JSON
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {onNavigate && (
+              <Button variant="outline" onClick={() => onNavigate('audit-logs')}>
+                <ShieldCheck className="w-4 h-4 mr-1.5" aria-hidden="true" />
+                Open Centralized Audit Log
+              </Button>
+            )}
+            <Button variant="outline" onClick={handleExportDiagnostics}>
+              <Download className="w-4 h-4 mr-1.5" aria-hidden="true" />
+              Export Diagnostics JSON
+            </Button>
+          </div>
         }
       />
 
@@ -170,7 +184,7 @@ export const SecurityCenterView: React.FC = () => {
         <Card>
           <CardHeader
             title="Backup Recovery Self-Test & Retention"
-            description="Non-destructive AES-GCM encryption, decryption, and v5 schema verification."
+            description="Non-destructive AES-GCM encryption, decryption, and v6 schema verification."
             action={
               <Button size="sm" variant="ghost" onClick={() => void runDiagnostics()}>
                 <RefreshCw className="w-3.5 h-3.5 mr-1" />

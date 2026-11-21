@@ -19,8 +19,11 @@ import { requestPersistentBrowserStorage } from '../../database/db';
 import { repositories } from '../../database/repositories/dexieRepositories';
 import { getActiveWorkspaceDatabase } from '../../database/workspaceManager';
 import { runDatabaseHealthCheck, type DatabaseHealthReport } from '../../observability/healthCheck';
+import { recordStructuredAudit } from '../../security/auditLogger';
+import { deleteBackendAccount } from '../../services/backendAuthClient';
 import { SYNC_LIFECYCLE_LABELS } from '../../services/cloudSyncService';
 import type { DateFormatPreference } from '../../domain/calculations/dates';
+import type { PrivacyConsent } from '../../domain/schemas/entities';
 import { SUPPORTED_CURRENCIES } from '../../domain/calculations/money';
 import {
   clearSessionGeminiKey,
@@ -67,6 +70,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate 
   const {
     businessProfile,
     settings,
+    privacyConsents,
     storageHealth,
     isOnline,
     syncStatus,
@@ -366,9 +370,40 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate 
     });
   };
 
+  const [deleteCloudAccountAlso, setDeleteCloudAccountAlso] = useState(false);
+
+  const handleToggleConsent = async (
+    consentKey: PrivacyConsent['consentKey'],
+    purpose: string,
+    granted: boolean
+  ) => {
+    await repositories.savePrivacyConsent({
+      consentKey,
+      granted,
+      purpose,
+    });
+    await refresh();
+    pushToast({
+      tone: 'info',
+      title: `Consent ${granted ? 'enabled' : 'revoked'}`,
+      description: purpose,
+    });
+  };
+
   const handleFactoryReset = async () => {
     setSavingReset(true);
     try {
+      let cloudMsg = '';
+      if (deleteCloudAccountAlso) {
+        const res = await deleteBackendAccount();
+        cloudMsg = ` ${res.message}`;
+      }
+      await recordStructuredAudit({
+        eventType: 'ACCOUNT_DELETED',
+        action: 'workspace.factory_reset',
+        resourceType: 'workspace',
+        detail: `Workspace factory reset triggered${deleteCloudAccountAlso ? ' (including cloud account delete attempt)' : ''}.`,
+      }).catch(() => undefined);
       const targetDb = getActiveWorkspaceDatabase();
       await targetDb.transaction('rw', targetDb.tables, async () => {
         await Promise.all(targetDb.tables.map((t) => t.clear()));
@@ -380,7 +415,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate 
       pushToast({
         tone: 'success',
         title: 'Local workspace cleared',
-        description: 'All local browser records were removed.',
+        description: `All local browser records were removed.${cloudMsg}`,
       });
     } finally {
       setSavingReset(false);
@@ -1035,49 +1070,131 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ section, onNavigate 
 
           <Card>
             <CardHeader
+              title="Privacy Consents & AI / Sync Data-Flow Transparency"
+              description="Granular opt-in controls persisted per workspace in IndexedDB. Credentials and API keys are never written to storage."
+            />
+            <div className="space-y-4">
+              <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl">
+                {(
+                  [
+                    {
+                      key: 'ai_external_processing',
+                      label: 'External AI Prompt Processing (Gemini / OpenAI)',
+                      purpose: 'Allow AI Copilot prompts to be sent to configured external LLM providers when BYOK key is set in session memory.',
+                    },
+                    {
+                      key: 'cloud_sync_upload',
+                      label: 'Optional Cloud Sync Upload',
+                      purpose: 'Allow queued workspace diffs to upload to the configured Cloud Sync server when signed in.',
+                    },
+                    {
+                      key: 'webhook_outbound_payloads',
+                      label: 'Outbound Webhook Payloads',
+                      purpose: 'Allow automation workflows to dispatch SSRF-validated event payloads to external HTTPS webhooks.',
+                    },
+                    {
+                      key: 'error_diagnostics_local',
+                      label: 'Local-Only Diagnostic Ledger',
+                      purpose: 'Keep IndexedDB health check and audit trail events on-device with automatic secret key scrubbing.',
+                    },
+                  ] as const
+                ).map((item) => {
+                  const record = privacyConsents.find((c) => c.consentKey === item.key);
+                  const checked = record ? record.granted : item.key === 'error_diagnostics_local';
+                  return (
+                    <div
+                      key={item.key}
+                      className="p-3.5 flex items-start justify-between gap-4 text-xs"
+                    >
+                      <div className="space-y-0.5">
+                        <p className="font-semibold text-slate-900 dark:text-white">{item.label}</p>
+                        <p className="text-slate-600 dark:text-slate-300">{item.purpose}</p>
+                      </div>
+                      <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 pt-0.5">
+                        <input
+                          type="checkbox"
+                          role="switch"
+                          aria-label={item.label}
+                          aria-checked={checked}
+                          checked={checked}
+                          onChange={(e) =>
+                            void handleToggleConsent(item.key, item.purpose, e.target.checked)
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                        />
+                        <span className="font-medium text-slate-700 dark:text-slate-200">
+                          {checked ? 'Granted' : 'Off'}
+                        </span>
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-[#101827]/70 text-xs text-slate-600 dark:text-slate-300 space-y-1">
+                <p className="font-semibold text-slate-900 dark:text-white">Data-Flow Boundaries</p>
+                <p>• Local-first business data lives in workspace-scoped IndexedDB (Dexie v6) and zero keys are stored in localStorage/sessionStorage.</p>
+                <p>• AI Copilot runs deterministic local templates offline unless an in-memory BYOK provider key is active.</p>
+                <p>• Export encrypted JSON backups or review centralized events anytime in Audit Logs.</p>
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader
               title="Demo Data & Workspace Reset"
               description="Manage sample data or erase all locally stored records on this browser."
             />
-            <div className="flex flex-wrap items-center gap-3">
-              {settings?.demoDataActive ? (
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    void removeDemoWorkspace().then(() =>
-                      pushToast({
-                        tone: 'success',
-                        title: 'Demo records removed',
-                        description: 'Sample workspace data was cleanly removed.',
-                      })
-                    )
-                  }
-                >
-                  Clear Sample Demo Data
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  onClick={() =>
-                    void loadDemoWorkspace().then(() =>
-                      pushToast({
-                        tone: 'success',
-                        title: 'Sample demo data loaded',
-                        description: 'Explore pre-populated clients, projects, and invoices.',
-                      })
-                    )
-                  }
-                >
-                  Load Sample Demo Workspace
-                </Button>
-              )}
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={deleteCloudAccountAlso}
+                  onChange={(e) => setDeleteCloudAccountAlso(e.target.checked)}
+                />
+                <span>Also erase connected Cloud Sync account & sessions on server when resetting</span>
+              </label>
+              <div className="flex flex-wrap items-center gap-3">
+                {settings?.demoDataActive ? (
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      void removeDemoWorkspace().then(() =>
+                        pushToast({
+                          tone: 'success',
+                          title: 'Demo records removed',
+                          description: 'Sample workspace data was cleanly removed.',
+                        })
+                      )
+                    }
+                  >
+                    Clear Sample Demo Data
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      void loadDemoWorkspace().then(() =>
+                        pushToast({
+                          tone: 'success',
+                          title: 'Sample demo data loaded',
+                          description: 'Explore pre-populated clients, projects, and invoices.',
+                        })
+                      )
+                    }
+                  >
+                    Load Sample Demo Workspace
+                  </Button>
+                )}
 
-              <Button
-                variant="danger"
-                icon={<Trash2 className="w-4 h-4" />}
-                onClick={() => setConfirmResetAll(true)}
-              >
-                Delete All Local Data
-              </Button>
+                <Button
+                  variant="danger"
+                  icon={<Trash2 className="w-4 h-4" />}
+                  onClick={() => setConfirmResetAll(true)}
+                >
+                  Delete All Local Data
+                </Button>
+              </div>
             </div>
           </Card>
         </div>

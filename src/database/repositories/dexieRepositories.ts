@@ -15,6 +15,7 @@ import {
   activityEventSchema,
   appointmentSchema,
   appSettingsSchema,
+  auditEventSchema,
   businessProfileSchema,
   clientPortalLinkSchema,
   clientSchema,
@@ -22,10 +23,12 @@ import {
   createId,
   customWorkflowSchema,
   financeEntrySchema,
+  integrationConnectionSchema,
   invoiceSchema,
   knowledgeDocumentSchema,
   notificationItemSchema,
   paymentSchema,
+  privacyConsentSchema,
   projectSchema,
   proposalSchema,
   quotationSchema,
@@ -38,12 +41,16 @@ import {
   taskSchema,
   timeEntrySchema,
   vaultFileSchema,
+  VOICE_NOTE_ALLOWED_MIME_TYPES,
+  VOICE_NOTE_MAX_BYTES,
+  voiceNoteSchema,
   webhookConfigSchema,
   workflowRunSchema,
   workspaceGoalSchema,
   type ActivityEvent,
   type Appointment,
   type AppSettings,
+  type AuditEvent,
   type BusinessProfile,
   type Client,
   type ClientPortalLink,
@@ -51,10 +58,12 @@ import {
   type CustomWorkflow,
   type DocumentChunk,
   type FinanceEntry,
+  type IntegrationConnection,
   type Invoice,
   type KnowledgeDocument,
   type NotificationItem,
   type Payment,
+  type PrivacyConsent,
   type Project,
   type Proposal,
   type Quotation,
@@ -67,17 +76,48 @@ import {
   type Task,
   type TimeEntry,
   type VaultFile,
+  type VoiceNote,
   type WebhookConfig,
   type WorkflowRun,
   type WorkflowType,
   type WorkspaceGoal,
 } from '../../domain/schemas/entities';
 import { type SolodeskDatabase } from '../solodeskDatabase';
-import { getActiveWorkspaceDatabase } from '../workspaceManager';
+import { getActiveWorkspaceDatabase, getActiveWorkspaceIdSync } from '../workspaceManager';
 import type { ISolodeskRepositories } from './interfaces';
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+const AUDIT_SENSITIVE_KEY_RE = /(api[_-]?key|token|secret|password|authorization|gemini|passphrase|cookie)/i;
+
+function scrubAuditMetadataJson(rawJson: string): string {
+  try {
+    const parsed = JSON.parse(rawJson) as unknown;
+    const redact = (val: unknown): unknown => {
+      if (Array.isArray(val)) return val.slice(0, 25).map(redact);
+      if (val && typeof val === 'object') {
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+          if (AUDIT_SENSITIVE_KEY_RE.test(k)) {
+            out[k] = '[REDACTED]';
+          } else {
+            out[k] = redact(v);
+          }
+        }
+        return out;
+      }
+      if (typeof val === 'string' && val.length > 400) {
+        return `${val.slice(0, 400)}…`;
+      }
+      return val;
+    };
+    const serialized = JSON.stringify(redact(parsed));
+    return serialized.length > 2048 ? `${serialized.slice(0, 2040)}...` : serialized;
+  } catch {
+    return '{}';
+  }
 }
 
 export class DexieSolodeskRepositories implements ISolodeskRepositories {
@@ -212,7 +252,10 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
     });
   }
 
-  async createClient(input: Omit<Client, 'id' | 'createdAt' | 'updatedAt'>): Promise<Client> {
+  async createClient(
+    input: Omit<Client, 'id' | 'createdAt' | 'updatedAt' | 'leadStage' | 'contacts'> &
+      Partial<Pick<Client, 'leadStage' | 'contacts'>>
+  ): Promise<Client> {
     return this.runWrite('Create client', async (scoped, db) => {
       const ts = nowIso();
       const record = clientSchema.parse({
@@ -270,8 +313,24 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async createProject(
-    input: Omit<Project, 'id' | 'createdAt' | 'updatedAt' | 'risks' | 'okrs' | 'isTemplate'> &
-      Partial<Pick<Project, 'risks' | 'okrs' | 'isTemplate'>>
+    input: Omit<
+      Project,
+      | 'id'
+      | 'createdAt'
+      | 'updatedAt'
+      | 'risks'
+      | 'okrs'
+      | 'members'
+      | 'comments'
+      | 'attachmentVaultIds'
+      | 'isTemplate'
+    > &
+      Partial<
+        Pick<
+          Project,
+          'risks' | 'okrs' | 'members' | 'comments' | 'attachmentVaultIds' | 'isTemplate'
+        >
+      >
   ): Promise<Project> {
     return this.runWrite('Create project', async (scoped, db) => {
       const client = await db.clients.get(input.clientId);
@@ -333,6 +392,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
         db.contracts,
         db.financeEntries,
         db.activities,
+        db.voiceNotes,
       ],
       async () => {
         const existing = await db.projects.get(id);
@@ -355,6 +415,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
           db.contracts.where('projectId').equals(id).modify({ projectId: '' }),
           db.financeEntries.where('projectId').equals(id).modify({ projectId: '' }),
           db.invoices.where('projectId').equals(id).modify({ projectId: '' }),
+          db.voiceNotes.where('[parentType+parentId]').equals(['project', id]).delete(),
         ]);
 
         await db.projects.delete(id);
@@ -381,12 +442,26 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
       | 'id'
       | 'createdAt'
       | 'updatedAt'
+      | 'assignee'
+      | 'comments'
+      | 'attachmentVaultIds'
       | 'dependsOnIds'
       | 'estimatedHours'
       | 'recurrenceRule'
       | 'autoPriorityScore'
     > &
-      Partial<Pick<Task, 'dependsOnIds' | 'estimatedHours' | 'recurrenceRule' | 'autoPriorityScore'>>
+      Partial<
+        Pick<
+          Task,
+          | 'assignee'
+          | 'comments'
+          | 'attachmentVaultIds'
+          | 'dependsOnIds'
+          | 'estimatedHours'
+          | 'recurrenceRule'
+          | 'autoPriorityScore'
+        >
+      >
   ): Promise<Task> {
     return this.runWrite('Create task', async (scoped, db) => {
       if (input.projectId) {
@@ -461,10 +536,11 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
 
   async deleteTask(id: string): Promise<void> {
     return this.runWrite('Delete task', async (_scoped, db) =>
-      db.transaction('rw', [db.tasks, db.timeEntries], async () => {
+      db.transaction('rw', [db.tasks, db.timeEntries, db.voiceNotes], async () => {
         const existing = await db.tasks.get(id);
         if (!existing) return;
         await db.timeEntries.where('taskId').equals(id).modify({ taskId: '' });
+        await db.voiceNotes.where('[parentType+parentId]').equals(['task', id]).delete();
         await db.tasks.delete(id);
       })
     );
@@ -478,7 +554,13 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async createProposal(
-    input: Omit<Proposal, 'id' | 'number' | 'createdAt' | 'updatedAt'> & { number?: string }
+    input: Omit<
+      Proposal,
+      'id' | 'number' | 'createdAt' | 'updatedAt' | 'revision' | 'revisionHistory' | 'attachmentVaultIds'
+    > &
+      Partial<Pick<Proposal, 'revision' | 'revisionHistory' | 'attachmentVaultIds'>> & {
+        number?: string;
+      }
   ): Promise<Proposal> {
     return this.runWrite('Create proposal', async (scoped, db) => {
       const client = await db.clients.get(input.clientId);
@@ -498,6 +580,10 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             ...input,
             id: createId('prp'),
             number: assignedNumber,
+            revision: input.revision ?? 1,
+            revisionHistory: input.revisionHistory ?? [
+              { version: 1, summary: 'Initial proposal created', savedAt: ts },
+            ],
             createdAt: ts,
             updatedAt: ts,
           });
@@ -522,17 +608,51 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async updateProposal(id: string, patch: Partial<Proposal>): Promise<Proposal> {
-    return this.runWrite('Update proposal', async (_scoped, db) => {
+    return this.runWrite('Update proposal', async (scoped, db) => {
       const existing = await db.proposals.get(id);
       if (!existing) throw new Error(`Proposal ${id} not found.`);
+      const ts = nowIso();
+      const substantiveChange =
+        patch.title !== undefined ||
+        patch.overview !== undefined ||
+        patch.scopeOfWork !== undefined ||
+        patch.pricingAmount !== undefined ||
+        patch.terms !== undefined ||
+        patch.deliverables !== undefined ||
+        patch.status !== undefined;
+      const nextRevision =
+        patch.revision ?? (substantiveChange ? (existing.revision ?? 1) + 1 : existing.revision ?? 1);
+      const nextHistory =
+        patch.revisionHistory ??
+        (substantiveChange
+          ? [
+              ...(existing.revisionHistory ?? []),
+              {
+                version: nextRevision,
+                summary: patch.status && patch.status !== existing.status
+                  ? `Status changed to ${patch.status}`
+                  : 'Updated proposal scope or pricing',
+                savedAt: ts,
+              },
+            ].slice(-20)
+          : existing.revisionHistory ?? []);
       const updated = proposalSchema.parse({
         ...existing,
         ...patch,
         id,
+        revision: nextRevision,
+        revisionHistory: nextHistory,
         createdAt: existing.createdAt,
-        updatedAt: nowIso(),
+        updatedAt: ts,
       });
       await db.proposals.put(updated);
+      await scoped.recordAuditEvent({
+        eventType: 'PROPOSAL_UPDATED',
+        action: 'proposal.updated',
+        resourceType: 'proposal',
+        resourceId: id,
+        detail: `Proposal ${updated.number} updated to v${updated.revision} (${updated.status})`,
+      });
       return updated;
     });
   }
@@ -738,7 +858,13 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async createContract(
-    input: Omit<Contract, 'id' | 'number' | 'createdAt' | 'updatedAt'> & { number?: string }
+    input: Omit<
+      Contract,
+      'id' | 'number' | 'createdAt' | 'updatedAt' | 'revision' | 'revisionHistory' | 'attachmentVaultIds'
+    > &
+      Partial<Pick<Contract, 'revision' | 'revisionHistory' | 'attachmentVaultIds'>> & {
+        number?: string;
+      }
   ): Promise<Contract> {
     return this.runWrite('Create contract', async (scoped, db) => {
       const client = await db.clients.get(input.clientId);
@@ -758,6 +884,10 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
             ...input,
             id: createId('ctr'),
             number: assignedNumber,
+            revision: input.revision ?? 1,
+            revisionHistory: input.revisionHistory ?? [
+              { version: 1, summary: 'Initial agreement drafted', savedAt: ts },
+            ],
             createdAt: ts,
             updatedAt: ts,
           });
@@ -782,7 +912,7 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
   }
 
   async updateContract(id: string, patch: Partial<Contract>): Promise<Contract> {
-    return this.runWrite('Update contract', async (_scoped, db) => {
+    return this.runWrite('Update contract', async (scoped, db) => {
       const existing = await db.contracts.get(id);
       if (!existing) throw new Error(`Contract ${id} not found.`);
       const ts = nowIso();
@@ -793,15 +923,45 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
           : nextStatus !== 'accepted'
             ? ''
             : existing.acceptedAt;
+      const substantiveChange =
+        patch.title !== undefined ||
+        patch.sections !== undefined ||
+        patch.status !== undefined ||
+        patch.effectiveDate !== undefined;
+      const nextRevision =
+        patch.revision ?? (substantiveChange ? (existing.revision ?? 1) + 1 : existing.revision ?? 1);
+      const nextHistory =
+        patch.revisionHistory ??
+        (substantiveChange
+          ? [
+              ...(existing.revisionHistory ?? []),
+              {
+                version: nextRevision,
+                summary: patch.status && patch.status !== existing.status
+                  ? `Status changed to ${patch.status}`
+                  : 'Updated contract clauses or metadata',
+                savedAt: ts,
+              },
+            ].slice(-20)
+          : existing.revisionHistory ?? []);
       const updated = contractSchema.parse({
         ...existing,
         ...patch,
         id,
         acceptedAt,
+        revision: nextRevision,
+        revisionHistory: nextHistory,
         createdAt: existing.createdAt,
         updatedAt: ts,
       });
       await db.contracts.put(updated);
+      await scoped.recordAuditEvent({
+        eventType: 'CONTRACT_UPDATED',
+        action: 'contract.updated',
+        resourceType: 'contract',
+        resourceId: id,
+        detail: `Contract ${updated.number} updated to v${updated.revision} (${updated.status})`,
+      });
       return updated;
     });
   }
@@ -1941,6 +2101,192 @@ export class DexieSolodeskRepositories implements ISolodeskRepositories {
     });
     await this.db.securityAuditLogs.add(record);
     return record;
+  }
+
+  // --- Phase 82.1: Voice Notes ---
+
+  async listVoiceNotes(parentType?: 'project' | 'task', parentId?: string): Promise<VoiceNote[]> {
+    const all =
+      parentType && parentId
+        ? await this.db.voiceNotes.where('[parentType+parentId]').equals([parentType, parentId]).toArray()
+        : await this.db.voiceNotes.toArray();
+    return all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async createVoiceNote(
+    input: Omit<VoiceNote, 'id' | 'createdAt' | 'updatedAt'>
+  ): Promise<VoiceNote> {
+    return this.runWrite('Save voice note', async (scoped, db) => {
+      const normalizedMime = input.mimeType.split(';')[0]?.trim().toLowerCase() ?? '';
+      if (
+        !(VOICE_NOTE_ALLOWED_MIME_TYPES as readonly string[]).includes(normalizedMime)
+      ) {
+        throw new ReferentialIntegrityError(
+          `Unsupported audio format "${input.mimeType}". Allowed: ${VOICE_NOTE_ALLOWED_MIME_TYPES.join(', ')}.`
+        );
+      }
+      if (input.sizeBytes <= 0 || input.sizeBytes > VOICE_NOTE_MAX_BYTES) {
+        throw new ReferentialIntegrityError(
+          `Voice note size (${input.sizeBytes} bytes) exceeds the 5 MB limit.`
+        );
+      }
+      if (input.parentType === 'project') {
+        const prj = await db.projects.get(input.parentId);
+        if (!prj) throw new ReferentialIntegrityError('Referenced project does not exist.');
+      } else {
+        const tsk = await db.tasks.get(input.parentId);
+        if (!tsk) throw new ReferentialIntegrityError('Referenced task does not exist.');
+      }
+      const ts = nowIso();
+      const record = voiceNoteSchema.parse({
+        ...input,
+        mimeType: normalizedMime,
+        id: createId('vcn'),
+        createdAt: ts,
+        updatedAt: ts,
+      });
+      await db.voiceNotes.add(record);
+      await scoped.recordAuditEvent({
+        eventType: 'VOICE_NOTE_CREATED',
+        action: 'voice_note.created',
+        resourceType: input.parentType,
+        resourceId: input.parentId,
+        detail: `Recorded voice note "${record.title}" (${Math.round(record.durationSeconds)}s)`,
+      });
+      return record;
+    });
+  }
+
+  async deleteVoiceNote(id: string): Promise<void> {
+    return this.runWrite('Delete voice note', async (scoped, db) => {
+      const existing = await db.voiceNotes.get(id);
+      if (!existing) return;
+      await db.voiceNotes.delete(id);
+      await scoped.recordAuditEvent({
+        eventType: 'VOICE_NOTE_DELETED',
+        action: 'voice_note.deleted',
+        resourceType: existing.parentType,
+        resourceId: existing.parentId,
+        detail: `Deleted voice note "${existing.title}"`,
+      });
+    });
+  }
+
+  // --- Phase 85: Centralized Audit Events (Immutable Append-Only) ---
+
+  async listAuditEvents(limit = 500): Promise<AuditEvent[]> {
+    const all = await this.db.auditEvents.toArray();
+    return all.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+  }
+
+  async recordAuditEvent(
+    input: Omit<
+      AuditEvent,
+      | 'id'
+      | 'createdAt'
+      | 'workspaceId'
+      | 'actorId'
+      | 'actorEmail'
+      | 'outcome'
+      | 'correlationId'
+      | 'severity'
+      | 'metadataJson'
+    > &
+      Partial<
+        Pick<
+          AuditEvent,
+          'workspaceId' | 'actorId' | 'actorEmail' | 'outcome' | 'correlationId' | 'severity' | 'metadataJson'
+        >
+      >
+  ): Promise<AuditEvent> {
+    const wsId = input.workspaceId?.trim() || getActiveWorkspaceIdSync();
+    const record = auditEventSchema.parse({
+      ...input,
+      workspaceId: wsId,
+      actorId: input.actorId ?? 'local-owner',
+      actorEmail: input.actorEmail ?? 'owner@local.workspace',
+      outcome: input.outcome ?? 'success',
+      correlationId: input.correlationId ?? createId('cor'),
+      severity: input.severity ?? 'info',
+      metadataJson: scrubAuditMetadataJson(input.metadataJson ?? '{}'),
+      id: createId('aud'),
+      createdAt: nowIso(),
+    });
+    await this.db.auditEvents.add(record);
+    return record;
+  }
+
+  // --- Phase 89: Integration Hub Connections ---
+
+  async listIntegrationConnections(): Promise<IntegrationConnection[]> {
+    const all = await this.db.integrationConnections.toArray();
+    return all.sort((a, b) => a.displayName.localeCompare(b.displayName));
+  }
+
+  async saveIntegrationConnection(
+    input: Omit<IntegrationConnection, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
+  ): Promise<IntegrationConnection> {
+    return this.runWrite('Save integration connection', async (scoped, db) => {
+      const ts = nowIso();
+      const existing =
+        (input.id ? await db.integrationConnections.get(input.id) : undefined) ??
+        (await db.integrationConnections.where('provider').equals(input.provider).first());
+      const record = integrationConnectionSchema.parse({
+        ...existing,
+        ...input,
+        id: existing?.id ?? input.id ?? createId('int'),
+        createdAt: existing?.createdAt ?? ts,
+        updatedAt: ts,
+      });
+      await db.integrationConnections.put(record);
+      await scoped.recordAuditEvent({
+        eventType: 'INTEGRATION_UPDATED',
+        action: 'integration.updated',
+        resourceType: 'integration',
+        resourceId: record.provider,
+        detail: `Integration "${record.displayName}" status set to ${record.status}`,
+      });
+      return record;
+    });
+  }
+
+  async deleteIntegrationConnection(id: string): Promise<void> {
+    return this.runWrite('Delete integration connection', async (_scoped, db) => {
+      await db.integrationConnections.delete(id);
+    });
+  }
+
+  // --- Phase 93: Privacy Consents ---
+
+  async listPrivacyConsents(): Promise<PrivacyConsent[]> {
+    const all = await this.db.privacyConsents.toArray();
+    return all.sort((a, b) => a.consentKey.localeCompare(b.consentKey));
+  }
+
+  async savePrivacyConsent(
+    input: Omit<PrivacyConsent, 'id' | 'updatedAt'> & { id?: string }
+  ): Promise<PrivacyConsent> {
+    return this.runWrite('Save privacy consent', async (scoped, db) => {
+      const existing =
+        (input.id ? await db.privacyConsents.get(input.id) : undefined) ??
+        (await db.privacyConsents.where('consentKey').equals(input.consentKey).first());
+      const ts = nowIso();
+      const record = privacyConsentSchema.parse({
+        ...existing,
+        ...input,
+        id: existing?.id ?? input.id ?? createId('pvc'),
+        updatedAt: ts,
+      });
+      await db.privacyConsents.put(record);
+      await scoped.recordAuditEvent({
+        eventType: 'PRIVACY_CONSENT_UPDATED',
+        action: 'privacy.consent_updated',
+        resourceType: 'privacy_consent',
+        resourceId: record.consentKey,
+        detail: `Privacy consent "${record.consentKey}" ${record.granted ? 'granted' : 'revoked'}`,
+      });
+      return record;
+    });
   }
 }
 

@@ -132,8 +132,8 @@ describe('Phase 14 — Offline/Sync Telemetry, Dexie v4, Analytics, Workflows, 1
     });
   });
 
-  it('migrates v1/v3 schemas to Dexie v5, enforces foreign keys on serviceCatalog/appointments/goals, and supports v3 backup restore', async () => {
-    expect(SOLODESK_SCHEMA_VERSION).toBe(5);
+  it('migrates v1/v3 schemas to Dexie v6, enforces foreign keys on serviceCatalog/appointments/goals, and supports v3 backup restore', async () => {
+    expect(SOLODESK_SCHEMA_VERSION).toBe(6);
 
     // Upgrade test from v3 -> v5
     const dbName = `solodesk_mig_v3_${Math.random().toString(36).slice(2)}`;
@@ -179,7 +179,7 @@ describe('Phase 14 — Offline/Sync Telemetry, Dexie v4, Analytics, Workflows, 1
 
     const upgraded = new SolodeskDatabase(dbName);
     await upgraded.open();
-    expect(upgraded.verno).toBe(5);
+    expect(upgraded.verno).toBe(6);
     expect((await upgraded.clients.get('cli_legacy'))?.name).toBe('V3 Client');
     expect(await upgraded.serviceCatalog.count()).toBe(0);
     expect(await upgraded.appointments.count()).toBe(0);
@@ -256,7 +256,7 @@ describe('Phase 14 — Offline/Sync Telemetry, Dexie v4, Analytics, Workflows, 1
     expect(goal.monthPrefix).toBe('2026-11');
 
     const health = await runDatabaseHealthCheck(isolatedDb);
-    expect(health.schemaVersion).toBe(5);
+    expect(health.schemaVersion).toBe(6);
     expect(health.status).toBe('healthy');
 
     // v4 Backup roundtrip + v3 backward compatible restore
@@ -285,19 +285,23 @@ describe('Phase 14 — Offline/Sync Telemetry, Dexie v4, Analytics, Workflows, 1
       active: true,
       isDemo: false,
     });
-    const v5Payload = await createBackupPayload();
-    expect(v5Payload.schemaVersion).toBe(5);
-    expect(v5Payload.recordCounts.serviceCatalog).toBe(1);
+    const v6Payload = await createBackupPayload();
+    expect(v6Payload.schemaVersion).toBe(6);
+    expect(v6Payload.recordCounts.serviceCatalog).toBe(1);
 
-    // Strip v4/v5 arrays & downgrade schemaVersion to 3 to simulate restoring older v3 backup
+    // Strip v4/v5/v6 arrays & downgrade schemaVersion to 3 to simulate restoring older v3 backup
     const v3Json = JSON.stringify({
-      ...v5Payload,
+      ...v6Payload,
       schemaVersion: 3,
       data: {
-        ...v5Payload.data,
+        ...v6Payload.data,
         serviceCatalog: undefined,
         appointments: undefined,
         workspaceGoals: undefined,
+        voiceNotes: undefined,
+        auditEvents: undefined,
+        integrationConnections: undefined,
+        privacyConsents: undefined,
       },
     });
     const inspectedV3 = await inspectBackupText(v3Json);

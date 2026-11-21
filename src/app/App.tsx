@@ -88,11 +88,19 @@ const SettingsView = lazy(() =>
 const WorkflowsView = lazy(() =>
   import('../features/workflows/WorkflowsView').then((m) => ({ default: m.WorkflowsView }))
 );
+const IntegrationHubView = lazy(() =>
+  import('../features/integrations/IntegrationHubView').then((m) => ({
+    default: m.IntegrationHubView,
+  }))
+);
 const CloudSyncView = lazy(() =>
   import('../features/cloud/CloudSyncView').then((m) => ({ default: m.CloudSyncView }))
 );
 const SecurityCenterView = lazy(() =>
   import('../features/security/SecurityCenterView').then((m) => ({ default: m.SecurityCenterView }))
+);
+const AuditLogView = lazy(() =>
+  import('../features/security/AuditLogView').then((m) => ({ default: m.AuditLogView }))
 );
 const HelpPlansTourView = lazy(() =>
   import('../features/commercial/HelpPlansTourView').then((m) => ({ default: m.HelpPlansTourView }))
@@ -284,7 +292,7 @@ const WorkspaceRouter: React.FC = () => {
       case 'dashboard':
         return <DashboardView onNavigate={navigate} onEnterFocusMode={enterFocusMode} />;
       case 'activity':
-        return <ActivityView />;
+        return <ActivityView onNavigate={navigate} />;
       case 'notifications':
         return <NotificationsView onNavigate={navigate} />;
       case 'clients':
@@ -336,6 +344,8 @@ const WorkspaceRouter: React.FC = () => {
         return <TemplatesView />;
       case 'workflows':
         return <WorkflowsView onNavigate={navigate} />;
+      case 'integrations':
+        return <IntegrationHubView />;
       case 'cloud-sync':
         return <CloudSyncView />;
       case 'search':
@@ -349,7 +359,9 @@ const WorkspaceRouter: React.FC = () => {
       case 'knowledge':
         return <KnowledgeHubView />;
       case 'security-center':
-        return <SecurityCenterView />;
+        return <SecurityCenterView onNavigate={navigate} />;
+      case 'audit-logs':
+        return <AuditLogView />;
       case 'help-plans':
         return (
           <HelpPlansTourView

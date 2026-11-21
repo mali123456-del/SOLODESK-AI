@@ -205,7 +205,7 @@ export const ReportsView: React.FC = () => {
             <div>
               <p className="text-slate-500">Data Source</p>
               <p className="font-medium text-slate-800 dark:text-slate-100 mt-0.5">
-                IndexedDB (Dexie v5 Local Ledger)
+                IndexedDB (Dexie v6 Local Ledger) · Observed Data ({filteredFinance.length} records)
               </p>
             </div>
             <div>
@@ -256,7 +256,7 @@ export const ReportsView: React.FC = () => {
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <Card>
-          <p className="text-xs text-slate-500">Income</p>
+          <p className="text-xs text-slate-500">Income · Observed Data</p>
           <p className="text-xl font-bold font-mono tabular-nums mt-1 text-emerald-600">
             {formatMoney(totalIncome, currency)}
           </p>
@@ -457,8 +457,8 @@ export const ReportsView: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader
-            title="Cashflow Forecast (Informational Estimate)"
-            description="3-month forward projection combining historical averages, active retainers, and 70% weighted open receivables."
+            title="Cashflow Forecast"
+            description="Heuristic Projection · Non-GAAP Estimate combining historical averages, active retainers, and 70% weighted open receivables."
           />
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -477,7 +477,7 @@ export const ReportsView: React.FC = () => {
         <Card>
           <CardHeader
             title="What-If Financial Scenario Simulator"
-            description="Adjust rates, retainers, and overhead to inspect informational annual run-rate impact."
+            description="Heuristic Projection · Non-GAAP Estimate for adjusting rates, retainers, and overhead."
           />
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

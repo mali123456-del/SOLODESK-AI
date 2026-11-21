@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   Archive,
   Building2,
+  Calendar,
   Download,
   Edit3,
   Globe,
@@ -11,7 +12,9 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Trash2,
   Upload,
+  UserPlus,
   Users,
 } from 'lucide-react';
 import {
@@ -33,11 +36,37 @@ import {
 } from '../../components/ui';
 import { repositories } from '../../database/repositories/dexieRepositories';
 import { useWorkspace } from '../../app/providers/WorkspaceProvider';
-import { formatDisplayDate } from '../../domain/calculations/dates';
+import { addDaysToDateStr, formatDisplayDate, todayDateStr } from '../../domain/calculations/dates';
 import { formatMoney } from '../../domain/calculations/money';
-import type { Client, ClientStatus } from '../../domain/schemas/entities';
+import {
+  createId,
+  type Client,
+  type ClientContact,
+  type ClientStatus,
+  type LeadStage,
+} from '../../domain/schemas/entities';
 import { buildCsvContent, downloadTextFile } from '../../export/csvUtils';
 import { importClientsFromCsvText } from '../../services/importService';
+
+const LEAD_STAGE_LABELS: Record<LeadStage, string> = {
+  new: 'New Lead',
+  contacted: 'Contacted',
+  qualified: 'Qualified',
+  proposal_sent: 'Proposal Sent',
+  negotiation: 'Negotiation',
+  won: 'Won',
+  lost: 'Lost',
+};
+
+const LEAD_STAGE_OPTIONS: Array<{ value: LeadStage; label: string }> = [
+  { value: 'new', label: 'New Lead' },
+  { value: 'contacted', label: 'Contacted' },
+  { value: 'qualified', label: 'Qualified' },
+  { value: 'proposal_sent', label: 'Proposal Sent' },
+  { value: 'negotiation', label: 'Negotiation' },
+  { value: 'won', label: 'Won' },
+  { value: 'lost', label: 'Lost' },
+];
 
 interface ClientFormState {
   name: string;
@@ -47,6 +76,8 @@ interface ClientFormState {
   website: string;
   location: string;
   status: ClientStatus;
+  leadStage: LeadStage;
+  contacts: ClientContact[];
   category: string;
   tagsText: string;
   notes: string;
@@ -60,22 +91,43 @@ const emptyForm: ClientFormState = {
   website: '',
   location: '',
   status: 'active',
+  leadStage: 'qualified',
+  contacts: [],
   category: 'General',
   tagsText: '',
   notes: '',
 };
 
 export const ClientsView: React.FC = () => {
-  const { clients, projects, proposals, invoices, payments, activities, settings, refresh } =
-    useWorkspace();
+  const {
+    clients,
+    projects,
+    proposals,
+    contracts,
+    appointments,
+    invoices,
+    payments,
+    activities,
+    settings,
+    refresh,
+  } = useWorkspace();
   const { pushToast } = useToast();
 
   const [statusFilter, setStatusFilter] = useState<'all' | ClientStatus>('all');
+  const [leadStageFilter, setLeadStageFilter] = useState<'all' | LeadStage>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [form, setForm] = useState<ClientFormState>(emptyForm);
+  const [newContactName, setNewContactName] = useState('');
+  const [newContactRole, setNewContactRole] = useState('');
+  const [newContactEmail, setNewContactEmail] = useState('');
+  const [newContactPhone, setNewContactPhone] = useState('');
+  const [followUpOpen, setFollowUpOpen] = useState(false);
+  const [followUpTitle, setFollowUpTitle] = useState('');
+  const [followUpDate, setFollowUpDate] = useState(() => addDaysToDateStr(todayDateStr(), 2));
+  const [followUpTime, setFollowUpTime] = useState('10:00');
   const [formError, setFormError] = useState<string | null>(null);
   const [duplicateWarning, setDuplicateWarning] = useState<Client[]>([]);
   const [saving, setSaving] = useState(false);
@@ -97,6 +149,7 @@ export const ClientsView: React.FC = () => {
     const q = searchQuery.trim().toLowerCase();
     return clients.filter((c) => {
       if (statusFilter !== 'all' && c.status !== statusFilter) return false;
+      if (leadStageFilter !== 'all' && (c.leadStage ?? 'qualified') !== leadStageFilter) return false;
       if (!q) return true;
       return (
         c.name.toLowerCase().includes(q) ||
@@ -106,7 +159,7 @@ export const ClientsView: React.FC = () => {
         c.tags.some((t) => t.toLowerCase().includes(q))
       );
     });
-  }, [clients, statusFilter, searchQuery]);
+  }, [clients, statusFilter, leadStageFilter, searchQuery]);
 
   const selectedClient = useMemo(
     () => clients.find((c) => c.id === selectedClientId) ?? null,
@@ -121,6 +174,10 @@ export const ClientsView: React.FC = () => {
   const openCreate = () => {
     setEditingClient(null);
     setForm(emptyForm);
+    setNewContactName('');
+    setNewContactRole('');
+    setNewContactEmail('');
+    setNewContactPhone('');
     setFormError(null);
     setDuplicateWarning([]);
     setModalOpen(true);
@@ -136,13 +193,36 @@ export const ClientsView: React.FC = () => {
       website: client.website,
       location: client.location,
       status: client.status,
+      leadStage: client.leadStage ?? 'qualified',
+      contacts: (client.contacts ?? []).map((ct) => ({ ...ct })),
       category: client.category,
       tagsText: client.tags.join(', '),
       notes: client.notes,
     });
+    setNewContactName('');
+    setNewContactRole('');
+    setNewContactEmail('');
+    setNewContactPhone('');
     setFormError(null);
     setDuplicateWarning([]);
     setModalOpen(true);
+  };
+
+  const handleAddSecondaryContact = () => {
+    if (!newContactName.trim()) return;
+    const entry: ClientContact = {
+      id: createId('ct'),
+      name: newContactName.trim(),
+      role: newContactRole.trim(),
+      email: newContactEmail.trim(),
+      phone: newContactPhone.trim(),
+      isPrimary: form.contacts.length === 0,
+    };
+    setForm((f) => ({ ...f, contacts: [...f.contacts, entry] }));
+    setNewContactName('');
+    setNewContactRole('');
+    setNewContactEmail('');
+    setNewContactPhone('');
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -168,6 +248,8 @@ export const ClientsView: React.FC = () => {
           website: form.website.trim(),
           location: form.location.trim(),
           status: form.status,
+          leadStage: form.leadStage,
+          contacts: form.contacts,
           category: form.category.trim() || 'General',
           tags,
           notes: form.notes,
@@ -183,6 +265,8 @@ export const ClientsView: React.FC = () => {
           website: form.website.trim(),
           location: form.location.trim(),
           status: form.status,
+          leadStage: form.leadStage,
+          contacts: form.contacts,
           category: form.category.trim() || 'General',
           tags,
           notes: form.notes,
@@ -198,6 +282,41 @@ export const ClientsView: React.FC = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleQuickLeadStage = async (client: Client, nextStage: LeadStage) => {
+    await repositories.updateClient(client.id, { leadStage: nextStage });
+    await refresh();
+    pushToast({
+      tone: 'success',
+      title: 'Lead stage updated',
+      description: `${client.name} → ${LEAD_STAGE_LABELS[nextStage]}`,
+    });
+  };
+
+  const handleScheduleFollowUp = async (client: Client) => {
+    const title = followUpTitle.trim() || `Follow up with ${client.name}`;
+    await repositories.createAppointment({
+      title,
+      clientId: client.id,
+      projectId: '',
+      date: followUpDate || todayDateStr(),
+      startTime: followUpTime || '10:00',
+      durationMinutes: 30,
+      locationOrLink: client.email ? `Email / Call (${client.email})` : 'Phone / Video Call',
+      meetingNotes: `Scheduled from CRM client record (${LEAD_STAGE_LABELS[client.leadStage ?? 'qualified']}).`,
+      status: 'scheduled',
+      followUpRequired: true,
+      isDemo: false,
+    });
+    setFollowUpOpen(false);
+    setFollowUpTitle('');
+    await refresh();
+    pushToast({
+      tone: 'success',
+      title: 'Follow-up scheduled',
+      description: `${title} on ${followUpDate}`,
+    });
   };
 
   const handleArchiveToggle = async (client: Client) => {
@@ -282,14 +401,19 @@ export const ClientsView: React.FC = () => {
     },
     {
       key: 'status',
-      header: 'Status',
-      sortValue: (c) => c.status,
+      header: 'Status & Stage',
+      sortValue: (c) => `${c.status}:${c.leadStage ?? 'qualified'}`,
       render: (c) => (
-        <Badge
-          tone={c.status === 'active' ? 'success' : c.status === 'lead' ? 'info' : 'neutral'}
-        >
-          {c.status}
-        </Badge>
+        <div className="flex flex-col items-start gap-1">
+          <Badge
+            tone={c.status === 'active' ? 'success' : c.status === 'lead' ? 'info' : 'neutral'}
+          >
+            {c.status}
+          </Badge>
+          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+            {LEAD_STAGE_LABELS[c.leadStage ?? 'qualified']}
+          </span>
+        </div>
       ),
     },
     {
@@ -316,6 +440,12 @@ export const ClientsView: React.FC = () => {
     : [];
   const clientProposals = selectedClient
     ? proposals.filter((p) => p.clientId === selectedClient.id)
+    : [];
+  const clientContracts = selectedClient
+    ? contracts.filter((c) => c.clientId === selectedClient.id)
+    : [];
+  const clientAppointments = selectedClient
+    ? appointments.filter((a) => a.clientId === selectedClient.id)
     : [];
   const clientInvoices = selectedClient
     ? invoices.filter((i) => i.clientId === selectedClient.id)
@@ -354,7 +484,7 @@ export const ClientsView: React.FC = () => {
         }
       />
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <Tabs
           activeId={statusFilter}
           onChange={(id) => setStatusFilter(id as 'all' | ClientStatus)}
@@ -365,14 +495,27 @@ export const ClientsView: React.FC = () => {
             { id: 'archived', label: 'Archived', count: counts.archived },
           ]}
         />
-        <div className="w-full sm:w-72">
-          <Input
-            placeholder="Search name, company, email, tag..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            leftIcon={<Search className="w-4 h-4" />}
-            aria-label="Search clients"
-          />
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="w-full sm:w-44">
+            <Select
+              aria-label="Filter by lead stage"
+              value={leadStageFilter}
+              onChange={(e) => setLeadStageFilter(e.target.value as 'all' | LeadStage)}
+              options={[
+                { value: 'all', label: 'All Pipeline Stages' },
+                ...LEAD_STAGE_OPTIONS,
+              ]}
+            />
+          </div>
+          <div className="w-full sm:w-72">
+            <Input
+              placeholder="Search name, company, email, tag..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              leftIcon={<Search className="w-4 h-4" />}
+              aria-label="Search clients"
+            />
+          </div>
         </div>
       </div>
 
@@ -477,6 +620,68 @@ export const ClientsView: React.FC = () => {
               )}
             </div>
 
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex-1">
+                  <Select
+                    label="CRM Pipeline Stage"
+                    aria-label="CRM Pipeline Stage"
+                    value={selectedClient.leadStage ?? 'qualified'}
+                    onChange={(e) =>
+                      void handleQuickLeadStage(selectedClient, e.target.value as LeadStage)
+                    }
+                    options={LEAD_STAGE_OPTIONS}
+                  />
+                </div>
+                <div className="pt-5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setFollowUpTitle(`Follow up with ${selectedClient.name}`);
+                      setFollowUpOpen((prev) => !prev);
+                    }}
+                    icon={<Calendar className="w-3.5 h-3.5" />}
+                  >
+                    Follow-Up
+                  </Button>
+                </div>
+              </div>
+
+              {followUpOpen && (
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#101827] space-y-2 text-xs">
+                  <Input
+                    label="Follow-up Title"
+                    value={followUpTitle}
+                    onChange={(e) => setFollowUpTitle(e.target.value)}
+                    placeholder={`Follow up with ${selectedClient.name}`}
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      label="Date"
+                      type="date"
+                      value={followUpDate}
+                      onChange={(e) => setFollowUpDate(e.target.value)}
+                    />
+                    <Input
+                      label="Time"
+                      type="time"
+                      value={followUpTime}
+                      onChange={(e) => setFollowUpTime(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="ghost" onClick={() => setFollowUpOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button size="sm" onClick={() => void handleScheduleFollowUp(selectedClient)}>
+                      Schedule
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {selectedClient.notes && (
               <div className="border-t border-slate-100 dark:border-slate-800 pt-3">
                 <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Notes</p>
@@ -486,17 +691,42 @@ export const ClientsView: React.FC = () => {
               </div>
             )}
 
+            {(selectedClient.contacts ?? []).length > 0 && (
+              <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2">
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Additional Contacts ({(selectedClient.contacts ?? []).length})
+                </p>
+                <ul className="space-y-1.5">
+                  {(selectedClient.contacts ?? []).map((ct) => (
+                    <li
+                      key={ct.id}
+                      className="p-2 rounded-lg bg-slate-50 dark:bg-[#101827] text-xs flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-800 dark:text-slate-100 truncate">
+                          {ct.name} {ct.role ? `· ${ct.role}` : ''}
+                        </p>
+                        <p className="text-slate-500 dark:text-slate-400 truncate font-mono text-[11px]">
+                          {[ct.email, ct.phone].filter(Boolean).join(' · ') || 'No email/phone'}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-2.5 border-t border-slate-100 dark:border-slate-800 pt-3 text-xs">
               <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#101827]">
-                <p className="text-slate-500">Projects</p>
+                <p className="text-slate-500">Projects / Contracts</p>
                 <p className="text-base font-bold font-mono tabular-nums mt-0.5">
-                  {clientProjects.length}
+                  {clientProjects.length} / {clientContracts.length}
                 </p>
               </div>
               <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#101827]">
-                <p className="text-slate-500">Proposals</p>
+                <p className="text-slate-500">Proposals / Meetings</p>
                 <p className="text-base font-bold font-mono tabular-nums mt-0.5">
-                  {clientProposals.length}
+                  {clientProposals.length} / {clientAppointments.length}
                 </p>
               </div>
               <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#101827]">
@@ -609,6 +839,12 @@ export const ClientsView: React.FC = () => {
                 { value: 'archived', label: 'Archived' },
               ]}
             />
+            <Select
+              label="Lead Pipeline Stage"
+              value={form.leadStage}
+              onChange={(e) => setForm((f) => ({ ...f, leadStage: e.target.value as LeadStage }))}
+              options={LEAD_STAGE_OPTIONS}
+            />
             <Input
               label="Category"
               value={form.category}
@@ -622,6 +858,79 @@ export const ClientsView: React.FC = () => {
             value={form.tagsText}
             onChange={(e) => setForm((f) => ({ ...f, tagsText: e.target.value }))}
           />
+
+          <div className="space-y-2 border-t border-slate-200 dark:border-slate-800 pt-3">
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+              Additional Stakeholders / Contacts ({form.contacts.length})
+            </p>
+            {form.contacts.map((ct) => (
+              <div
+                key={ct.id}
+                className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 dark:bg-[#101827] text-xs"
+              >
+                <div className="min-w-0">
+                  <span className="font-medium">{ct.name}</span>
+                  {ct.role && <span className="text-slate-500"> · {ct.role}</span>}
+                  {(ct.email || ct.phone) && (
+                    <span className="text-slate-500 font-mono">
+                      {' '}
+                      · {[ct.email, ct.phone].filter(Boolean).join(' / ')}
+                    </span>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label={`Remove contact ${ct.name}`}
+                  onClick={() =>
+                    setForm((f) => ({
+                      ...f,
+                      contacts: f.contacts.filter((x) => x.id !== ct.id),
+                    }))
+                  }
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                </Button>
+              </div>
+            ))}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+              <Input
+                placeholder="Contact name"
+                value={newContactName}
+                onChange={(e) => setNewContactName(e.target.value)}
+                aria-label="Additional contact name"
+              />
+              <Input
+                placeholder="Role (e.g. Finance)"
+                value={newContactRole}
+                onChange={(e) => setNewContactRole(e.target.value)}
+                aria-label="Additional contact role"
+              />
+              <Input
+                placeholder="Email"
+                value={newContactEmail}
+                onChange={(e) => setNewContactEmail(e.target.value)}
+                aria-label="Additional contact email"
+              />
+              <div className="flex gap-1.5">
+                <Input
+                  placeholder="Phone"
+                  value={newContactPhone}
+                  onChange={(e) => setNewContactPhone(e.target.value)}
+                  aria-label="Additional contact phone"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!newContactName.trim()}
+                  onClick={handleAddSecondaryContact}
+                  icon={<UserPlus className="w-3.5 h-3.5" />}
+                >
+                  Add
+                </Button>
+              </div>
+            </div>
+          </div>
 
           <Textarea
             label="Internal Notes"

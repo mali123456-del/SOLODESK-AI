@@ -17,7 +17,9 @@ export type CopilotPresetTask =
   | 'proposal_draft'
   | 'client_email'
   | 'invoice_followup'
+  | 'invoice_explanation'
   | 'project_summary'
+  | 'document_summary'
   | 'rewrite_professional';
 
 export interface CopilotRunOptions {

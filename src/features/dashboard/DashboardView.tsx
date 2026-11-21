@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import {
   AlertCircle,
+  ArrowDown,
   ArrowRight,
+  ArrowUp,
   Calendar,
   CalendarClock,
   CheckSquare,
@@ -58,6 +60,15 @@ import { buildDailyDigest, computeProductivityStats } from '../../services/produ
 import type { AppRouteId } from '../../types/navigation';
 import { DailyTaskGoalCard } from './DailyTaskGoalCard';
 import { QuickNotesCard } from './QuickNotesCard';
+import { SetupChecklistCard } from './SetupChecklistCard';
+
+const DEFAULT_DASHBOARD_WIDGETS = [
+  { id: 'digest', label: 'Daily Digest Card', visible: true, order: 0 },
+  { id: 'daily-goal', label: 'Daily Task Completion Goal', visible: true, order: 1 },
+  { id: 'quick-notes', label: 'Quick Notes Scratchpad', visible: true, order: 2 },
+  { id: 'stats', label: 'Productivity Statistics', visible: true, order: 3 },
+  { id: 'pinned', label: 'Pinned & Recently Viewed', visible: true, order: 4 },
+];
 
 interface DashboardViewProps {
   onNavigate: (route: AppRouteId) => void;
@@ -69,6 +80,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onEnterFocusMode,
 }) => {
   const {
+    activeWorkspace,
     businessProfile,
     clients,
     projects,
@@ -307,27 +319,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     [tasks, timeEntries, today]
   );
 
+  const normalizedWidgets = useMemo(() => {
+    const existing = settings?.dashboardWidgets ?? [];
+    const byId = new Map(existing.map((w) => [w.id, w]));
+    return DEFAULT_DASHBOARD_WIDGETS.map((def) => {
+      const saved = byId.get(def.id);
+      return {
+        id: def.id,
+        label: def.label,
+        visible: saved ? saved.visible : def.visible,
+        order: saved ? saved.order : def.order,
+      };
+    }).sort((a, b) => a.order - b.order);
+  }, [settings?.dashboardWidgets]);
+
   const widgetVisible = (id: string) => {
-    const found = settings?.dashboardWidgets?.find((w) => w.id === id);
+    const found = normalizedWidgets.find((w) => w.id === id);
     return found ? found.visible : true;
   };
 
   const toggleWidget = async (id: string) => {
-    const defaults = [
-      { id: 'digest', visible: true, order: 0 },
-      { id: 'daily-goal', visible: true, order: 1 },
-      { id: 'quick-notes', visible: true, order: 2 },
-      { id: 'kpis', visible: true, order: 3 },
-      { id: 'stats', visible: true, order: 4 },
-      { id: 'pinned', visible: true, order: 5 },
-      { id: 'goals', visible: true, order: 6 },
-      { id: 'cashflow', visible: true, order: 7 },
-    ];
-    const current = settings?.dashboardWidgets?.length ? settings.dashboardWidgets : defaults;
-    const exists = current.some((w) => w.id === id);
-    const next = exists
-      ? current.map((w) => (w.id === id ? { ...w, visible: !w.visible } : w))
-      : [...current, { id, visible: false, order: current.length }];
+    const next = normalizedWidgets.map((w, idx) =>
+      w.id === id
+        ? { id: w.id, visible: !w.visible, order: idx }
+        : { id: w.id, visible: w.visible, order: idx }
+    );
+    await repositories.saveSettings({ dashboardWidgets: next });
+    await refresh();
+  };
+
+  const moveWidgetOrder = async (id: string, direction: -1 | 1) => {
+    const list = [...normalizedWidgets];
+    const index = list.findIndex((w) => w.id === id);
+    const targetIdx = index + direction;
+    if (index < 0 || targetIdx < 0 || targetIdx >= list.length) return;
+    const [moved] = list.splice(index, 1);
+    list.splice(targetIdx, 0, moved);
+    const next = list.map((w, idx) => ({ id: w.id, visible: w.visible, order: idx }));
     await repositories.saveSettings({ dashboardWidgets: next });
     await refresh();
   };
@@ -380,7 +408,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     <div className="space-y-6">
       <PageHeader
         title={`Welcome${businessProfile?.ownerName ? `, ${businessProfile.ownerName}` : ''}`}
-        description="Live workspace metrics calculated directly from your local IndexedDB records."
+        description={`Workspace: ${activeWorkspace?.name ?? 'Local Workspace'} · Metrics computed from local IndexedDB records.`}
         actions={
           <>
             <div className="w-40">
@@ -449,6 +477,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </Card>
       )}
+
+      <SetupChecklistCard onNavigate={onNavigate} />
 
       {/* Daily & Weekly Digest Component */}
       {widgetVisible('digest') && (
@@ -748,7 +778,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <Card>
           <CardHeader
             title={`Monthly Goals & Health (${currentMonthPrefix})`}
-            description="Informational progress calculated from this month's local transactions and time entries."
+            description="Observed Data from monthly finance/time entries vs. target benchmarks (Heuristic Status)."
             action={
               <Button size="sm" variant="outline" onClick={openGoalEditor} icon={<Target className="w-3.5 h-3.5" />}>
                 {existingMonthGoal ? 'Edit Goal' : 'Set Monthly Goal'}
@@ -1048,28 +1078,44 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         open={widgetsModalOpen}
         onClose={() => setWidgetsModalOpen(false)}
         title="Customize Dashboard Widgets"
-        description="Toggle which dashboard cards appear in your workspace overview."
+        description="Toggle visibility and adjust priority order for dashboard widgets."
         size="sm"
       >
-        <div className="space-y-2.5 text-sm">
-          {[
-            { id: 'digest', label: 'Daily Digest Card' },
-            { id: 'daily-goal', label: 'Daily Task Completion Goal' },
-            { id: 'quick-notes', label: 'Quick Notes Scratchpad' },
-            { id: 'stats', label: 'Productivity Statistics' },
-            { id: 'pinned', label: 'Pinned & Recently Viewed' },
-          ].map((item) => (
-            <label
+        <div className="space-y-2 text-sm">
+          {normalizedWidgets.map((item, idx) => (
+            <div
               key={item.id}
-              className="flex items-center justify-between p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 cursor-pointer"
+              className="flex items-center justify-between gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800"
             >
-              <span>{item.label}</span>
-              <input
-                type="checkbox"
-                checked={widgetVisible(item.id)}
-                onChange={() => void toggleWidget(item.id)}
-              />
-            </label>
+              <label className="flex items-center gap-2.5 cursor-pointer flex-1 min-w-0">
+                <input
+                  type="checkbox"
+                  checked={item.visible}
+                  onChange={() => void toggleWidget(item.id)}
+                />
+                <span className="truncate">{item.label}</span>
+              </label>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  disabled={idx === 0}
+                  onClick={() => void moveWidgetOrder(item.id, -1)}
+                  aria-label={`Move ${item.label} up`}
+                  className="p-1 rounded border border-slate-200 dark:border-slate-700 disabled:opacity-40 cursor-pointer"
+                >
+                  <ArrowUp className="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  disabled={idx === normalizedWidgets.length - 1}
+                  onClick={() => void moveWidgetOrder(item.id, 1)}
+                  aria-label={`Move ${item.label} down`}
+                  className="p-1 rounded border border-slate-200 dark:border-slate-700 disabled:opacity-40 cursor-pointer"
+                >
+                  <ArrowDown className="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
           ))}
         </div>
       </Dialog>

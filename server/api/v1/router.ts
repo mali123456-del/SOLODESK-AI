@@ -32,7 +32,21 @@ import {
   type AuthenticatedRequest,
 } from '../../middleware/auth';
 import { serverMetrics } from '../../monitoring/telemetry';
+import {
+  formatAuditLogsCsv,
+  queryAuditLogs,
+  writeAuditEvent,
+} from '../../monitoring/auditService';
 import { indexKnowledgeDocumentOnServer, searchServerRag } from '../../rag/ragService';
+import {
+  calculateDocumentTotals,
+  getCurrencyDecimals,
+} from '../../../src/domain/calculations/money';
+import {
+  VOICE_NOTE_ALLOWED_MIME_TYPES,
+  VOICE_NOTE_MAX_BYTES,
+} from '../../../src/domain/schemas/entities';
+import { validatePublicHttpUrl } from '../../../src/security/urlPolicy';
 import type { WorkspaceMemberRole } from '../../../src/services/cloudSyncService';
 
 const registerSchema = z.object({
@@ -267,6 +281,14 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
         '/api/v1/webhooks': { get: { summary: 'List webhooks' }, post: { summary: 'Register SSRF-checked webhook' } },
         '/api/v1/jobs/run-due': { post: { summary: 'Execute due background jobs idempotently' } },
         '/api/v1/billing/catalog': { get: { summary: 'Plan catalog & Pakistan/global payment provider status' } },
+        '/api/v1/billing/checkout-session': { post: { summary: 'Check payment checkout readiness or initiate session' } },
+        '/api/v1/billing/webhook/:provider': { post: { summary: 'Verify HMAC billing webhook and update subscription state idempotently' } },
+        '/api/v1/voice-notes/:workspaceId': { get: { summary: 'List workspace voice notes' } },
+        '/api/v1/voice-notes': { post: { summary: 'Store workspace voice note with MIME and 5MB cap' } },
+        '/api/v1/invoices/calculate': { post: { summary: 'Authoritative big.js invoice calculation verification' } },
+        '/api/v1/audit-logs/:workspaceId': { get: { summary: 'Query immutable workspace audit logs' } },
+        '/api/v1/audit-logs/:workspaceId/export': { get: { summary: 'Export audit logs as CSV or JSON' } },
+        '/api/v1/integrations/:workspaceId': { get: { summary: 'List workspace integration adapters' }, post: { summary: 'Save integration adapter metadata' } },
       },
     });
   });
@@ -1439,6 +1461,615 @@ export function createApiV1Router(db: DatabaseSync): express.Router {
       new Date().toISOString()
     );
     res.status(201).json({ ok: true, id });
+  });
+
+  // --- Voice Notes ---
+
+  router.get(
+    '/voice-notes/:workspaceId',
+    requireAuth,
+    requireWorkspaceRole(db, ALL_MEMBER_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
+      const parentType = typeof req.query.parentType === 'string' ? req.query.parentType : '';
+      const parentId = typeof req.query.parentId === 'string' ? req.query.parentId : '';
+
+      const where: string[] = ['workspace_id = ?'];
+      const params: Array<string | number> = [workspaceId];
+      if (parentType === 'project' || parentType === 'task') {
+        where.push('parent_type = ?');
+        params.push(parentType);
+      }
+      if (parentId) {
+        where.push('parent_id = ?');
+        params.push(parentId);
+      }
+
+      const notes = db
+        .prepare(
+          `SELECT id, workspace_id AS workspaceId, parent_type AS parentType, parent_id AS parentId,
+                  title, mime_type AS mimeType, duration_seconds AS durationSeconds,
+                  size_bytes AS sizeBytes, content_base64 AS contentBase64,
+                  created_by AS createdBy, created_at AS createdAt
+           FROM voice_notes
+           WHERE ${where.join(' AND ')}
+           ORDER BY created_at DESC`
+        )
+        .all(...params);
+      res.json({ ok: true, voiceNotes: notes });
+    }
+  );
+
+  router.post(
+    '/voice-notes',
+    requireAuth,
+    requireWorkspaceRole(db, WRITE_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const schema = z.object({
+        workspaceId: z.string().min(1),
+        parentType: z.enum(['project', 'task']),
+        parentId: z.string().trim().min(1).max(120),
+        title: z.string().trim().min(1).max(160).default('Voice Note'),
+        mimeType: z.string().trim().min(1).max(120),
+        durationSeconds: z.number().min(0).max(3600).default(0),
+        contentBase64: z.string().min(1).max(7_000_000),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        sendApiError(res, 400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Invalid voice note payload.', req);
+        return;
+      }
+
+      const baseMime = parsed.data.mimeType.split(';')[0]?.trim().toLowerCase() ?? '';
+      if (!VOICE_NOTE_ALLOWED_MIME_TYPES.includes(baseMime as (typeof VOICE_NOTE_ALLOWED_MIME_TYPES)[number])) {
+        sendApiError(res, 400, 'UNSUPPORTED_MEDIA_TYPE', `Unsupported audio MIME type: ${parsed.data.mimeType}`, req);
+        return;
+      }
+
+      const buf = Buffer.from(parsed.data.contentBase64, 'base64');
+      if (buf.byteLength === 0 || buf.byteLength > VOICE_NOTE_MAX_BYTES) {
+        sendApiError(res, 413, 'FILE_TOO_LARGE', `Voice note must be between 1 byte and ${VOICE_NOTE_MAX_BYTES} bytes.`, req);
+        return;
+      }
+
+      const workspaceId = req.authorizedWorkspaceId!;
+      const id = `vnt_${crypto.randomUUID()}`;
+      const now = new Date().toISOString();
+
+      db.prepare(
+        `INSERT INTO voice_notes (
+           id, workspace_id, parent_type, parent_id, title, mime_type,
+           duration_seconds, size_bytes, content_base64, created_by, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        id,
+        workspaceId,
+        parsed.data.parentType,
+        parsed.data.parentId,
+        parsed.data.title,
+        parsed.data.mimeType,
+        parsed.data.durationSeconds,
+        buf.byteLength,
+        parsed.data.contentBase64,
+        req.authUser!.id,
+        now
+      );
+
+      writeAuditEvent(db, {
+        workspaceId,
+        actorUserId: req.authUser!.id,
+        eventType: 'VOICE_NOTE_CREATED',
+        severity: 'info',
+        outcome: 'success',
+        resourceType: parsed.data.parentType,
+        resourceId: parsed.data.parentId,
+        detail: `Attached voice note "${parsed.data.title}" (${buf.byteLength} bytes).`,
+        metadata: { voiceNoteId: id, mimeType: parsed.data.mimeType, sizeBytes: buf.byteLength },
+      });
+
+      res.status(201).json({
+        ok: true,
+        voiceNote: {
+          id,
+          workspaceId,
+          parentType: parsed.data.parentType,
+          parentId: parsed.data.parentId,
+          title: parsed.data.title,
+          mimeType: parsed.data.mimeType,
+          durationSeconds: parsed.data.durationSeconds,
+          sizeBytes: buf.byteLength,
+          createdBy: req.authUser!.id,
+          createdAt: now,
+        },
+      });
+    }
+  );
+
+  router.delete(
+    '/voice-notes/:workspaceId/:voiceNoteId',
+    requireAuth,
+    requireWorkspaceRole(db, WRITE_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
+      const voiceNoteId = String(req.params.voiceNoteId);
+      const result = db
+        .prepare('DELETE FROM voice_notes WHERE id = ? AND workspace_id = ?')
+        .run(voiceNoteId, workspaceId);
+      if (Number(result.changes ?? 0) === 0) {
+        sendApiError(res, 404, 'NOT_FOUND', 'Voice note not found in this workspace.', req);
+        return;
+      }
+
+      writeAuditEvent(db, {
+        workspaceId,
+        actorUserId: req.authUser!.id,
+        eventType: 'VOICE_NOTE_DELETED',
+        severity: 'info',
+        outcome: 'success',
+        resourceType: 'voice_note',
+        resourceId: voiceNoteId,
+        detail: `Deleted voice note ${voiceNoteId}.`,
+      });
+
+      res.json({ ok: true, deleted: true });
+    }
+  );
+
+  // --- Authoritative Invoice Calculation Verification ---
+
+  router.post('/invoices/calculate', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const schema = z.object({
+      currency: z.string().trim().min(3).max(6).default('USD'),
+      lineItems: z
+        .array(
+          z.object({
+            id: z.string().default('item'),
+            description: z.string().default(''),
+            quantity: z.number().min(0).max(1_000_000),
+            unitPrice: z.number().min(0).max(1_000_000_000),
+          })
+        )
+        .max(200),
+      discountType: z.enum(['none', 'percentage', 'fixed']).default('none'),
+      discountValue: z.number().min(0).max(1_000_000_000).default(0),
+      taxRate: z.number().min(0).max(100).default(0),
+      taxInclusive: z.boolean().default(false),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      sendApiError(res, 400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Invalid invoice calculation payload.', req);
+      return;
+    }
+
+    const decimals = getCurrencyDecimals(parsed.data.currency.toUpperCase());
+    const totals = calculateDocumentTotals(
+      {
+        lineItems: parsed.data.lineItems,
+        discountType: parsed.data.discountType,
+        discountValue: parsed.data.discountValue,
+        taxRate: parsed.data.taxRate,
+        taxInclusive: parsed.data.taxInclusive,
+      },
+      decimals
+    );
+    res.json({
+      ok: true,
+      currency: parsed.data.currency.toUpperCase(),
+      decimals,
+      ...totals,
+    });
+  });
+
+  // --- Centralized Audit Logs (Append-Only Read & Export) ---
+
+  router.get(
+    '/audit-logs/:workspaceId',
+    requireAuth,
+    requireWorkspaceRole(db, ADMIN_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
+      const querySchema = z.object({
+        eventType: z.string().max(80).optional(),
+        outcome: z.string().max(40).optional(),
+        severity: z.string().max(40).optional(),
+        resourceType: z.string().max(80).optional(),
+        actorUserId: z.string().max(120).optional(),
+        from: z.string().max(64).optional(),
+        to: z.string().max(64).optional(),
+        search: z.string().max(160).optional(),
+        limit: z.coerce.number().int().min(1).max(200).optional(),
+        offset: z.coerce.number().int().min(0).max(100_000).optional(),
+      });
+      const parsed = querySchema.safeParse(req.query);
+      if (!parsed.success) {
+        sendApiError(res, 400, 'VALIDATION_ERROR', 'Invalid audit log filter parameters.', req);
+        return;
+      }
+
+      const result = queryAuditLogs(db, {
+        workspaceId,
+        ...parsed.data,
+      });
+      res.json({ ok: true, total: result.total, logs: result.rows });
+    }
+  );
+
+  router.get(
+    '/audit-logs/:workspaceId/export',
+    requireAuth,
+    requireWorkspaceRole(db, ADMIN_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
+      const format = req.query.format === 'json' ? 'json' : 'csv';
+      const result = queryAuditLogs(db, {
+        workspaceId,
+        eventType: typeof req.query.eventType === 'string' ? req.query.eventType : undefined,
+        outcome: typeof req.query.outcome === 'string' ? req.query.outcome : undefined,
+        severity: typeof req.query.severity === 'string' ? req.query.severity : undefined,
+        search: typeof req.query.search === 'string' ? req.query.search : undefined,
+        limit: 200,
+        offset: 0,
+      });
+
+      writeAuditEvent(db, {
+        workspaceId,
+        actorUserId: req.authUser!.id,
+        eventType: 'DATA_EXPORTED',
+        severity: 'info',
+        outcome: 'success',
+        resourceType: 'audit_logs',
+        resourceId: workspaceId,
+        detail: `Exported ${result.rows.length} workspace audit log record(s) as ${format.toUpperCase()}.`,
+        metadata: { format, exportedCount: result.rows.length },
+      });
+
+      if (format === 'json') {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="solodesk-audit-${workspaceId}.json"`
+        );
+        res.send(JSON.stringify({ exportedAt: new Date().toISOString(), workspaceId, logs: result.rows }, null, 2));
+        return;
+      }
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="solodesk-audit-${workspaceId}.csv"`
+      );
+      res.send(formatAuditLogsCsv(result.rows));
+    }
+  );
+
+  // --- Integration Connections ---
+
+  router.get(
+    '/integrations/:workspaceId',
+    requireAuth,
+    requireWorkspaceRole(db, ALL_MEMBER_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
+      const rows = db
+        .prepare(
+          `SELECT id, workspace_id AS workspaceId, provider, category, display_name AS displayName,
+                  status, account_label AS accountLabel, endpoint_url AS endpointUrl,
+                  scopes_json AS scopesJson, config_json AS configJson,
+                  last_checked_at AS lastCheckedAt, last_error AS lastError,
+                  created_at AS createdAt, updated_at AS updatedAt
+           FROM integration_connections
+           WHERE workspace_id = ?
+           ORDER BY updated_at DESC`
+        )
+        .all(workspaceId);
+      res.json({ ok: true, integrations: rows });
+    }
+  );
+
+  router.post(
+    '/integrations/:workspaceId',
+    requireAuth,
+    requireWorkspaceRole(db, ADMIN_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
+      const schema = z.object({
+        provider: z.string().trim().min(2).max(60),
+        category: z.enum(['calendar', 'email', 'webhook', 'ai', 'payment', 'automation']).default('automation'),
+        displayName: z.string().trim().min(1).max(120),
+        status: z.enum(['connected', 'disconnected', 'blocked_credentials', 'error']).default('disconnected'),
+        accountLabel: z.string().max(160).default(''),
+        endpointUrl: z.string().max(1000).default(''),
+        scopesJson: z.string().max(4000).default('[]'),
+        configJson: z.string().max(8000).default('{}'),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        sendApiError(res, 400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message ?? 'Invalid integration payload.', req);
+        return;
+      }
+
+      let normalizedEndpoint = '';
+      if (parsed.data.endpointUrl.trim()) {
+        const urlCheck = validatePublicHttpUrl(parsed.data.endpointUrl);
+        if (!urlCheck.valid || !urlCheck.normalizedUrl) {
+          sendApiError(res, 400, 'SSRF_POLICY_BLOCKED', urlCheck.reason ?? 'Blocked unsafe integration URL.', req);
+          return;
+        }
+        normalizedEndpoint = urlCheck.normalizedUrl;
+      }
+
+      const now = new Date().toISOString();
+      const id = `int_${crypto.randomUUID()}`;
+      db.prepare(
+        `INSERT INTO integration_connections (
+           id, workspace_id, provider, category, display_name, status,
+           account_label, endpoint_url, scopes_json, config_json,
+           last_checked_at, last_error, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)
+         ON CONFLICT(workspace_id, provider) DO UPDATE SET
+           category = excluded.category,
+           display_name = excluded.display_name,
+           status = excluded.status,
+           account_label = excluded.account_label,
+           endpoint_url = excluded.endpoint_url,
+           scopes_json = excluded.scopes_json,
+           config_json = excluded.config_json,
+           last_checked_at = excluded.last_checked_at,
+           last_error = '',
+           updated_at = excluded.updated_at`
+      ).run(
+        id,
+        workspaceId,
+        parsed.data.provider,
+        parsed.data.category,
+        parsed.data.displayName,
+        parsed.data.status,
+        parsed.data.accountLabel,
+        normalizedEndpoint,
+        parsed.data.scopesJson,
+        parsed.data.configJson,
+        now,
+        now,
+        now
+      );
+
+      const saved = db
+        .prepare(
+          `SELECT id, workspace_id AS workspaceId, provider, category, display_name AS displayName,
+                  status, account_label AS accountLabel, endpoint_url AS endpointUrl,
+                  last_checked_at AS lastCheckedAt, updated_at AS updatedAt
+           FROM integration_connections WHERE workspace_id = ? AND provider = ?`
+        )
+        .get(workspaceId, parsed.data.provider);
+
+      writeAuditEvent(db, {
+        workspaceId,
+        actorUserId: req.authUser!.id,
+        eventType: 'INTEGRATION_UPDATED',
+        severity: 'info',
+        outcome: 'success',
+        resourceType: 'integration',
+        resourceId: parsed.data.provider,
+        detail: `Updated integration ${parsed.data.displayName} (${parsed.data.status}).`,
+      });
+
+      res.status(201).json({ ok: true, integration: saved });
+    }
+  );
+
+  router.post(
+    '/integrations/:workspaceId/:integrationId/retry',
+    requireAuth,
+    requireWorkspaceRole(db, ADMIN_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
+      const integrationId = String(req.params.integrationId);
+      const existing = db
+        .prepare('SELECT id, provider, endpoint_url AS endpointUrl FROM integration_connections WHERE id = ? AND workspace_id = ?')
+        .get(integrationId, workspaceId) as { id: string; provider: string; endpointUrl: string } | undefined;
+      if (!existing) {
+        sendApiError(res, 404, 'NOT_FOUND', 'Integration not found in this workspace.', req);
+        return;
+      }
+      const nextStatus = existing.endpointUrl ? 'connected' : 'blocked_credentials';
+      const now = new Date().toISOString();
+      db.prepare(
+        'UPDATE integration_connections SET status = ?, last_checked_at = ?, last_error = ?, updated_at = ? WHERE id = ? AND workspace_id = ?'
+      ).run(nextStatus, now, '', now, integrationId, workspaceId);
+
+      res.json({ ok: true, status: nextStatus, checkedAt: now });
+    }
+  );
+
+  router.post(
+    '/integrations/:workspaceId/:integrationId/disconnect',
+    requireAuth,
+    requireWorkspaceRole(db, ADMIN_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const workspaceId = req.authorizedWorkspaceId!;
+      const integrationId = String(req.params.integrationId);
+      const now = new Date().toISOString();
+      const result = db
+        .prepare(
+          `UPDATE integration_connections
+           SET status = 'disconnected', endpoint_url = '', account_label = '', updated_at = ?
+           WHERE id = ? AND workspace_id = ?`
+        )
+        .run(now, integrationId, workspaceId);
+      if (Number(result.changes ?? 0) === 0) {
+        sendApiError(res, 404, 'NOT_FOUND', 'Integration not found in this workspace.', req);
+        return;
+      }
+      res.json({ ok: true, status: 'disconnected' });
+    }
+  );
+
+  // --- Billing Checkout Readiness & Signed Payment Webhooks ---
+
+  router.post(
+    '/billing/checkout-session',
+    requireAuth,
+    requireWorkspaceRole(db, FINANCE_ROLES),
+    (req: AuthenticatedRequest, res: Response) => {
+      const schema = z.object({
+        workspaceId: z.string().min(1),
+        targetTier: z.enum(['free', 'pro', 'ultimate', 'business', 'enterprise']),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        sendApiError(res, 400, 'VALIDATION_ERROR', 'Valid targetTier is required.', req);
+        return;
+      }
+
+      const liveProviderConfigured = Boolean(
+        process.env.STRIPE_SECRET_KEY?.trim() ||
+          process.env.SAFEPAY_SECRET_KEY?.trim() ||
+          process.env.PAYFAST_MERCHANT_KEY?.trim()
+      );
+
+      if (parsed.data.targetTier === 'free') {
+        res.json({
+          ok: true,
+          checkoutStatus: 'local_free',
+          targetTier: 'free',
+          message: 'Free Offline Solo requires no external checkout session.',
+        });
+        return;
+      }
+
+      if (!liveProviderConfigured) {
+        sendApiError(
+          res,
+          501,
+          'BLOCKED_EXTERNAL_PROVIDER_REQUIRED',
+          'Live payment checkout is disabled until Stripe/Safepay/PayFast merchant credentials are configured in server environment variables.',
+          req
+        );
+        return;
+      }
+
+      res.json({
+        ok: true,
+        checkoutStatus: 'provider_ready',
+        targetTier: parsed.data.targetTier,
+      });
+    }
+  );
+
+  router.post('/billing/webhook/:provider', (req: Request, res: Response) => {
+    const webhookSecret = process.env.BILLING_WEBHOOK_SECRET?.trim();
+    if (!webhookSecret) {
+      sendApiError(
+        res,
+        501,
+        'BILLING_WEBHOOK_NOT_CONFIGURED',
+        'BILLING_WEBHOOK_SECRET is not configured on this server.',
+        req
+      );
+      return;
+    }
+
+    const signatureHeader = String(req.headers['x-billing-signature'] ?? '').trim();
+    const rawBody = JSON.stringify(req.body ?? {});
+    const expectedDigest = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(rawBody)
+      .digest('hex');
+    const providedHex = signatureHeader.replace(/^sha256=/i, '').toLowerCase();
+
+    const validSignature =
+      providedHex.length === expectedDigest.length &&
+      /^[0-9a-f]+$/.test(providedHex) &&
+      crypto.timingSafeEqual(Buffer.from(providedHex, 'hex'), Buffer.from(expectedDigest, 'hex'));
+
+    if (!validSignature) {
+      sendApiError(res, 401, 'INVALID_WEBHOOK_SIGNATURE', 'Invalid billing webhook signature.', req);
+      return;
+    }
+
+    const schema = z.object({
+      eventId: z.string().min(1).max(160),
+      workspaceId: z.string().min(1).max(120),
+      planTier: z.enum(['free', 'pro', 'ultimate', 'business', 'enterprise']).default('pro'),
+      billingStatus: z.string().min(1).max(60).default('active'),
+      amountCents: z.number().int().min(0).default(0),
+      currency: z.string().min(3).max(8).default('USD'),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      sendApiError(res, 400, 'VALIDATION_ERROR', 'Malformed billing webhook payload.', req);
+      return;
+    }
+
+    const provider = String(req.params.provider).slice(0, 60);
+    const existing = db
+      .prepare('SELECT id FROM payment_webhook_events WHERE provider_event_id = ?')
+      .get(parsed.data.eventId);
+    if (existing) {
+      res.json({ ok: true, idempotentReplay: true, eventId: parsed.data.eventId });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const eventRowId = `pwe_${crypto.randomUUID()}`;
+    db.exec('BEGIN IMMEDIATE;');
+    try {
+      db.prepare(
+        `INSERT INTO payment_webhook_events (
+           id, workspace_id, provider, provider_event_id, amount_cents, currency, verified, payload_json, received_at
+         ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
+      ).run(
+        eventRowId,
+        parsed.data.workspaceId,
+        provider,
+        parsed.data.eventId,
+        parsed.data.amountCents,
+        parsed.data.currency,
+        rawBody,
+        now
+      );
+
+      db.prepare('UPDATE workspaces SET plan_tier = ?, updated_at = ? WHERE id = ?').run(
+        parsed.data.planTier,
+        now,
+        parsed.data.workspaceId
+      );
+
+      db.prepare(
+        `UPDATE subscriptions
+         SET plan_tier = ?, billing_provider = ?, billing_status = ?, updated_at = ?
+         WHERE workspace_id = ?`
+      ).run(
+        parsed.data.planTier,
+        provider,
+        parsed.data.billingStatus,
+        now,
+        parsed.data.workspaceId
+      );
+
+      writeAuditEvent(db, {
+        workspaceId: parsed.data.workspaceId,
+        actorUserId: 'billing-webhook',
+        eventType: 'BILLING_EVENT_PROCESSED',
+        severity: 'info',
+        outcome: 'success',
+        resourceType: 'subscription',
+        resourceId: parsed.data.workspaceId,
+        detail: `Processed ${provider} billing event ${parsed.data.eventId} -> ${parsed.data.planTier} (${parsed.data.billingStatus}).`,
+        metadata: { provider, eventId: parsed.data.eventId, planTier: parsed.data.planTier },
+      });
+
+      db.exec('COMMIT;');
+    } catch (err) {
+      try {
+        db.exec('ROLLBACK;');
+      } catch {
+        // Ignore rollback failure if already aborted
+      }
+      throw err;
+    }
+
+    res.json({ ok: true, processed: true, eventId: parsed.data.eventId, planTier: parsed.data.planTier });
   });
 
   router.use((_req: Request, res: Response) => {

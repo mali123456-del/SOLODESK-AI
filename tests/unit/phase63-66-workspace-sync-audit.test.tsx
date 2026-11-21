@@ -190,7 +190,8 @@ describe('Phases 63–66 Audit: Workspace Isolation, Task Goal Accuracy, Quick N
     });
 
     // Delete requires explicit confirmation; cancel preserves workspace & data
-    fireEvent.click(screen.getByRole('button', { name: 'Delete Studio North' }));
+    const deleteNorthBtn = await screen.findByRole('button', { name: 'Delete Studio North' });
+    fireEvent.click(deleteNorthBtn);
     expect(await screen.findByText(/Delete workspace "Studio North"\?/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.getByTestId('harness-ws-name')).toHaveTextContent('Studio North');
@@ -227,8 +228,11 @@ describe('Phases 63–66 Audit: Workspace Isolation, Task Goal Accuracy, Quick N
       status: 'done',
       priority: 'medium',
       dueDate: '2026-11-10',
+      assignee: '',
       tags: [],
       subtasks: [],
+      comments: [],
+      attachmentVaultIds: [],
       dependsOnIds: [],
       estimatedHours: 2,
       recurrenceRule: 'none',

@@ -7,6 +7,8 @@ import {
   Columns3,
   Focus,
   List,
+  MessageSquare,
+  Paperclip,
   Plus,
   Search,
   Trash2,
@@ -35,6 +37,7 @@ import {
   type Task,
   type TaskStatus,
 } from '../../domain/schemas/entities';
+import { VoiceNotesPanel } from '../../components/common/VoiceNotesPanel';
 import {
   computeAutoPriorityScore,
   computeCriticalPath,
@@ -53,7 +56,7 @@ const KANBAN_COLUMNS: Array<{ status: TaskStatus; label: string }> = [
 ];
 
 export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
-  const { tasks, projects, clients, settings, refresh } = useWorkspace();
+  const { tasks, projects, clients, vaultFiles, settings, refresh } = useWorkspace();
   const { pushToast } = useToast();
 
   const [viewMode, setViewMode] = useState<'list' | 'board'>('list');
@@ -70,6 +73,7 @@ export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
   const [priority, setPriority] = useState<Priority>('medium');
   const [status, setStatus] = useState<TaskStatus>('todo');
   const [dueDate, setDueDate] = useState('');
+  const [assignee, setAssignee] = useState('');
   const [estimatedHours, setEstimatedHours] = useState('2');
   const [recurrenceRule, setRecurrenceRule] = useState<Task['recurrenceRule']>('none');
   const [dependsOnIds, setDependsOnIds] = useState<string[]>([]);
@@ -77,7 +81,14 @@ export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
   const [tagsText, setTagsText] = useState('');
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [newSubtask, setNewSubtask] = useState('');
+  const [newCommentBody, setNewCommentBody] = useState('');
+  const [attachVaultId, setAttachVaultId] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const liveEditing = useMemo(
+    () => (editing ? tasks.find((t) => t.id === editing.id) ?? editing : null),
+    [tasks, editing]
+  );
 
   const dateFormat = settings?.dateFormat ?? 'DD MMM YYYY';
   const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
@@ -111,6 +122,7 @@ export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
     setPriority('medium');
     setStatus('todo');
     setDueDate('');
+    setAssignee('');
     setEstimatedHours('2');
     setRecurrenceRule('none');
     setDependsOnIds([]);
@@ -118,6 +130,8 @@ export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
     setTagsText('');
     setSubtasks([]);
     setNewSubtask('');
+    setNewCommentBody('');
+    setAttachVaultId('');
     setModalOpen(true);
   };
 
@@ -129,6 +143,7 @@ export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
     setPriority(t.priority);
     setStatus(t.status);
     setDueDate(t.dueDate);
+    setAssignee(t.assignee ?? '');
     setEstimatedHours(String(t.estimatedHours ?? 2));
     setRecurrenceRule(t.recurrenceRule ?? 'none');
     setDependsOnIds(t.dependsOnIds ?? []);
@@ -136,6 +151,8 @@ export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
     setTagsText(t.tags.join(', '));
     setSubtasks(t.subtasks);
     setNewSubtask('');
+    setNewCommentBody('');
+    setAttachVaultId('');
     setModalOpen(true);
   };
 
@@ -207,6 +224,7 @@ export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
           priority,
           status,
           dueDate,
+          assignee: assignee.trim(),
           tags,
           subtasks,
           dependsOnIds,
@@ -224,6 +242,7 @@ export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
           priority,
           status,
           dueDate,
+          assignee: assignee.trim(),
           tags,
           subtasks,
           dependsOnIds,
@@ -239,6 +258,37 @@ export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleAddTaskComment = async (task: Task) => {
+    if (!newCommentBody.trim()) return;
+    const next = [
+      ...(task.comments ?? []),
+      {
+        id: createId('cmt'),
+        author: 'Workspace Owner',
+        body: newCommentBody.trim(),
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    await repositories.updateTask(task.id, { comments: next });
+    setNewCommentBody('');
+    await refresh();
+  };
+
+  const handleAttachTaskFile = async (task: Task, fileId: string) => {
+    if (!fileId) return;
+    const set = new Set(task.attachmentVaultIds ?? []);
+    set.add(fileId);
+    await repositories.updateTask(task.id, { attachmentVaultIds: Array.from(set) });
+    setAttachVaultId('');
+    await refresh();
+  };
+
+  const handleDetachTaskFile = async (task: Task, fileId: string) => {
+    const next = (task.attachmentVaultIds ?? []).filter((id) => id !== fileId);
+    await repositories.updateTask(task.id, { attachmentVaultIds: next });
+    await refresh();
   };
 
   const quickToggleDone = async (task: Task) => {
@@ -401,6 +451,7 @@ export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
                     </button>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                       {proj ? `${proj.name}${cli ? ` · ${cli.name}` : ''}` : 'Unassigned project'}
+                      {task.assignee && ` · @${task.assignee}`}
                       {task.subtasks.length > 0 &&
                         ` · ${task.subtasks.filter((s) => s.done).length}/${task.subtasks.length} subtasks`}
                       {task.tags.length > 0 && ` · ${task.tags.join(', ')}`}
@@ -572,12 +623,20 @@ export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
               ]}
             />
           </div>
-          <Input
-            label="Tags"
-            placeholder="Comma-separated"
-            value={tagsText}
-            onChange={(e) => setTagsText(e.target.value)}
-          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Assignee"
+              placeholder="e.g. Workspace Owner or collaborator"
+              value={assignee}
+              onChange={(e) => setAssignee(e.target.value)}
+            />
+            <Input
+              label="Tags"
+              placeholder="Comma-separated"
+              value={tagsText}
+              onChange={(e) => setTagsText(e.target.value)}
+            />
+          </div>
           <Textarea
             label="Description"
             rows={2}
@@ -667,6 +726,106 @@ export const TasksView: React.FC<TasksViewProps> = ({ onFocusTask }) => {
             </Button>
           </div>
         </form>
+
+        {liveEditing && (
+          <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800 space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <MessageSquare className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Comments ({(liveEditing.comments ?? []).length})
+                </p>
+              </div>
+              {(liveEditing.comments ?? []).map((cmt) => (
+                <div
+                  key={cmt.id}
+                  className="p-2 rounded-lg bg-slate-50 dark:bg-[#101827] text-xs space-y-0.5"
+                >
+                  <div className="flex justify-between text-[11px] text-slate-500">
+                    <span className="font-medium text-slate-700 dark:text-slate-300">{cmt.author}</span>
+                    <span className="font-mono tabular-nums">
+                      {formatDisplayDate(cmt.createdAt, dateFormat)}
+                    </span>
+                  </div>
+                  <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{cmt.body}</p>
+                </div>
+              ))}
+              <div className="flex gap-1.5">
+                <Input
+                  placeholder="Add task comment..."
+                  value={newCommentBody}
+                  onChange={(e) => setNewCommentBody(e.target.value)}
+                  aria-label="Task comment"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!newCommentBody.trim()}
+                  onClick={() => void handleAddTaskComment(liveEditing)}
+                >
+                  Post
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Paperclip className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Vault Attachments ({(liveEditing.attachmentVaultIds ?? []).length})
+                </p>
+              </div>
+              {(liveEditing.attachmentVaultIds ?? []).map((fileId) => {
+                const file = vaultFiles.find((f) => f.id === fileId);
+                return (
+                  <div
+                    key={fileId}
+                    className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-[#101827] text-xs"
+                  >
+                    <span className="truncate font-mono">{file ? file.name : fileId}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={`Detach file ${file?.name ?? fileId}`}
+                      onClick={() => void handleDetachTaskFile(liveEditing, fileId)}
+                    >
+                      <Trash2 className="w-3 h-3 text-red-600" />
+                    </Button>
+                  </div>
+                );
+              })}
+              {vaultFiles.length > 0 && (
+                <div className="flex gap-1.5">
+                  <Select
+                    aria-label="Attach vault file to task"
+                    value={attachVaultId}
+                    onChange={(e) => setAttachVaultId(e.target.value)}
+                    options={[
+                      { value: '', label: 'Select vault file...' },
+                      ...vaultFiles
+                        .filter((f) => !(liveEditing.attachmentVaultIds ?? []).includes(f.id))
+                        .map((f) => ({ value: f.id, label: f.name })),
+                    ]}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!attachVaultId}
+                    onClick={() => void handleAttachTaskFile(liveEditing, attachVaultId)}
+                  >
+                    Attach
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <VoiceNotesPanel
+              parentType="task"
+              parentId={liveEditing.id}
+              parentLabel={liveEditing.title}
+            />
+          </div>
+        )}
       </Dialog>
 
       <ConfirmDialog

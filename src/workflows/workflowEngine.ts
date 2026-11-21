@@ -473,3 +473,119 @@ export async function registerValidatedWebhook(
   });
 }
 
+export interface CustomWorkflowGuardResult {
+  executedWorkflowIds: string[];
+  skippedForCycle: string[];
+  blockedByDepthLimit: boolean;
+  blockedByRateLimit: boolean;
+}
+
+const workflowWindowHistory = new Map<string, number[]>();
+
+export async function evaluateCustomWorkflows(input: {
+  triggerType:
+    | 'invoice_created'
+    | 'invoice_overdue'
+    | 'payment_received'
+    | 'task_completed'
+    | 'project_created'
+    | 'appointment_approaching'
+    | 'client_onboarded'
+    | 'approval_requested';
+  entityId: string;
+  payload: Record<string, unknown>;
+  depth?: number;
+  maxDepth?: number;
+  visitedKeys?: Set<string>;
+  workspaceKey?: string;
+  maxPerMinute?: number;
+  repo?: DexieSolodeskRepositories;
+}): Promise<CustomWorkflowGuardResult> {
+  const repo = input.repo ?? defaultRepos;
+  const depth = input.depth ?? 0;
+  const maxDepth = input.maxDepth ?? 3;
+  const visitedKeys = input.visitedKeys ?? new Set<string>();
+  const wsKey = input.workspaceKey ?? 'active-workspace';
+  const maxPerMinute = input.maxPerMinute ?? 30;
+
+  if (depth >= maxDepth) {
+    return {
+      executedWorkflowIds: [],
+      skippedForCycle: [],
+      blockedByDepthLimit: true,
+      blockedByRateLimit: false,
+    };
+  }
+
+  const nowMs = Date.now();
+  const recent = (workflowWindowHistory.get(wsKey) ?? []).filter((ts) => nowMs - ts < 60_000);
+  if (recent.length >= maxPerMinute) {
+    workflowWindowHistory.set(wsKey, recent);
+    return {
+      executedWorkflowIds: [],
+      skippedForCycle: [],
+      blockedByDepthLimit: false,
+      blockedByRateLimit: true,
+    };
+  }
+
+  const rules = await repo.listCustomWorkflows();
+  const matching = rules.filter((r) => r.enabled && r.triggerType === input.triggerType);
+  const executedWorkflowIds: string[] = [];
+  const skippedForCycle: string[] = [];
+
+  for (const wf of matching) {
+    const cycleKey = `${wf.id}:${input.entityId}`;
+    if (visitedKeys.has(cycleKey)) {
+      skippedForCycle.push(wf.id);
+      continue;
+    }
+
+    const rawVal = input.payload[wf.conditionField];
+    const condStr = wf.conditionValue.trim();
+    let passed = true;
+    if (condStr) {
+      if (wf.conditionOperator === 'equals') passed = String(rawVal ?? '') === condStr;
+      else if (wf.conditionOperator === 'not_equals') passed = String(rawVal ?? '') !== condStr;
+      else if (wf.conditionOperator === 'greater_than') passed = Number(rawVal ?? 0) > Number(condStr);
+      else if (wf.conditionOperator === 'contains') {
+        passed = String(rawVal ?? '').toLowerCase().includes(condStr.toLowerCase());
+      }
+    }
+    if (!passed) continue;
+
+    visitedKeys.add(cycleKey);
+    recent.push(Date.now());
+    workflowWindowHistory.set(wsKey, recent);
+
+    const actionLabel = wf.actionConfig.label || wf.name;
+    if (!wf.requireApproval) {
+      if (wf.actionType === 'push_notification') {
+        await repo.pushNotification({
+          title: `Workflow: ${wf.name}`,
+          message: actionLabel,
+          severity: 'info',
+          read: false,
+          route: 'workflows',
+        });
+      } else {
+        await repo.logActivity({
+          entityType: 'workflow',
+          entityId: wf.id,
+          action: 'executed_guarded',
+          summary: `${wf.name}: ${actionLabel} (depth ${depth + 1}/${maxDepth})`,
+        });
+      }
+    }
+    executedWorkflowIds.push(wf.id);
+  }
+
+  return {
+    executedWorkflowIds,
+    skippedForCycle,
+    blockedByDepthLimit: false,
+    blockedByRateLimit: false,
+  };
+}
+
+

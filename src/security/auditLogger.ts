@@ -5,7 +5,7 @@ import {
   encryptBackupJson,
   inspectBackupText,
 } from '../services/backupService';
-import type { SecurityAuditLog } from '../domain/schemas/entities';
+import type { AuditEvent, AuditEventType, SecurityAuditLog } from '../domain/schemas/entities';
 
 export async function recordSecurityAudit(input: {
   eventType: string;
@@ -18,6 +18,31 @@ export async function recordSecurityAudit(input: {
     severity: input.severity ?? 'info',
     actor: input.actor ?? 'local-owner',
     detail: input.detail,
+  });
+}
+
+export async function recordStructuredAudit(input: {
+  eventType: AuditEventType;
+  action: string;
+  resourceType: string;
+  resourceId?: string;
+  outcome?: 'success' | 'failure';
+  severity?: 'info' | 'warning' | 'critical';
+  detail: string;
+  metadata?: Record<string, unknown>;
+}): Promise<AuditEvent> {
+  return repositories.recordAuditEvent({
+    eventType: input.eventType,
+    actorId: 'local-owner',
+    actorEmail: 'owner@local.workspace',
+    action: input.action,
+    resourceType: input.resourceType,
+    resourceId: input.resourceId ?? '',
+    outcome: input.outcome ?? 'success',
+    correlationId: `aud_${Date.now().toString(36)}`,
+    severity: input.severity ?? 'info',
+    detail: input.detail,
+    metadataJson: input.metadata ? JSON.stringify(input.metadata) : '{}',
   });
 }
 
@@ -51,6 +76,16 @@ export async function runBackupRecoverySelfTest(): Promise<BackupVerificationRep
     detail: ok
       ? `Verified backup export & AES-GCM roundtrip (${totalCount} records, schema v${payload.schemaVersion}).`
       : 'Backup verification roundtrip reported a mismatch.',
+  });
+  await recordStructuredAudit({
+    eventType: 'BACKUP_CREATED',
+    action: 'backup.self_test',
+    resourceType: 'backup',
+    outcome: ok ? 'success' : 'failure',
+    severity: ok ? 'info' : 'warning',
+    detail: ok
+      ? `Verified encrypted backup roundtrip (${totalCount} records, v${payload.schemaVersion}).`
+      : 'Encrypted backup roundtrip mismatch.',
   });
 
   return {

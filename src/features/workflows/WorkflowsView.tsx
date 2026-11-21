@@ -838,7 +838,7 @@ export const WorkflowsView: React.FC<WorkflowsViewProps> = ({ onNavigate }) => {
             <Card>
               <CardHeader
                 title={`Saved Custom Workflows (${customWorkflows.length})`}
-                description="Execute rules on demand or toggle active state."
+                description="Execute rules on demand or toggle active state. Protected by recursion guard (max depth 3, cycle dedup, 30/min rate cap)."
               />
               {customWorkflows.length === 0 ? (
                 <EmptyState

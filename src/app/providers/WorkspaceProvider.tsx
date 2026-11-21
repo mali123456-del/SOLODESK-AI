@@ -41,16 +41,19 @@ import type {
   ActivityEvent,
   Appointment,
   AppSettings,
+  AuditEvent,
   BusinessProfile,
   Client,
   ClientPortalLink,
   Contract,
   CustomWorkflow,
   FinanceEntry,
+  IntegrationConnection,
   Invoice,
   KnowledgeDocument,
   NotificationItem,
   Payment,
+  PrivacyConsent,
   Project,
   Proposal,
   Quotation,
@@ -64,6 +67,7 @@ import type {
   Task,
   TimeEntry,
   VaultFile,
+  VoiceNote,
   WebhookConfig,
   WorkflowRun,
   WorkspaceGoal,
@@ -128,6 +132,10 @@ export interface WorkspaceState {
   syncQueue: SyncQueueItem[];
   securityAuditLogs: SecurityAuditLog[];
   savedViews: SavedView[];
+  voiceNotes: VoiceNote[];
+  auditEvents: AuditEvent[];
+  integrationConnections: IntegrationConnection[];
+  privacyConsents: PrivacyConsent[];
   storageHealth: StorageHealth;
 }
 
@@ -215,6 +223,10 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   syncQueue: [],
   securityAuditLogs: [],
   savedViews: [],
+  voiceNotes: [],
+  auditEvents: [],
+  integrationConnections: [],
+  privacyConsents: [],
   storageHealth: initialStorage,
   refresh: async () => {},
   retrySync: async () => {},
@@ -330,6 +342,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     syncQueue: [],
     securityAuditLogs: [],
     savedViews: [],
+    voiceNotes: [],
+    auditEvents: [],
+    integrationConnections: [],
+    privacyConsents: [],
     storageHealth: initialStorage,
   });
 
@@ -445,6 +461,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             syncQueue,
             securityAuditLogs,
             savedViews,
+            voiceNotes,
+            auditEvents,
+            integrationConnections,
+            privacyConsents,
             storageHealth,
           ] = await Promise.all([
             scopedRepos.getBusinessProfile(),
@@ -475,6 +495,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             scopedRepos.listSyncQueue(),
             scopedRepos.listSecurityAuditLogs(200),
             scopedRepos.listSavedViews(),
+            scopedRepos.listVoiceNotes(),
+            scopedRepos.listAuditEvents(500),
+            scopedRepos.listIntegrationConnections(),
+            scopedRepos.listPrivacyConsents(),
             getStorageHealth(),
           ]);
 
@@ -520,6 +544,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             syncQueue,
             securityAuditLogs,
             savedViews,
+            voiceNotes,
+            auditEvents,
+            integrationConnections,
+            privacyConsents,
             storageHealth,
           });
         });
@@ -628,6 +656,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     async (name: string, switchToNew = true): Promise<WorkspaceMetadata> => {
       const created = await createWorkspaceRecord({ name });
       const createdDb = getDatabaseForWorkspace(created.id);
+      await repositories.withDatabase(createdDb).recordAuditEvent({
+        workspaceId: created.id,
+        eventType: 'WORKSPACE_CREATED',
+        action: 'workspace.created',
+        resourceType: 'workspace',
+        resourceId: created.id,
+        detail: `Created isolated workspace "${created.name}"`,
+      });
       if (switchToNew) {
         refreshEpochRef.current += 1;
         const switched = await switchActiveWorkspace(created.id);
@@ -659,11 +695,23 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const renameWorkspace = useCallback(
     async (workspaceId: string, name: string): Promise<WorkspaceMetadata> => {
       const updated = await renameWorkspaceRecord(workspaceId, name);
+      const targetDb = getDatabaseForWorkspace(updated.id);
+      await repositories.withDatabase(targetDb).recordAuditEvent({
+        workspaceId: updated.id,
+        eventType: 'WORKSPACE_RENAMED',
+        action: 'workspace.renamed',
+        resourceType: 'workspace',
+        resourceId: updated.id,
+        detail: `Renamed workspace to "${updated.name}"`,
+      });
       const wsList = await listWorkspaces();
       setWorkspaces(wsList);
+      if (updated.id === getActiveWorkspaceIdSync()) {
+        await refresh();
+      }
       return updated;
     },
-    []
+    [refresh]
   );
 
   const deleteWorkspace = useCallback(
@@ -671,6 +719,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       refreshEpochRef.current += 1;
       await deleteWorkspaceRecord(workspaceId);
       setHasUnsavedQuickNotes(false);
+      await repositories.withDatabase(getActiveWorkspaceDatabase()).recordAuditEvent({
+        eventType: 'WORKSPACE_DELETED',
+        action: 'workspace.deleted',
+        resourceType: 'workspace',
+        resourceId: workspaceId,
+        severity: 'warning',
+        detail: `Deleted secondary workspace "${workspaceId}"`,
+      });
       await refresh();
     },
     [refresh]

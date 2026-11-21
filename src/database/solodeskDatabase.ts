@@ -3,6 +3,7 @@ import type {
   ActivityEvent,
   Appointment,
   AppSettings,
+  AuditEvent,
   BusinessProfile,
   Client,
   ClientPortalLink,
@@ -10,10 +11,12 @@ import type {
   CustomWorkflow,
   DocumentChunk,
   FinanceEntry,
+  IntegrationConnection,
   Invoice,
   KnowledgeDocument,
   NotificationItem,
   Payment,
+  PrivacyConsent,
   Project,
   Proposal,
   Quotation,
@@ -26,13 +29,14 @@ import type {
   Task,
   TimeEntry,
   VaultFile,
+  VoiceNote,
   WebhookConfig,
   WorkflowRun,
   WorkspaceGoal,
 } from '../domain/schemas/entities';
 
 export const SOLODESK_DB_NAME = 'solodesk_ai_workspace';
-export const SOLODESK_SCHEMA_VERSION = 5;
+export const SOLODESK_SCHEMA_VERSION = 6;
 
 export class SolodeskDatabase extends Dexie {
   businessProfile!: Table<BusinessProfile, string>;
@@ -64,6 +68,10 @@ export class SolodeskDatabase extends Dexie {
   syncQueue!: Table<SyncQueueItem, string>;
   securityAuditLogs!: Table<SecurityAuditLog, string>;
   savedViews!: Table<SavedView, string>;
+  voiceNotes!: Table<VoiceNote, string>;
+  auditEvents!: Table<AuditEvent, string>;
+  integrationConnections!: Table<IntegrationConnection, string>;
+  privacyConsents!: Table<PrivacyConsent, string>;
 
   constructor(dbName = SOLODESK_DB_NAME) {
     super(dbName);
@@ -232,6 +240,71 @@ export class SolodeskDatabase extends Dexie {
             if (!Array.isArray(project.risks)) project.risks = [];
             if (!Array.isArray(project.okrs)) project.okrs = [];
             if (typeof project.isTemplate !== 'boolean') project.isTemplate = false;
+          });
+      });
+
+    // v6 non-destructive migration: Phases 79-95 Voice Notes, Centralized Audit Events, Integration Connections, Privacy Consents
+    this.version(6)
+      .stores({
+        businessProfile: 'id',
+        appSettings: 'id',
+        clients: 'id, status, leadStage, category, email, name, updatedAt',
+        projects: 'id, clientId, status, dueDate, isTemplate, updatedAt',
+        tasks: 'id, projectId, clientId, status, priority, dueDate, updatedAt',
+        proposals: 'id, number, clientId, projectId, status, updatedAt',
+        quotations: 'id, number, clientId, projectId, status, issueDate, updatedAt',
+        contracts: 'id, number, clientId, projectId, status, updatedAt',
+        invoices: 'id, &number, clientId, projectId, quotationId, status, dueDate, recurrenceRule, updatedAt',
+        payments: 'id, invoiceId, clientId, paymentDate, updatedAt',
+        financeEntries: 'id, type, category, date, clientId, projectId, invoiceId, paymentId',
+        timeEntries: 'id, projectId, taskId, isRunning, startTime',
+        knowledgeDocs: 'id, title, sourceType, collection, accessScope, contentHash, updatedAt',
+        documentChunks: 'id, documentId, chunkIndex, *keywords',
+        templates: 'id, kind, name',
+        workflowRuns: 'id, workflowType, triggerEntityId, status, createdAt',
+        serviceCatalog: 'id, category, active, updatedAt',
+        appointments: 'id, clientId, projectId, date, status, updatedAt',
+        workspaceGoals: 'id, &monthPrefix, updatedAt',
+        activities: 'id, entityType, entityId, createdAt',
+        notifications: 'id, read, snoozedUntil, createdAt',
+        vaultFiles: 'id, folder, projectId, clientId, classification, shareToken, updatedAt',
+        clientPortalLinks: 'id, clientId, projectId, &token, status, expiresAt',
+        retainers: 'id, clientId, projectId, status, updatedAt',
+        customWorkflows: 'id, triggerType, enabled, updatedAt',
+        webhooks: 'id, eventType, enabled, updatedAt',
+        syncQueue: 'id, entityType, entityId, status, updatedAt',
+        securityAuditLogs: 'id, eventType, severity, createdAt',
+        savedViews: 'id, route, name, updatedAt',
+        voiceNotes: 'id, parentType, parentId, [parentType+parentId], createdAt',
+        auditEvents: 'id, workspaceId, eventType, outcome, resourceType, severity, createdAt',
+        integrationConnections: 'id, &provider, category, status, updatedAt',
+        privacyConsents: 'id, &consentKey, granted, updatedAt',
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table('clients')
+          .toCollection()
+          .modify((client: Partial<Client>) => {
+            if (!client.leadStage) {
+              client.leadStage = client.status === 'lead' ? 'new' : 'qualified';
+            }
+            if (!Array.isArray(client.contacts)) client.contacts = [];
+          });
+        await tx
+          .table('projects')
+          .toCollection()
+          .modify((project: Partial<Project>) => {
+            if (!Array.isArray(project.members)) project.members = [];
+            if (!Array.isArray(project.comments)) project.comments = [];
+            if (!Array.isArray(project.attachmentVaultIds)) project.attachmentVaultIds = [];
+          });
+        await tx
+          .table('tasks')
+          .toCollection()
+          .modify((task: Partial<Task>) => {
+            if (typeof task.assignee !== 'string') task.assignee = '';
+            if (!Array.isArray(task.comments)) task.comments = [];
+            if (!Array.isArray(task.attachmentVaultIds)) task.attachmentVaultIds = [];
           });
       });
   }

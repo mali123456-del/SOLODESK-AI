@@ -48,8 +48,11 @@ function makeTask(partial: Partial<Task> & { id: string; title: string }): Task 
     status: 'todo',
     priority: 'medium',
     dueDate: '',
+    assignee: '',
     tags: [],
     subtasks: [],
+    comments: [],
+    attachmentVaultIds: [],
     dependsOnIds: [],
     estimatedHours: 2,
     recurrenceRule: 'none',
@@ -310,6 +313,8 @@ describe('Phase 15–25 Features: Focus Mode, Daily Digest, Planning, Finance, V
           website: '',
           location: '',
           status: 'active' as const,
+          leadStage: 'qualified' as const,
+          contacts: [],
           category: 'Tech',
           tags: [],
           notes: 'TOP SECRET MARGIN NOTE',
@@ -481,7 +486,7 @@ describe('Phase 15–25 Features: Focus Mode, Daily Digest, Planning, Finance, V
     const report = await runBackupRecoverySelfTest();
     expect(report.ok).toBe(true);
     expect(report.encryptedRoundtripOk).toBe(true);
-    expect(report.schemaVersion).toBe(5);
+    expect(report.schemaVersion).toBe(6);
     expect(report.recordCount).toBeGreaterThanOrEqual(1);
 
     const conflictWinner = resolveSyncConflict({

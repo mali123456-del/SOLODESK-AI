@@ -42,6 +42,46 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     const swRes = await page.request.get('/sw.js');
     expect(swRes.status()).toBe(200);
 
+    await page.addInitScript(() => {
+      class MockMediaRecorder {
+        mimeType = 'audio/webm';
+        state = 'inactive';
+        ondataavailable: ((event: { data: Blob }) => void) | null = null;
+        onstop: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        static isTypeSupported(mime: string) {
+          return mime.includes('audio/webm');
+        }
+        start() {
+          this.state = 'recording';
+        }
+        pause() {
+          this.state = 'paused';
+        }
+        resume() {
+          this.state = 'recording';
+        }
+        stop() {
+          this.state = 'inactive';
+          const blob = new Blob([new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])], {
+            type: 'audio/webm',
+          });
+          this.ondataavailable?.({ data: blob });
+          this.onstop?.();
+        }
+      }
+      (window as unknown as { MediaRecorder: typeof MockMediaRecorder }).MediaRecorder =
+        MockMediaRecorder;
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: {
+          getUserMedia: async () => ({
+            getTracks: () => [{ stop: () => undefined }],
+          }),
+        },
+      });
+    });
+
     // 2. Desktop boot & onboarding with Sample Demo Data
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/');
@@ -55,18 +95,24 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await expect(page.getByRole('heading', { name: /Welcome/i })).toBeVisible();
     await expect(page.getByText('Recorded Income')).toBeVisible();
 
+    // Check Setup Checklist visibility and dismissal persistence
+    await expect(page.getByText('Workspace Setup Checklist')).toBeVisible();
+    await page.getByRole('button', { name: 'Dismiss setup checklist' }).click();
+    await expect(page.getByText('Workspace Setup Checklist')).not.toBeVisible();
+
     // Check zero horizontal overflow on desktop
     const desktopOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth
     );
     expect(desktopOverflow).toBe(false);
 
-    // 3. Create Client & verify persistence across full page reload
+    // 3. Create Client with leadStage & verify persistence across full page reload
     await page.goto('/#/clients');
     await expect(page.getByRole('heading', { name: 'Clients', exact: true })).toBeVisible();
     await page.getByRole('button', { name: /Add Client/i }).click();
     await page.getByLabel(/Client Name/i).fill('E2E Horizon Labs');
-    await page.getByLabel(/Email/i).fill('e2e@horizon.invalid');
+    await page.getByLabel('Email', { exact: true }).fill('e2e@horizon.invalid');
+    await page.getByLabel('Lead Pipeline Stage').selectOption('proposal_sent');
     await page.getByRole('button', { name: /Create Client/i }).click();
     await expect(page.getByText('E2E Horizon Labs').first()).toBeVisible();
 
@@ -89,10 +135,24 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await page.getByRole('button', { name: /Approve & Create/i }).click();
     await expect(page.getByText(/Project & deliverable tasks created/i)).toBeVisible();
 
-    // 5. Projects & Tasks populated from workflow
+    // 5. Projects & Tasks populated from workflow + Voice Note record/save/reload/delete
     await page.goto('/#/projects');
     await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible();
     await expect(page.getByText('E2E Cloud Migration').first()).toBeVisible();
+    await page.getByText('E2E Cloud Migration').first().click();
+    await page.getByRole('button', { name: /Record Voice Note/i }).click();
+    await page.getByRole('button', { name: 'Stop recording' }).click();
+    await page.getByLabel('Note Title').fill('E2E Project Voice Memo');
+    await page.getByRole('button', { name: /Save Voice Note/i }).click();
+    await expect(page.getByText('E2E Project Voice Memo').first()).toBeVisible();
+    await page.reload();
+    await expect(page.getByText('E2E Cloud Migration').first()).toBeVisible();
+    await page.getByText('E2E Cloud Migration').first().click();
+    await expect(page.getByText('E2E Project Voice Memo').first()).toBeVisible();
+    await page.getByRole('button', { name: 'Delete voice note E2E Project Voice Memo' }).click();
+    await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByText('E2E Project Voice Memo')).toHaveCount(0);
+
     await page.goto('/#/tasks');
     await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible();
     await expect(page.getByText('Architecture Audit').first()).toBeVisible();
@@ -257,6 +317,16 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await page.getByRole('button', { name: /Run Non-Destructive Backup Recovery Test/i }).click();
     await expect(page.getByText(/AES-GCM roundtrip integrity/i).first()).toBeVisible();
 
+    await page.goto('/#/contracts');
+    await expect(page.getByRole('heading', { name: 'Contracts', exact: true })).toBeVisible();
+    await expect(page.getByText(/do not constitute legal advice/i)).toBeVisible();
+
+    await page.goto('/#/audit-logs');
+    await expect(page.getByRole('heading', { name: /Centralized Audit Log/i })).toBeVisible();
+
+    await page.goto('/#/integrations');
+    await expect(page.getByRole('heading', { name: /Centralized Integration Hub/i })).toBeVisible();
+
     await page.goto('/#/help-plans');
     await expect(page.getByRole('heading', { name: /Help, Product Tour, Localization & Plans/i })).toBeVisible();
 
@@ -297,12 +367,22 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     expect(storageCounts.ls).toBe(0);
     expect(storageCounts.ss).toBe(0);
 
-    // 10. Settings Privacy, Sync Card & Live Database Health Check (v5)
+    // 10. Settings Privacy, Consents Toggle, Sync Card & Live Database Health Check (v6)
     await page.goto('/#/settings-privacy');
     await expect(page.getByText('Database Integrity & Diagnostics')).toBeVisible();
     await expect(page.getByText('Healthy', { exact: true })).toBeVisible();
-    await expect(page.getByText('v5', { exact: true })).toBeVisible();
+    await expect(page.getByText('v6', { exact: true })).toBeVisible();
     await expect(page.getByText('Local Database Synchronization & Shortcuts')).toBeVisible();
+    const aiConsentSwitch = page.getByRole('switch', {
+      name: 'External AI Prompt Processing (Gemini / OpenAI)',
+    });
+    await expect(aiConsentSwitch).not.toBeChecked();
+    await aiConsentSwitch.click();
+    await expect(aiConsentSwitch).toBeChecked();
+    await page.reload();
+    await expect(
+      page.getByRole('switch', { name: 'External AI Prompt Processing (Gemini / OpenAI)' })
+    ).toBeChecked();
 
     // 11. Weekly Digest toggle + Mobile responsiveness check (375x812) with zero horizontal overflow
     await page.goto('/#/dashboard');
@@ -323,7 +403,7 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
 
     // 12. Automated WCAG 2.0 A/AA Accessibility audit via @axe-core/playwright
     await page.setViewportSize({ width: 1280, height: 800 });
-    for (const route of ['/#/dashboard', '/#/clients', '/#/ai-copilot']) {
+    for (const route of ['/#/dashboard', '/#/clients', '/#/ai-copilot', '/#/audit-logs', '/#/integrations']) {
       await page.goto(route);
       const axeResults = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa'])

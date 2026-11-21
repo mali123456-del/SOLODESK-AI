@@ -110,7 +110,7 @@ describe('Phases 68–69: Multi-Workspace Isolation, Migration & Recovery Audit'
     await wipeAllDbs();
   });
 
-  it('Phase 68: validates workspace IDs strictly and prevents database-name collisions across all 29 tables', async () => {
+  it('Phase 68: validates workspace IDs strictly and prevents database-name collisions across all 33 tables', async () => {
     expect(() => validateWorkspaceId('')).toThrow(/empty/i);
     expect(() => validateWorkspaceId('ws/a')).toThrow(/invalid characters/i);
     expect(() => validateWorkspaceId('ws?a')).toThrow(/invalid characters/i);
@@ -124,10 +124,10 @@ describe('Phases 68–69: Multi-Workspace Isolation, Migration & Recovery Audit'
 
     const defaultDb = getDatabaseForWorkspace(DEFAULT_WORKSPACE_ID);
     await defaultDb.open();
-    expect(defaultDb.tables.map((t) => t.name).sort()).toHaveLength(29);
+    expect(defaultDb.tables.map((t) => t.name).sort()).toHaveLength(33);
   });
 
-  it('Phase 68: keeps 29 domain tables isolated across workspaces, prevents stale background job/backup leaks, and drains open operations on delete', async () => {
+  it('Phase 68: keeps 33 domain tables isolated across workspaces, prevents stale background job/backup leaks, and drains open operations on delete', async () => {
     await initializeWorkspaceManager();
     const wsB = await createWorkspaceRecord({ name: 'Isolated Studio B' });
 
@@ -269,7 +269,10 @@ describe('Phases 68–69: Multi-Workspace Isolation, Migration & Recovery Audit'
       screen.getByRole('button', { name: 'Create Alpha' }).click();
     });
 
-    await waitFor(() => expect(screen.getByTestId('ws-count').textContent).toBe('3'));
+    await waitFor(() => {
+      expect(screen.getByTestId('ws-count').textContent).toBe('3');
+      expect(screen.getByTestId('ws-id').textContent).not.toBe(DEFAULT_WORKSPACE_ID);
+    });
     // Final active state cleanly points to a valid workspace with consistent client count (0)
     const activeId = screen.getByTestId('ws-id').textContent;
     expect(activeId).toBeTruthy();
@@ -294,8 +297,11 @@ describe('Phases 68–69: Multi-Workspace Isolation, Migration & Recovery Audit'
         status: 'done',
         priority: 'medium',
         dueDate: '',
+        assignee: '',
         tags: [],
         subtasks: [],
+        comments: [],
+        attachmentVaultIds: [],
         dependsOnIds: [],
         estimatedHours: 0,
         recurrenceRule: 'none',
@@ -314,8 +320,11 @@ describe('Phases 68–69: Multi-Workspace Isolation, Migration & Recovery Audit'
         status: 'done',
         priority: 'low',
         dueDate: '',
+        assignee: '',
         tags: [],
         subtasks: [],
+        comments: [],
+        attachmentVaultIds: [],
         dependsOnIds: [],
         estimatedHours: 0,
         recurrenceRule: 'none',

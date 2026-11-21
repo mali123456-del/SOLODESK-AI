@@ -5,6 +5,7 @@ import {
   activityEventSchema,
   appointmentSchema,
   appSettingsSchema,
+  auditEventSchema,
   businessProfileSchema,
   clientPortalLinkSchema,
   clientSchema,
@@ -12,10 +13,12 @@ import {
   customWorkflowSchema,
   documentChunkSchema,
   financeEntrySchema,
+  integrationConnectionSchema,
   invoiceSchema,
   knowledgeDocumentSchema,
   notificationItemSchema,
   paymentSchema,
+  privacyConsentSchema,
   projectSchema,
   proposalSchema,
   quotationSchema,
@@ -28,12 +31,13 @@ import {
   taskSchema,
   timeEntrySchema,
   vaultFileSchema,
+  voiceNoteSchema,
   webhookConfigSchema,
   workflowRunSchema,
   workspaceGoalSchema,
 } from '../domain/schemas/entities';
 
-export const CURRENT_BACKUP_SCHEMA_VERSION = 5;
+export const CURRENT_BACKUP_SCHEMA_VERSION = 6;
 export const DEFAULT_PBKDF2_ITERATIONS = 210_000;
 
 export const backupDataSchema = z.object({
@@ -66,6 +70,10 @@ export const backupDataSchema = z.object({
   syncQueue: z.array(syncQueueItemSchema).optional().default([]),
   securityAuditLogs: z.array(securityAuditLogSchema).optional().default([]),
   savedViews: z.array(savedViewSchema).optional().default([]),
+  voiceNotes: z.array(voiceNoteSchema).optional().default([]),
+  auditEvents: z.array(auditEventSchema).optional().default([]),
+  integrationConnections: z.array(integrationConnectionSchema).optional().default([]),
+  privacyConsents: z.array(privacyConsentSchema).optional().default([]),
 });
 
 export const backupPayloadSchema = z.object({
@@ -225,6 +233,10 @@ export async function createBackupPayload(options?: {
     syncQueue,
     securityAuditLogs,
     savedViews,
+    voiceNotes,
+    auditEvents,
+    integrationConnections,
+    privacyConsents,
   ] = await Promise.all([
     targetDb.businessProfile.toArray(),
     targetDb.appSettings.toArray(),
@@ -255,6 +267,10 @@ export async function createBackupPayload(options?: {
     targetDb.syncQueue.toArray(),
     targetDb.securityAuditLogs.toArray(),
     targetDb.savedViews.toArray(),
+    targetDb.voiceNotes.toArray(),
+    targetDb.auditEvents.toArray(),
+    targetDb.integrationConnections.toArray(),
+    targetDb.privacyConsents.toArray(),
   ]);
 
   const data = {
@@ -287,6 +303,10 @@ export async function createBackupPayload(options?: {
     syncQueue,
     securityAuditLogs,
     savedViews,
+    voiceNotes,
+    auditEvents,
+    integrationConnections,
+    privacyConsents,
   };
 
   const recordCounts: Record<string, number> = {
@@ -314,6 +334,10 @@ export async function createBackupPayload(options?: {
     syncQueue: syncQueue.length,
     securityAuditLogs: securityAuditLogs.length,
     savedViews: savedViews.length,
+    voiceNotes: voiceNotes.length,
+    auditEvents: auditEvents.length,
+    integrationConnections: integrationConnections.length,
+    privacyConsents: privacyConsents.length,
   };
 
   return backupPayloadSchema.parse({
@@ -500,6 +524,10 @@ export async function restoreBackupPayload(
       targetDb.syncQueue,
       targetDb.securityAuditLogs,
       targetDb.savedViews,
+      targetDb.voiceNotes,
+      targetDb.auditEvents,
+      targetDb.integrationConnections,
+      targetDb.privacyConsents,
     ],
     async () => {
       if (mode === 'replace') {
@@ -533,6 +561,10 @@ export async function restoreBackupPayload(
           targetDb.syncQueue.clear(),
           targetDb.securityAuditLogs.clear(),
           targetDb.savedViews.clear(),
+          targetDb.voiceNotes.clear(),
+          targetDb.auditEvents.clear(),
+          targetDb.integrationConnections.clear(),
+          targetDb.privacyConsents.clear(),
         ]);
       }
 
@@ -598,6 +630,12 @@ export async function restoreBackupPayload(
       if (d.syncQueue.length) await targetDb.syncQueue.bulkPut(d.syncQueue);
       if (d.securityAuditLogs.length) await targetDb.securityAuditLogs.bulkPut(d.securityAuditLogs);
       if (d.savedViews.length) await targetDb.savedViews.bulkPut(d.savedViews);
+      if (d.voiceNotes.length) await targetDb.voiceNotes.bulkPut(d.voiceNotes);
+      if (d.auditEvents.length) await targetDb.auditEvents.bulkPut(d.auditEvents);
+      if (d.integrationConnections.length) {
+        await targetDb.integrationConnections.bulkPut(d.integrationConnections);
+      }
+      if (d.privacyConsents.length) await targetDb.privacyConsents.bulkPut(d.privacyConsents);
     }
   );
 

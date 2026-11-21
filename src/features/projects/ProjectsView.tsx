@@ -7,10 +7,13 @@ import {
   Focus,
   FolderKanban,
   GanttChart,
+  MessageSquare,
+  Paperclip,
   Pin,
   Plus,
   Search,
   Trash2,
+  Users,
 } from 'lucide-react';
 import {
   Badge,
@@ -41,6 +44,7 @@ import {
   type ProjectRisk,
   type ProjectStatus,
 } from '../../domain/schemas/entities';
+import { VoiceNotesPanel } from '../../components/common/VoiceNotesPanel';
 import {
   buildProjectGanttBars,
   evaluateProjectHealth,
@@ -74,6 +78,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onFocusProject }) =>
     invoices,
     financeEntries,
     timeEntries,
+    vaultFiles,
     settings,
     refresh,
     togglePinnedId,
@@ -93,6 +98,10 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onFocusProject }) =>
   const [newRiskSeverity, setNewRiskSeverity] = useState<ProjectRisk['severity']>('medium');
   const [newOkrObjective, setNewOkrObjective] = useState('');
   const [newOkrKr, setNewOkrKr] = useState('');
+  const [newMemberName, setNewMemberName] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState('');
+  const [newCommentBody, setNewCommentBody] = useState('');
+  const [attachVaultId, setAttachVaultId] = useState('');
 
   const defaultCurrency = settings?.defaultCurrency ?? 'USD';
   const dateFormat = settings?.dateFormat ?? 'DD MMM YYYY';
@@ -307,6 +316,59 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onFocusProject }) =>
     await repositories.updateProject(project.id, { okrs: next });
     setNewOkrObjective('');
     setNewOkrKr('');
+    await refresh();
+  };
+
+  const addMember = async (project: Project) => {
+    if (!newMemberName.trim()) return;
+    const next = [
+      ...(project.members ?? []),
+      {
+        id: createId('pm'),
+        name: newMemberName.trim(),
+        role: newMemberRole.trim() || 'Contributor',
+      },
+    ];
+    await repositories.updateProject(project.id, { members: next });
+    setNewMemberName('');
+    setNewMemberRole('');
+    await refresh();
+  };
+
+  const removeMember = async (project: Project, memberId: string) => {
+    const next = (project.members ?? []).filter((m) => m.id !== memberId);
+    await repositories.updateProject(project.id, { members: next });
+    await refresh();
+  };
+
+  const addComment = async (project: Project) => {
+    if (!newCommentBody.trim()) return;
+    const next = [
+      ...(project.comments ?? []),
+      {
+        id: createId('cmt'),
+        author: 'Workspace Owner',
+        body: newCommentBody.trim(),
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    await repositories.updateProject(project.id, { comments: next });
+    setNewCommentBody('');
+    await refresh();
+  };
+
+  const attachVaultFile = async (project: Project, fileId: string) => {
+    if (!fileId) return;
+    const set = new Set(project.attachmentVaultIds ?? []);
+    set.add(fileId);
+    await repositories.updateProject(project.id, { attachmentVaultIds: Array.from(set) });
+    setAttachVaultId('');
+    await refresh();
+  };
+
+  const detachVaultFile = async (project: Project, fileId: string) => {
+    const next = (project.attachmentVaultIds ?? []).filter((id) => id !== fileId);
+    await repositories.updateProject(project.id, { attachmentVaultIds: next });
     await refresh();
   };
 
@@ -867,6 +929,159 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onFocusProject }) =>
                   </Button>
                 </div>
               </div>
+            </div>
+
+            {/* Team Members */}
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Team Members ({(selectedProject.members ?? []).length})
+                </p>
+              </div>
+              {(selectedProject.members ?? []).map((member) => (
+                <div
+                  key={member.id}
+                  className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-[#101827] text-xs"
+                >
+                  <div className="min-w-0 truncate">
+                    <span className="font-medium text-slate-800 dark:text-slate-100">{member.name}</span>
+                    <span className="text-slate-500"> · {member.role}</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Remove member ${member.name}`}
+                    onClick={() => void removeMember(selectedProject, member.id)}
+                  >
+                    <Trash2 className="w-3 h-3 text-red-600" />
+                  </Button>
+                </div>
+              ))}
+              <div className="flex gap-1.5">
+                <Input
+                  placeholder="Member name..."
+                  value={newMemberName}
+                  onChange={(e) => setNewMemberName(e.target.value)}
+                  aria-label="Project member name"
+                />
+                <Input
+                  placeholder="Role"
+                  value={newMemberRole}
+                  onChange={(e) => setNewMemberRole(e.target.value)}
+                  className="w-28"
+                  aria-label="Project member role"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!newMemberName.trim()}
+                  onClick={() => void addMember(selectedProject)}
+                >
+                  Add
+                </Button>
+              </div>
+            </div>
+
+            {/* Project Comments */}
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <MessageSquare className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Comments ({(selectedProject.comments ?? []).length})
+                </p>
+              </div>
+              {(selectedProject.comments ?? []).map((cmt) => (
+                <div
+                  key={cmt.id}
+                  className="p-2 rounded-lg bg-slate-50 dark:bg-[#101827] text-xs space-y-0.5"
+                >
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                    <span className="font-medium text-slate-700 dark:text-slate-300">{cmt.author}</span>
+                    <span className="font-mono tabular-nums">{formatDisplayDate(cmt.createdAt, dateFormat)}</span>
+                  </div>
+                  <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{cmt.body}</p>
+                </div>
+              ))}
+              <div className="flex gap-1.5">
+                <Input
+                  placeholder="Write a project update or comment..."
+                  value={newCommentBody}
+                  onChange={(e) => setNewCommentBody(e.target.value)}
+                  aria-label="Project comment"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!newCommentBody.trim()}
+                  onClick={() => void addComment(selectedProject)}
+                >
+                  Post
+                </Button>
+              </div>
+            </div>
+
+            {/* Vault File Attachments */}
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Paperclip className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Attached Vault Files ({(selectedProject.attachmentVaultIds ?? []).length})
+                </p>
+              </div>
+              {(selectedProject.attachmentVaultIds ?? []).map((fileId) => {
+                const file = vaultFiles.find((f) => f.id === fileId);
+                return (
+                  <div
+                    key={fileId}
+                    className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg bg-slate-50 dark:bg-[#101827] text-xs"
+                  >
+                    <span className="truncate font-mono">
+                      {file ? `${file.name} (${file.classification})` : fileId}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={`Detach file ${file?.name ?? fileId}`}
+                      onClick={() => void detachVaultFile(selectedProject, fileId)}
+                    >
+                      <Trash2 className="w-3 h-3 text-red-600" />
+                    </Button>
+                  </div>
+                );
+              })}
+              {vaultFiles.length > 0 && (
+                <div className="flex gap-1.5">
+                  <Select
+                    aria-label="Attach vault file to project"
+                    value={attachVaultId}
+                    onChange={(e) => setAttachVaultId(e.target.value)}
+                    options={[
+                      { value: '', label: 'Select vault file...' },
+                      ...vaultFiles
+                        .filter((f) => !(selectedProject.attachmentVaultIds ?? []).includes(f.id))
+                        .map((f) => ({ value: f.id, label: f.name })),
+                    ]}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!attachVaultId}
+                    onClick={() => void attachVaultFile(selectedProject, attachVaultId)}
+                  >
+                    Attach
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Voice Notes */}
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-3">
+              <VoiceNotesPanel
+                parentType="project"
+                parentId={selectedProject.id}
+                parentLabel={selectedProject.name}
+              />
             </div>
           </Card>
         )}

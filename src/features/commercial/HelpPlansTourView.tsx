@@ -28,7 +28,10 @@ import {
   LANGUAGE_PACKS,
   type SupportedLanguage,
 } from '../../i18n/translations';
-import { submitBackendSupportRequest } from '../../services/backendAuthClient';
+import {
+  requestBillingCheckoutPreview,
+  submitBackendSupportRequest,
+} from '../../services/backendAuthClient';
 import {
   evaluateUsageAgainstPlan,
   PAKISTAN_PAYMENT_GUIDANCE,
@@ -95,7 +98,7 @@ const TOUR_STEPS: Array<{
 const HELP_FAQ = [
   {
     q: 'Where is my SOLODESK AI data stored?',
-    a: 'All workspace data is stored locally inside your browser’s IndexedDB database (schema v5). There is no mandatory cloud server.',
+    a: 'All workspace data is stored locally inside your browser’s IndexedDB database (schema v6). There is no mandatory cloud server.',
   },
   {
     q: 'How do I protect against browser cache eviction?',
@@ -119,7 +122,7 @@ export const HelpPlansTourView: React.FC<HelpPlansTourViewProps> = ({
   onNavigate,
   onEnterFocusMode,
 }) => {
-  const { settings, clients, projects, vaultFiles, refresh } = useWorkspace();
+  const { activeWorkspaceId, settings, clients, projects, vaultFiles, refresh } = useWorkspace();
   const { pushToast } = useToast();
 
   const [tab, setTab] = useState<'plans' | 'tour' | 'help' | 'localization'>('plans');
@@ -131,6 +134,12 @@ export const HelpPlansTourView: React.FC<HelpPlansTourViewProps> = ({
   const [supportSubject, setSupportSubject] = useState('');
   const [supportDetails, setSupportDetails] = useState('');
   const [sendingSupport, setSendingSupport] = useState(false);
+  const [checkingCheckout, setCheckingCheckout] = useState(false);
+  const [checkoutPreview, setCheckoutPreview] = useState<{
+    tier: PlanTier;
+    status: string;
+    message: string;
+  } | null>(null);
 
   const activeTier = (settings?.activePlanTier ?? 'free') as PlanTier;
   const activeProjectsCount = projects.filter(
@@ -161,6 +170,28 @@ export const HelpPlansTourView: React.FC<HelpPlansTourViewProps> = ({
       tone: 'info',
     });
     await refresh();
+  };
+
+  const handleCheckCheckout = async (tier: PlanTier) => {
+    setCheckingCheckout(true);
+    try {
+      const res = await requestBillingCheckoutPreview({
+        workspaceId: activeWorkspaceId,
+        targetTier: tier,
+      });
+      setCheckoutPreview({
+        tier,
+        status: res.checkoutStatus,
+        message: res.message,
+      });
+      pushToast({
+        title: res.ok ? 'Local Free tier active' : 'Live merchant checkout blocked',
+        description: res.message,
+        tone: res.ok ? 'success' : 'warning',
+      });
+    } finally {
+      setCheckingCheckout(false);
+    }
   };
 
   const handleCompleteTour = async () => {
@@ -274,12 +305,33 @@ export const HelpPlansTourView: React.FC<HelpPlansTourViewProps> = ({
           <Card>
             <div className="flex items-start gap-3 text-xs">
               <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <div className="space-y-1.5 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-sm text-slate-900 dark:text-white">
-                    Automated Checkout Status:
-                  </span>
-                  <Badge tone="warning">BLOCKED — EXTERNAL REQUIREMENT</Badge>
+              <div className="space-y-2 flex-1">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-sm text-slate-900 dark:text-white">
+                      Automated Checkout Status:
+                    </span>
+                    <Badge tone="warning">BLOCKED — CREDENTIALS REQUIRED</Badge>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      loading={checkingCheckout}
+                      onClick={() => void handleCheckCheckout(activeTier)}
+                    >
+                      Check Live Checkout
+                    </Button>
+                    {activeTier !== 'free' && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void handleSelectPlan('free')}
+                      >
+                        Cancel Preview (Return to Free)
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
                   {PAKISTAN_PAYMENT_GUIDANCE.summary}
@@ -288,6 +340,12 @@ export const HelpPlansTourView: React.FC<HelpPlansTourViewProps> = ({
                   <strong>Recommended Pakistan & Exporter Payment Paths:</strong>{' '}
                   {PAKISTAN_PAYMENT_GUIDANCE.supportedLaunchPaths.join(' · ')}
                 </p>
+                {checkoutPreview && (
+                  <div className="p-2.5 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200">
+                    <span className="font-mono font-semibold">{checkoutPreview.status}</span>{' '}
+                    ({PLAN_ENTITLEMENTS[checkoutPreview.tier].name}): {checkoutPreview.message}
+                  </div>
+                )}
               </div>
             </div>
           </Card>
@@ -314,14 +372,27 @@ export const HelpPlansTourView: React.FC<HelpPlansTourViewProps> = ({
                   <p className="text-xs text-slate-600 dark:text-slate-300 mb-4 min-h-[48px]">
                     {spec.notes}
                   </p>
-                  <Button
-                    size="sm"
-                    variant={isSelected ? 'primary' : 'outline'}
-                    className="w-full"
-                    onClick={() => void handleSelectPlan(tier)}
-                  >
-                    {isSelected ? 'Selected Profile' : 'Preview Profile'}
-                  </Button>
+                  <div className="flex flex-col gap-1.5">
+                    <Button
+                      size="sm"
+                      variant={isSelected ? 'primary' : 'outline'}
+                      className="w-full"
+                      onClick={() => void handleSelectPlan(tier)}
+                    >
+                      {isSelected ? 'Selected Profile' : 'Preview Profile'}
+                    </Button>
+                    {tier !== 'free' && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="w-full"
+                        loading={checkingCheckout}
+                        onClick={() => void handleCheckCheckout(tier)}
+                      >
+                        Check Live Checkout
+                      </Button>
+                    )}
+                  </div>
                 </Card>
               );
             })}

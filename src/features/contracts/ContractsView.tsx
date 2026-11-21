@@ -4,9 +4,12 @@ import {
   Download,
   Edit3,
   FileCheck2,
+  History,
+  Paperclip,
   Plus,
   Search,
   Trash2,
+  X,
 } from 'lucide-react';
 import {
   Badge,
@@ -64,7 +67,7 @@ const DEFAULT_SECTIONS: SectionDraft[] = [
 ];
 
 export const ContractsView: React.FC = () => {
-  const { contracts, clients, projects, templates, businessProfile, settings, refresh } =
+  const { contracts, clients, projects, templates, vaultFiles, businessProfile, settings, refresh } =
     useWorkspace();
   const { pushToast } = useToast();
 
@@ -152,6 +155,19 @@ export const ContractsView: React.FC = () => {
         body: filled,
       },
     ]);
+  };
+
+  const handleToggleContractVaultAttachment = async (contract: Contract, vaultFileId: string) => {
+    const current = contract.attachmentVaultIds ?? [];
+    const exists = current.includes(vaultFileId);
+    const next = exists ? current.filter((id) => id !== vaultFileId) : [...current, vaultFileId];
+    await repositories.updateContract(contract.id, { attachmentVaultIds: next });
+    await refresh();
+    pushToast({
+      tone: 'success',
+      title: exists ? 'Attachment detached' : 'Vault file attached',
+      description: `Updated attachments on ${contract.number}.`,
+    });
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -309,9 +325,18 @@ export const ContractsView: React.FC = () => {
                   </p>
                 )}
               </div>
-              <Badge tone={selected.status === 'accepted' ? 'success' : 'info'}>
-                {selected.status}
-              </Badge>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Badge tone="neutral">v{selected.revision ?? 1}</Badge>
+                <Badge tone={selected.status === 'accepted' ? 'success' : 'info'}>
+                  {selected.status}
+                </Badge>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-[#101827]/70 text-[11px] text-slate-600 dark:text-slate-300">
+              Internal workflow confirmation only: marking a contract accepted records an internal
+              workspace timestamp (<code className="font-mono">acceptedAt</code>) and does not replace
+              qualified cryptographic or legal e-signatures.
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -360,6 +385,81 @@ export const ContractsView: React.FC = () => {
                 </div>
               ))}
             </div>
+
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2">
+              <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5">
+                <Paperclip className="w-3.5 h-3.5" aria-hidden="true" />
+                Vault Attachments ({(selected.attachmentVaultIds ?? []).length})
+              </p>
+              {(selected.attachmentVaultIds ?? []).length > 0 && (
+                <ul className="space-y-1">
+                  {(selected.attachmentVaultIds ?? []).map((vid) => {
+                    const vf = vaultFiles.find((f) => f.id === vid);
+                    return (
+                      <li
+                        key={vid}
+                        className="flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-[#101827]"
+                      >
+                        <span className="truncate text-slate-700 dark:text-slate-200">
+                          {vf ? vf.name : vid}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void handleToggleContractVaultAttachment(selected, vid)}
+                          className="text-slate-400 hover:text-red-600 cursor-pointer shrink-0 ml-2"
+                          aria-label={`Detach ${vf?.name ?? vid}`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {vaultFiles.length > 0 ? (
+                <Select
+                  label="Attach Vault Document"
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      void handleToggleContractVaultAttachment(selected, e.target.value);
+                    }
+                  }}
+                  placeholder="Select a Vault file to attach..."
+                  options={vaultFiles
+                    .filter((f) => !(selected.attachmentVaultIds ?? []).includes(f.id))
+                    .map((f) => ({ value: f.id, label: `${f.name} (${f.classification})` }))}
+                />
+              ) : (
+                <p className="text-[11px] text-slate-500">
+                  Upload files in Vault to link appendices or schedules.
+                </p>
+              )}
+            </div>
+
+            {(selected.revisionHistory ?? []).length > 0 && (
+              <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-1.5">
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5">
+                  <History className="w-3.5 h-3.5" aria-hidden="true" />
+                  Revision History
+                </p>
+                <ul className="space-y-1 max-h-32 overflow-y-auto">
+                  {[...(selected.revisionHistory ?? [])].reverse().map((rev, i) => (
+                    <li
+                      key={`${rev.version}-${i}`}
+                      className="text-[11px] flex items-center justify-between gap-2 text-slate-600 dark:text-slate-300"
+                    >
+                      <span>
+                        <strong className="font-mono">v{rev.version}</strong> · {rev.summary}
+                      </span>
+                      <span className="font-mono tabular-nums text-slate-400 shrink-0">
+                        {formatDisplayDate(rev.savedAt, dateFormat)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </Card>
         )}
       </div>

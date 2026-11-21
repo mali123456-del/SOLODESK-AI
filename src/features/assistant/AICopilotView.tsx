@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { useWorkspace } from '../../app/providers/WorkspaceProvider';
+import { recordStructuredAudit } from '../../security/auditLogger';
 import { runActionWithApproval } from '../../ai/agent/actionApproval';
 import {
   runCopilotPrompt,
@@ -79,10 +80,22 @@ const PRESET_DEFINITIONS: {
       'Draft a polite, firm invoice payment follow-up email referencing our standard payment terms without sounding confrontational.',
   },
   {
+    id: 'invoice_explanation',
+    label: 'Invoice Breakdown',
+    prompt:
+      'Explain the selected client invoice line items, applied taxes/discounts, and remaining balance clearly for a client billing summary.',
+  },
+  {
     id: 'project_summary',
     label: 'Project Summary',
     prompt:
       'Summarize the current workspace and selected project priorities into an actionable weekly freelance checklist.',
+  },
+  {
+    id: 'document_summary',
+    label: 'Document Summary',
+    prompt:
+      'Summarize key deliverables, scope assumptions, and open questions from my Knowledge Hub documents with citations.',
   },
   {
     id: 'rewrite_professional',
@@ -197,6 +210,21 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ onNavigate }) => {
       });
       setResult(response);
       setHandledActionIds({});
+      await recordStructuredAudit({
+        eventType: 'AI_GENERATED',
+        action: `ai.copilot.${preset}`,
+        resourceType: 'ai_copilot',
+        resourceId: projectId || clientId || preset,
+        detail: `Copilot generated ${preset} via ${response.providerId} (${response.model}).`,
+        metadata: {
+          preset,
+          providerId: response.providerId,
+          model: response.model,
+          isOfflineDraft: response.isOfflineDraft,
+          citationCount: response.citations.length,
+        },
+      });
+      await refresh();
       if (response.usedFallbackFromError) {
         pushToast({
           tone: 'warning',
@@ -766,6 +794,15 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ onNavigate }) => {
               </div>
             ) : (
               <div className="space-y-4">
+                <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-[#101827]/70 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-600 dark:text-slate-300">
+                  <span>
+                    Provider: <strong>{result.providerId}</strong> · Model: <strong>{result.model}</strong>
+                  </span>
+                  <span>
+                    {result.citations.length} citation(s) · {result.proposedActions.length} proposed action(s)
+                  </span>
+                </div>
+
                 {result.isOfflineDraft && (
                   <div className="p-3 rounded-lg bg-slate-100 dark:bg-slate-800/70 flex items-start gap-2.5 text-xs text-slate-700 dark:text-slate-300">
                     <WifiOff className="w-4 h-4 shrink-0 mt-0.5 text-slate-500" />

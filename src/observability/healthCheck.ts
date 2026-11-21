@@ -56,6 +56,10 @@ export async function runDatabaseHealthCheck(
     syncQueue,
     securityAuditLogs,
     savedViews,
+    voiceNotes,
+    auditEvents,
+    integrationConnections,
+    privacyConsents,
   ] = await Promise.all([
     getStorageHealth(),
     database.clients.toArray(),
@@ -85,6 +89,10 @@ export async function runDatabaseHealthCheck(
     database.syncQueue.toArray(),
     database.securityAuditLogs.toArray(),
     database.savedViews.toArray(),
+    database.voiceNotes.toArray(),
+    database.auditEvents.toArray(),
+    database.integrationConnections.toArray(),
+    database.privacyConsents.toArray(),
   ]);
 
   const clientIds = new Set(clients.map((c) => c.id));
@@ -135,6 +143,15 @@ export async function runDatabaseHealthCheck(
     ).length,
     'Appointment(s) referencing a missing client or project'
   );
+  check(
+    'voiceNotes',
+    voiceNotes.filter(
+      (v) =>
+        (v.parentType === 'project' && !projectIds.has(v.parentId)) ||
+        (v.parentType === 'task' && !taskIds.has(v.parentId))
+    ).length,
+    'Voice note(s) referencing a missing project or task'
+  );
 
   const usagePercent =
     storage.usageBytes !== null && storage.quotaBytes && storage.quotaBytes > 0
@@ -181,6 +198,10 @@ export async function runDatabaseHealthCheck(
     syncQueue: syncQueue.length,
     securityAuditLogs: securityAuditLogs.length,
     savedViews: savedViews.length,
+    voiceNotes: voiceNotes.length,
+    auditEvents: auditEvents.length,
+    integrationConnections: integrationConnections.length,
+    privacyConsents: privacyConsents.length,
   };
 
   const totalRecords = Object.values(tableCounts).reduce((acc, n) => acc + n, 0);

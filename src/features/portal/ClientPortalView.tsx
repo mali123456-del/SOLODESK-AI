@@ -617,6 +617,10 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
                   description="Review milestones/deliverables and record approval or revision feedback."
                 />
                 <div className="space-y-3">
+                  <div className="p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-[#101827]/70 text-[11px] text-slate-600 dark:text-slate-300">
+                    Workflow sign-off only: portal approvals track workspace milestone confirmation
+                    and do not function as qualified legal e-signatures.
+                  </div>
                   {activeLink.approvals.length === 0 && (
                     <p className="text-xs text-slate-500">No approval requests added yet.</p>
                   )}

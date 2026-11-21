@@ -34,6 +34,14 @@ export const COPILOT_PROMPT_TEMPLATES: Record<string, DomainPromptTemplate> = {
     userScaffold: 'Draft a polite follow-up reminder for my open or overdue invoices.',
     requiredFactsChecklist: ['Invoice number', 'Balance due & currency', 'Due date'],
   },
+  invoice_explanation: {
+    id: 'invoice_explanation',
+    label: 'Invoice Breakdown & Client Explanation',
+    systemGuidance:
+      'Break down line items, tax rate, discounts, and remaining balance due strictly from verified workspace records. Label all summaries as informational billing helpers.',
+    userScaffold: 'Explain the invoice line items, applied tax/discounts, and remaining balance clearly for the client.',
+    requiredFactsChecklist: ['Invoice number', 'Line items & tax breakdown', 'Paid vs balance due'],
+  },
   project_summary: {
     id: 'project_summary',
     label: 'Project Health & Profitability Summary',
@@ -41,6 +49,14 @@ export const COPILOT_PROMPT_TEMPLATES: Record<string, DomainPromptTemplate> = {
       'Separate Verified Facts (budget, logged hours, income, expenses) from Recommendations. Label financial metrics as informational estimates.',
     userScaffold: 'Summarize the selected project status, hours tracked vs budget, and recommended next step.',
     requiredFactsChecklist: ['Project budget', 'Tracked hours', 'Recorded income & expenses'],
+  },
+  document_summary: {
+    id: 'document_summary',
+    label: 'Document & Knowledge Hub Summary',
+    systemGuidance:
+      'Summarize retrieved Knowledge Hub passages and project scope clauses into concise bullet points with explicit bracketed citations [1], [2]. Do not invent facts outside citations.',
+    userScaffold: 'Summarize the key scope deliverables, risks, and client responsibilities from my indexed documents.',
+    requiredFactsChecklist: ['Retrieved document citations', 'Open questions / missing clauses'],
   },
   rewrite_professional: {
     id: 'rewrite_professional',

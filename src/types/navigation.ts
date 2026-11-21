@@ -23,6 +23,7 @@ export type AppRouteId =
   | 'knowledge'
   | 'templates'
   | 'workflows'
+  | 'integrations'
   | 'cloud-sync'
   | 'search'
   | 'import-export'
@@ -34,6 +35,7 @@ export type AppRouteId =
   | 'settings-privacy'
   | 'settings-cloud-sync'
   | 'security-center'
+  | 'audit-logs'
   | 'help-plans'
   | 'about'
   | 'marketing';
@@ -204,6 +206,12 @@ export const APP_NAVIGATION: NavItemConfig[] = [
     description: 'Visual trigger-condition-action workflow builder, webhooks, and retry logs.',
   },
   {
+    id: 'integrations',
+    label: 'Integrations Hub',
+    group: 'Productivity',
+    description: 'Centralized adapter registry for Workspace OAuth, webhooks, AI gateways, and payments.',
+  },
+  {
     id: 'cloud-sync',
     label: 'Sync & Multi-Role',
     group: 'Productivity',
@@ -269,6 +277,12 @@ export const APP_NAVIGATION: NavItemConfig[] = [
     label: 'Security Center',
     group: 'Settings',
     description: 'Security audit trail, backup recovery self-test, retention, and RBAC audit.',
+  },
+  {
+    id: 'audit-logs',
+    label: 'Audit Logs',
+    group: 'Settings',
+    description: 'Searchable workspace security & compliance audit trail with CSV and JSON export.',
   },
   {
     id: 'help-plans',

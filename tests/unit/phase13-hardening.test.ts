@@ -106,7 +106,7 @@ describe('Phase 13 — Release Hardening: DB Integrity, Security, RAG, Tools & W
 
     const upgraded = new SolodeskDatabase(dbName);
     await upgraded.open();
-    expect(upgraded.verno).toBe(5);
+    expect(upgraded.verno).toBe(6);
 
     const migratedClient = await upgraded.clients.get('cli_v1');
     expect(migratedClient?.category).toBe('General');
@@ -307,7 +307,7 @@ describe('Phase 13 — Release Hardening: DB Integrity, Security, RAG, Tools & W
 
     const healthClean = await runDatabaseHealthCheck(isolatedDb);
     expect(healthClean.status).toBe('healthy');
-    expect(healthClean.schemaVersion).toBe(5);
+    expect(healthClean.schemaVersion).toBe(6);
     expect(healthClean.orphans).toHaveLength(0);
 
     // Inject an orphan task directly via raw table to ensure health check catches it
@@ -320,8 +320,11 @@ describe('Phase 13 — Release Hardening: DB Integrity, Security, RAG, Tools & W
       status: 'todo',
       priority: 'low',
       dueDate: '',
+      assignee: '',
       tags: [],
       subtasks: [],
+      comments: [],
+      attachmentVaultIds: [],
       dependsOnIds: [],
       estimatedHours: 0,
       recurrenceRule: 'none',

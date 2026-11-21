@@ -1,10 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { Activity, Search } from 'lucide-react';
-import { Badge, Card, EmptyState, Input, PageHeader, Select } from '../../components/ui';
+import { Activity, Search, Shield } from 'lucide-react';
+import { Badge, Button, Card, EmptyState, Input, PageHeader, Select } from '../../components/ui';
 import { useWorkspace } from '../../app/providers/WorkspaceProvider';
 import { formatDisplayDate } from '../../domain/calculations/dates';
+import type { AppRouteId } from '../../types/navigation';
 
-export const ActivityView: React.FC = () => {
+interface ActivityViewProps {
+  onNavigate?: (route: AppRouteId) => void;
+}
+
+export const ActivityView: React.FC<ActivityViewProps> = ({ onNavigate }) => {
   const { activities, settings } = useWorkspace();
   const [entityFilter, setEntityFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -24,6 +29,18 @@ export const ActivityView: React.FC = () => {
       <PageHeader
         title="Activity Log"
         description="Chronological audit trail of local workspace changes across clients, documents, and finances."
+        actions={
+          onNavigate && (
+            <Button
+              variant="outline"
+              size="sm"
+              icon={<Shield className="w-4 h-4" />}
+              onClick={() => onNavigate('audit-logs')}
+            >
+              Open Centralized Audit Log
+            </Button>
+          )
+        }
       />
 
       <div className="flex flex-col sm:flex-row gap-3 justify-between">

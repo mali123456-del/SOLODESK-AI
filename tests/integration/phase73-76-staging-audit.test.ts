@@ -233,6 +233,7 @@ describe('Phases 73–76: Security Audit Fixes, Keyset Sync Pagination & Local A
       '002_phase37_40_domains_rls_buckets.sql',
       '003_rls_hardening_and_sync_idempotency.sql',
       '004_rls_security_definer_functions_and_remaining_tables.sql',
+      '005_audit_logs_and_integrations.sql',
     ]);
 
     const sql004 = fs.readFileSync(path.join(pgDir, files[3]!), 'utf8');

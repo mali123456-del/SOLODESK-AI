@@ -319,6 +319,61 @@ const MIGRATIONS: MigrationRecord[] = [
       ALTER TABLE jobs_v6 RENAME TO jobs;
     `,
   },
+  {
+    version: 7,
+    name: '007_voice_notes_integrations_audit_indexes',
+    sql: `
+      CREATE TABLE IF NOT EXISTS voice_notes (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        parent_type TEXT NOT NULL CHECK (parent_type IN ('project', 'task')),
+        parent_id TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT 'Voice Note',
+        mime_type TEXT NOT NULL,
+        duration_seconds REAL NOT NULL DEFAULT 0,
+        size_bytes INTEGER NOT NULL,
+        content_base64 TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS integration_connections (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'automation',
+        display_name TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'disconnected',
+        account_label TEXT NOT NULL DEFAULT '',
+        endpoint_url TEXT NOT NULL DEFAULT '',
+        scopes_json TEXT NOT NULL DEFAULT '[]',
+        config_json TEXT NOT NULL DEFAULT '{}',
+        last_checked_at TEXT NOT NULL DEFAULT '',
+        last_error TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(workspace_id, provider)
+      );
+
+      ALTER TABLE audit_logs ADD COLUMN resource_type TEXT NOT NULL DEFAULT '';
+      ALTER TABLE audit_logs ADD COLUMN resource_id TEXT NOT NULL DEFAULT '';
+      ALTER TABLE audit_logs ADD COLUMN outcome TEXT NOT NULL DEFAULT 'success';
+      ALTER TABLE audit_logs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}';
+
+      CREATE INDEX IF NOT EXISTS idx_sync_records_ws_updated
+        ON sync_records(workspace_id, updated_at, entity_type, entity_id);
+      CREATE INDEX IF NOT EXISTS idx_jobs_ws_status_run
+        ON jobs(workspace_id, status, run_at);
+      CREATE INDEX IF NOT EXISTS idx_ai_usage_ws_created
+        ON ai_usage_records(workspace_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_ws_created
+        ON webhook_deliveries(workspace_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_ws_created
+        ON audit_logs(workspace_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_voice_notes_ws_parent
+        ON voice_notes(workspace_id, parent_type, parent_id);
+    `,
+  },
 ];
 
 export function openSqliteDatabase(dbPath = './data/solodesk-saas.sqlite'): DatabaseSync {

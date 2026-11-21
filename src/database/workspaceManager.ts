@@ -501,6 +501,13 @@ export async function deleteWorkspaceRecord(workspaceId: string): Promise<{
 }
 
 export async function resetWorkspaceManagerForTest(): Promise<void> {
+  await lifecycleQueue.catch(() => undefined);
+  const drainStart = Date.now();
+  while (activeOperationCounts.size > 0 && Date.now() - drainStart < 2000) {
+    await new Promise((resolve) => setTimeout(resolve, 15));
+  }
+  await lifecycleQueue.catch(() => undefined);
+
   const all = await metaDb.workspaces.toArray().catch(() => []);
   for (const ws of all) {
     const inst = dbInstances.get(ws.dbName);

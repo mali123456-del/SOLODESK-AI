@@ -38,6 +38,7 @@ import {
   calculateDocumentTotals,
   calculateLineItemTotal,
   formatMoney,
+  getCurrencyDecimals,
   SUPPORTED_CURRENCIES,
   type DiscountType,
 } from '../../domain/calculations/money';
@@ -48,6 +49,7 @@ import {
   type LineItem,
 } from '../../domain/schemas/entities';
 import { generateInvoicePdf } from '../../pdf/pdfGenerator';
+import { verifyInvoiceTotalsOnServer } from '../../services/backendAuthClient';
 import {
   computeNextRecurrenceDate,
   convertCurrencyToBase,
@@ -94,8 +96,59 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({ onNavigate }) => {
   const [recurrenceRule, setRecurrenceRule] = useState<Invoice['recurrenceRule']>('none');
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [verifyingTotals, setVerifyingTotals] = useState(false);
+  const [totalsCheckResult, setTotalsCheckResult] = useState<{
+    invoiceId: string;
+    source: string;
+    total: number;
+    matchesStored: boolean;
+    message: string;
+  } | null>(null);
 
   const clientMap = useMemo(() => new Map(clients.map((c) => [c.id, c])), [clients]);
+
+  const handleVerifyInvoiceTotals = async (inv: Invoice) => {
+    setVerifyingTotals(true);
+    try {
+      const serverRes = await verifyInvoiceTotalsOnServer({
+        currency: inv.currency,
+        lineItems: inv.lineItems.map((li) => ({
+          id: li.id,
+          description: li.description,
+          quantity: li.quantity,
+          unitPrice: li.unitPrice,
+        })),
+        discountType: inv.discountType,
+        discountValue: inv.discountValue,
+        taxRate: inv.taxRate,
+        taxInclusive: inv.taxInclusive,
+      });
+
+      const decimals = getCurrencyDecimals(inv.currency);
+      const localCheck = calculateDocumentTotals(
+        {
+          lineItems: inv.lineItems,
+          discountType: inv.discountType,
+          discountValue: inv.discountValue,
+          taxRate: inv.taxRate,
+          taxInclusive: inv.taxInclusive,
+        },
+        decimals
+      );
+      const authoritativeTotal =
+        serverRes.ok && typeof serverRes.total === 'number' ? serverRes.total : localCheck.total;
+      const matchesStored = Math.abs(authoritativeTotal - inv.total) < 0.01;
+      setTotalsCheckResult({
+        invoiceId: inv.id,
+        source: serverRes.ok ? 'Backend API' : 'Local Big.js Ledger',
+        total: authoritativeTotal,
+        matchesStored,
+        message: serverRes.message,
+      });
+    } finally {
+      setVerifyingTotals(false);
+    }
+  };
 
   const liveTotals = useMemo(
     () =>
@@ -450,7 +503,31 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({ onNavigate }) => {
                   Next {selected.recurrenceRule} Draft
                 </Button>
               )}
+              <Button
+                size="sm"
+                variant="outline"
+                loading={verifyingTotals}
+                onClick={() => void handleVerifyInvoiceTotals(selected)}
+              >
+                Verify Totals
+              </Button>
             </div>
+
+            {totalsCheckResult && totalsCheckResult.invoiceId === selected.id && (
+              <div
+                className={`p-2.5 rounded-lg border text-xs ${
+                  totalsCheckResult.matchesStored
+                    ? 'border-emerald-200 dark:border-emerald-900 bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200'
+                    : 'border-amber-200 dark:border-amber-900 bg-amber-50/70 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200'
+                }`}
+              >
+                <p className="font-semibold">
+                  {totalsCheckResult.source}: {formatMoney(totalsCheckResult.total, selected.currency)} (
+                  {totalsCheckResult.matchesStored ? 'Matches Ledger' : 'Differs from Stored Total'})
+                </p>
+                <p className="mt-0.5 text-[11px]">{totalsCheckResult.message}</p>
+              </div>
+            )}
 
             {selected.currency !== defaultCurrency && (
               <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#101827] text-xs font-mono">

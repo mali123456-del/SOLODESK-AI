@@ -13,7 +13,10 @@ import {
 } from '../../components/ui';
 import { repositories } from '../../database/repositories/dexieRepositories';
 import {
+  acceptWorkspaceInviteOnServer,
   fetchBackendSession,
+  inviteWorkspaceMemberOnServer,
+  listWorkspaceMembersFromServer,
   loginBackendAccount,
   logoutBackendAccount,
   pullWorkspaceChangesFromServer,
@@ -68,6 +71,22 @@ export const CloudSyncView: React.FC = () => {
   const [lastPulledSummary, setLastPulledSummary] = useState<string>('');
   const [lastRetrySummary, setLastRetrySummary] = useState<string>('');
   const [conflictServerRevisions, setConflictServerRevisions] = useState<Record<string, number>>({});
+  const [serverMembers, setServerMembers] = useState<
+    Array<{
+      id: string;
+      userId: string;
+      email: string;
+      displayName: string;
+      role: WorkspaceMemberRole;
+      status: string;
+      createdAt: string;
+    }>
+  >([]);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<'admin' | 'manager' | 'collaborator' | 'client_viewer'>('collaborator');
+  const [inviteTokenInput, setInviteTokenInput] = useState('');
+  const [lastCreatedInviteInfo, setLastCreatedInviteInfo] = useState<string>('');
+  const [memberBusy, setMemberBusy] = useState(false);
 
   const summary = useMemo(() => summarizeSyncQueue(syncQueue), [syncQueue]);
 
@@ -90,6 +109,27 @@ export const CloudSyncView: React.FC = () => {
       mounted = false;
     };
   }, []);
+
+  const loadServerMembers = async (targetWorkspaceId: string) => {
+    if (!authUser || !targetWorkspaceId) return;
+    setMemberBusy(true);
+    try {
+      const res = await listWorkspaceMembersFromServer(targetWorkspaceId);
+      if (res.ok) {
+        setServerMembers(res.members);
+      }
+    } finally {
+      setMemberBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (authUser && workspaceSlug) {
+      void loadServerMembers(workspaceSlug);
+    } else {
+      setServerMembers([]);
+    }
+  }, [authUser, workspaceSlug]);
 
   const handleEnqueueSnapshot = async () => {
     const sampleClient = clients[0];
@@ -296,6 +336,49 @@ export const CloudSyncView: React.FC = () => {
       });
     } finally {
       setPullingNow(false);
+    }
+  };
+
+  const handleInviteMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail.trim()) return;
+    setMemberBusy(true);
+    try {
+      const res = await inviteWorkspaceMemberOnServer({
+        workspaceId: workspaceSlug,
+        email: inviteEmail.trim(),
+        role: inviteRole,
+      });
+      if (!res.ok) {
+        pushToast({ title: 'Invite failed', description: res.message, tone: 'warning' });
+        return;
+      }
+      setInviteEmail('');
+      setLastCreatedInviteInfo(res.message);
+      pushToast({ title: 'Invitation created', description: res.message, tone: 'success' });
+      await loadServerMembers(workspaceSlug);
+    } finally {
+      setMemberBusy(false);
+    }
+  };
+
+  const handleAcceptInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteTokenInput.trim()) return;
+    setMemberBusy(true);
+    try {
+      const res = await acceptWorkspaceInviteOnServer(inviteTokenInput.trim());
+      if (!res.ok) {
+        pushToast({ title: 'Accept invite failed', description: res.message, tone: 'warning' });
+        return;
+      }
+      setInviteTokenInput('');
+      pushToast({ title: 'Joined workspace', description: res.message, tone: 'success' });
+      const me = await fetchBackendSession(endpointUrl.trim() || '/api/v1');
+      if (me.ok) setBackendWorkspaces(me.workspaces ?? []);
+      if (res.workspaceId) setWorkspaceSlug(res.workspaceId);
+    } finally {
+      setMemberBusy(false);
     }
   };
 
@@ -637,6 +720,95 @@ export const CloudSyncView: React.FC = () => {
           </div>
         </Card>
       </div>
+
+      {authUser && (
+        <Card>
+          <CardHeader
+            title={`Team Members & Invitations (${serverMembers.length})`}
+            description="Manage workspace team memberships via authenticated backend endpoints. Email delivery is not configured in local mode."
+            action={
+              <Button
+                size="sm"
+                variant="outline"
+                loading={memberBusy}
+                onClick={() => void loadServerMembers(workspaceSlug)}
+              >
+                Refresh Members
+              </Button>
+            }
+          />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-xs">
+            <div className="space-y-3">
+              <form onSubmit={handleInviteMember} className="space-y-2.5">
+                <p className="font-semibold text-slate-900 dark:text-white">Invite Teammate</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <Input
+                    label="Email"
+                    type="email"
+                    required
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="teammate@studio.com"
+                  />
+                  <Select
+                    label="Role"
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value as typeof inviteRole)}
+                    options={[
+                      { value: 'admin', label: 'Admin' },
+                      { value: 'manager', label: 'Manager' },
+                      { value: 'collaborator', label: 'Collaborator' },
+                      { value: 'client_viewer', label: 'Client Viewer' },
+                    ]}
+                  />
+                </div>
+                <Button type="submit" size="sm" loading={memberBusy}>
+                  Create Invitation
+                </Button>
+              </form>
+              {lastCreatedInviteInfo && (
+                <p className="p-2.5 rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/30 text-slate-700 dark:text-slate-200">
+                  {lastCreatedInviteInfo}
+                </p>
+              )}
+              <form onSubmit={handleAcceptInvite} className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                <p className="font-semibold text-slate-900 dark:text-white">Accept Invitation Token</p>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Paste invite token..."
+                    value={inviteTokenInput}
+                    onChange={(e) => setInviteTokenInput(e.target.value)}
+                  />
+                  <Button type="submit" size="sm" variant="outline" loading={memberBusy}>
+                    Join
+                  </Button>
+                </div>
+              </form>
+            </div>
+            <div className="space-y-2">
+              <p className="font-semibold text-slate-900 dark:text-white">Current Workspace Members</p>
+              {serverMembers.length === 0 ? (
+                <p className="text-slate-500">No members returned yet for workspace {workspaceSlug}.</p>
+              ) : (
+                <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-lg">
+                  {serverMembers.map((member) => (
+                    <div key={member.id} className="p-2.5 flex items-center justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">{member.displayName}</p>
+                        <p className="text-slate-500">{member.email}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Badge tone="info">{member.role}</Badge>
+                        <Badge tone={member.status === 'active' ? 'success' : 'neutral'}>{member.status}</Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
     </div>
   );
 };

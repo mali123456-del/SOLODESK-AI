@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Check, Download, Edit3, FileText, GitBranch, Plus, Search, Trash2, X } from 'lucide-react';
+import { Check, Download, Edit3, FileText, GitBranch, History, Paperclip, Plus, Search, Trash2, X } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -29,7 +29,7 @@ import {
 } from '../../workflows/workflowEngine';
 
 export const ProposalsView: React.FC = () => {
-  const { proposals, clients, projects, templates, businessProfile, settings, refresh } =
+  const { proposals, clients, projects, templates, vaultFiles, businessProfile, settings, refresh } =
     useWorkspace();
   const { pushToast } = useToast();
 
@@ -174,6 +174,19 @@ export const ProposalsView: React.FC = () => {
     if (!tpl) return;
     if (!title.trim()) setTitle(tpl.name);
     setScopeOfWork(tpl.content);
+  };
+
+  const handleToggleProposalVaultAttachment = async (proposal: Proposal, vaultFileId: string) => {
+    const current = proposal.attachmentVaultIds ?? [];
+    const exists = current.includes(vaultFileId);
+    const next = exists ? current.filter((id) => id !== vaultFileId) : [...current, vaultFileId];
+    await repositories.updateProposal(proposal.id, { attachmentVaultIds: next });
+    await refresh();
+    pushToast({
+      tone: 'success',
+      title: exists ? 'Attachment detached' : 'Vault file attached',
+      description: `Updated attachments on ${proposal.number}.`,
+    });
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -336,9 +349,12 @@ export const ProposalsView: React.FC = () => {
                   {formatMoney(selected.pricingAmount, selected.currency)}
                 </p>
               </div>
-              <Badge tone={selected.status === 'accepted' ? 'success' : 'info'}>
-                {selected.status}
-              </Badge>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Badge tone="neutral">v{selected.revision ?? 1}</Badge>
+                <Badge tone={selected.status === 'accepted' ? 'success' : 'info'}>
+                  {selected.status}
+                </Badge>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -405,6 +421,83 @@ export const ProposalsView: React.FC = () => {
                 <ul className="list-disc pl-4 space-y-1 text-xs text-slate-600 dark:text-slate-300">
                   {selected.deliverables.map((d, i) => (
                     <li key={i}>{d}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5">
+                  <Paperclip className="w-3.5 h-3.5" aria-hidden="true" />
+                  Vault Attachments ({(selected.attachmentVaultIds ?? []).length})
+                </span>
+              </div>
+              {(selected.attachmentVaultIds ?? []).length > 0 && (
+                <ul className="space-y-1">
+                  {(selected.attachmentVaultIds ?? []).map((vid) => {
+                    const vf = vaultFiles.find((f) => f.id === vid);
+                    return (
+                      <li
+                        key={vid}
+                        className="flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-[#101827]"
+                      >
+                        <span className="truncate text-slate-700 dark:text-slate-200">
+                          {vf ? vf.name : vid}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void handleToggleProposalVaultAttachment(selected, vid)}
+                          className="text-slate-400 hover:text-red-600 cursor-pointer shrink-0 ml-2"
+                          aria-label={`Detach ${vf?.name ?? vid}`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {vaultFiles.length > 0 ? (
+                <Select
+                  label="Attach Vault Document"
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      void handleToggleProposalVaultAttachment(selected, e.target.value);
+                    }
+                  }}
+                  placeholder="Select a Vault file to attach..."
+                  options={vaultFiles
+                    .filter((f) => !(selected.attachmentVaultIds ?? []).includes(f.id))
+                    .map((f) => ({ value: f.id, label: `${f.name} (${f.classification})` }))}
+                />
+              ) : (
+                <p className="text-[11px] text-slate-500">
+                  Upload files in Vault to attach supporting specs to proposals.
+                </p>
+              )}
+            </div>
+
+            {(selected.revisionHistory ?? []).length > 0 && (
+              <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-1.5">
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5">
+                  <History className="w-3.5 h-3.5" aria-hidden="true" />
+                  Revision History
+                </p>
+                <ul className="space-y-1 max-h-32 overflow-y-auto">
+                  {[...(selected.revisionHistory ?? [])].reverse().map((rev, i) => (
+                    <li
+                      key={`${rev.version}-${i}`}
+                      className="text-[11px] flex items-center justify-between gap-2 text-slate-600 dark:text-slate-300"
+                    >
+                      <span>
+                        <strong className="font-mono">v{rev.version}</strong> · {rev.summary}
+                      </span>
+                      <span className="font-mono tabular-nums text-slate-400 shrink-0">
+                        {formatDisplayDate(rev.savedAt, dateFormat)}
+                      </span>
+                    </li>
                   ))}
                 </ul>
               </div>
