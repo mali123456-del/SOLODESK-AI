@@ -395,9 +395,11 @@ describe('Phases 63–66 Audit: Workspace Isolation, Task Goal Accuracy, Quick N
     });
 
     // After save, beforeunload must NOT block tab unload
-    const cleanUnloadEvt = new Event('beforeunload', { cancelable: true });
-    window.dispatchEvent(cleanUnloadEvt);
-    expect(cleanUnloadEvt.defaultPrevented).toBe(false);
+    await waitFor(() => {
+      const cleanUnloadEvt = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(cleanUnloadEvt);
+      expect(cleanUnloadEvt.defaultPrevented).toBe(false);
+    });
     saveSpy.mockRestore();
   });
 

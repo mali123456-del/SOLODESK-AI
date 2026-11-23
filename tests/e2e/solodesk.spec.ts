@@ -91,9 +91,10 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await page.getByRole('button', { name: /Launch Workspace/i }).click();
     await expect(page.getByText('Welcome to SOLODESK AI')).not.toBeVisible();
 
-    // Dashboard metrics visible
+    // Dashboard metrics and Monthly Revenue Trend chart visible with seeded demo invoices
     await expect(page.getByRole('heading', { name: /Welcome/i })).toBeVisible();
     await expect(page.getByText('Recorded Income')).toBeVisible();
+    await expect(page.getByTestId('monthly-revenue-trend-chart')).toBeVisible();
 
     // Check Setup Checklist visibility and dismissal persistence
     await expect(page.getByText('Workspace Setup Checklist')).toBeVisible();
@@ -163,6 +164,9 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await page.getByLabel(/What are you working on/i).fill('E2E Sprint Timer');
     await page.getByRole('button', { name: /Start Timer/i }).click();
     await expect(page.getByText('E2E Sprint Timer').first()).toBeVisible();
+    await expect(page.getByTestId('background-timer-mode')).toHaveText('Background Web Worker active');
+    await expect(page.getByTestId('active-timer-elapsed')).toHaveText(/\d{2}:\d{2}:\d{2}/);
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     await expect(page.getByTestId('global-timer-indicator')).toBeVisible();
 
     // Navigate to Dashboard and verify global timer persists continuously in AppShell header
@@ -204,7 +208,8 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await page.getByRole('button', { name: /New Invoice/i }).click();
     await page.getByLabel('Insert from Service Catalog').selectOption({ label: 'E2E UI Architecture ($750.00)' });
     await expect(page.locator('input[value="E2E UI Architecture"]')).toBeVisible();
-    await page.getByRole('button', { name: /Cancel/i }).click();
+    await page.getByRole('button', { name: 'Create Invoice', exact: true }).click();
+    await expect(page.getByText('$750.00').first()).toBeVisible();
 
     await page.goto('/#/payments');
     await expect(page.getByRole('heading', { name: 'Payments', exact: true })).toBeVisible();
@@ -236,8 +241,9 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await page.getByRole('button', { name: 'Exit Focus Mode' }).first().click();
     await expect(page.getByLabel('Primary Workspace Navigation')).toBeVisible();
 
-    // 7d. Dashboard Quick Notes & Daily Task Completion Goal persistence
+    // 7d. Dashboard Quick Notes, Daily Task Completion Goal & Monthly Revenue Trend chart persistence
     await page.goto('/#/dashboard');
+    await expect(page.getByTestId('monthly-revenue-trend-chart')).toBeVisible();
     const quickNotesInput = page.getByLabel('Temporary Notes & Reminders');
     await quickNotesInput.fill('E2E scratchpad reminder');
     await page.getByRole('button', { name: /Save Note/i }).click();
@@ -270,6 +276,7 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
     await page.getByRole('button', { name: /Create Workspace/i }).click();
     await expect(page.getByTestId('active-workspace-name')).toHaveText('E2E Isolated Studio');
     await expect(page.getByTestId('daily-task-goal-ratio')).toHaveText('0/—');
+    await expect(page.getByText('No invoice revenue trend yet')).toBeVisible();
 
     await page.goto('/#/clients');
     await expect(page.getByText('E2E Horizon Labs')).toHaveCount(0);
@@ -329,6 +336,7 @@ test.describe('SOLODESK AI — Chromium End-to-End Verification', () => {
 
     await page.goto('/#/help-plans');
     await expect(page.getByRole('heading', { name: /Help, Product Tour, Localization & Plans/i })).toBeVisible();
+    await expect(page.getByText(/Commercial, Privacy & Legal Disclosures/i)).toBeVisible();
 
     // 8. Knowledge Hub: 14 built-in packs, dataset audit, local note, and 25-case Hybrid RAG v2 check
     await page.goto('/#/knowledge');

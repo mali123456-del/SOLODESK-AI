@@ -234,6 +234,7 @@ describe('Phases 73–76: Security Audit Fixes, Keyset Sync Pagination & Local A
       '003_rls_hardening_and_sync_idempotency.sql',
       '004_rls_security_definer_functions_and_remaining_tables.sql',
       '005_audit_logs_and_integrations.sql',
+      '006_privacy_consents_and_immutability.sql',
     ]);
 
     const sql004 = fs.readFileSync(path.join(pgDir, files[3]!), 'utf8');
@@ -251,6 +252,12 @@ describe('Phases 73–76: Security Audit Fixes, Keyset Sync Pagination & Local A
     const wmMemberReadMatch = sql004.match(/CREATE POLICY workspace_members_member_read[\s\S]*?;/);
     expect(wmMemberReadMatch?.[0]).toContain('public.is_workspace_member(workspace_id)');
     expect(wmMemberReadMatch?.[0]).not.toMatch(/FROM\s+workspace_members/i);
+
+    const sql006 = fs.readFileSync(path.join(pgDir, files[5]!), 'utf8');
+    expect(sql006).toContain('CREATE TABLE IF NOT EXISTS privacy_consents');
+    expect(sql006).toContain('ALTER TABLE privacy_consents FORCE ROW LEVEL SECURITY');
+    expect(sql006).toContain('public.prevent_audit_log_mutation()');
+    expect(sql006).toContain('BEFORE UPDATE OR DELETE ON audit_logs');
   });
 
   it('Phase 76 Fix: composite keyset cursor pagination returns 100% of same-timestamp sync records & tombstones with zero skips or duplicates', async () => {

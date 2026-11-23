@@ -439,6 +439,71 @@ export const HelpPlansTourView: React.FC<HelpPlansTourViewProps> = ({
               </Button>
             </form>
           </Card>
+
+          <Card>
+            <CardHeader
+              title="Commercial, Privacy & Legal Disclosures (Pre-Launch Draft)"
+              description="Operational summary for Private Beta transparency. Formal Terms of Service, Privacy Policy, and Refund Terms require qualified legal counsel review before public paid launch."
+              action={<Badge tone="warning">Pending Legal Review</Badge>}
+            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-600 dark:text-slate-300">
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <p className="font-semibold text-slate-900 dark:text-white">
+                  1. Privacy Policy & Local-First Data Ownership
+                </p>
+                <p>
+                  Workspace business data stays locally in browser IndexedDB by default. Optional
+                  cloud sync, privacy consents, and AI proxy usage never persist raw API keys in
+                  browser storage or server audit logs.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('settings-privacy')}
+                  className="text-[#2563EB] dark:text-[#20C7D9] font-medium hover:underline cursor-pointer"
+                >
+                  Manage Privacy Consents & Account Deletion
+                </button>
+              </div>
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <p className="font-semibold text-slate-900 dark:text-white">
+                  2. Terms of Use & Advisory Disclaimers
+                </p>
+                <p>
+                  Financial forecasts, tax summaries, AI drafts, and contract templates are
+                  informational productivity aids only and do not constitute certified legal,
+                  tax, or accounting advice.
+                </p>
+              </div>
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <p className="font-semibold text-slate-900 dark:text-white">
+                  3. Subscription Cancellation & Refund Terms
+                </p>
+                <p>
+                  Paid subscriptions remain disabled until live merchant checkout credentials
+                  (Stripe, Safepay, or PayFast) are configured. Signed billing cancellations or
+                  refunds automatically revert workspace tier entitlements back to Free Offline Solo
+                  without deleting local data.
+                </p>
+              </div>
+              <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <p className="font-semibold text-slate-900 dark:text-white">
+                  4. Support Channel & Security Reporting
+                </p>
+                <p>
+                  Beta operators can log support, onboarding, and data-deletion requests directly via
+                  the Support & Upgrade Inquiry form above or inspect system health in the Security
+                  Center.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('security-center')}
+                  className="text-[#2563EB] dark:text-[#20C7D9] font-medium hover:underline cursor-pointer"
+                >
+                  Open Security & Reliability Center
+                </button>
+              </div>
+            </div>
+          </Card>
         </div>
       )}
 
